@@ -91,22 +91,22 @@ export function ItemSearchBar({ currency }: ItemSearchBarProps) {
   return (
     <div className="relative">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
         <input
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Scan a barcode or search by name…"
+          placeholder="Search something sweet on your mind…"
           autoFocus
-          className="w-full rounded-lg border border-slate-300 py-3 pl-11 pr-4 text-base shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+          className="w-full rounded-2xl bg-white py-3.5 pl-12 pr-4 text-sm shadow-soft placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-200"
         />
       </div>
 
       {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
 
       {results.length > 0 && (
-        <ul className="absolute z-20 mt-1.5 max-h-80 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+        <ul className="absolute z-20 mt-1.5 max-h-80 w-full overflow-y-auto rounded-2xl bg-white shadow-soft-lg">
           {results.map((item, index) => (
             <li key={item.id}>
               <button

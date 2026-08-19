@@ -15,6 +15,8 @@ interface ItemFormModalProps {
 interface FormState {
   name: string;
   barcode: string;
+  /** Short blurb shown on the billing screen's item detail modal. */
+  description: string;
   price: string;
   cost: string;
   stockQty: string;
@@ -30,6 +32,7 @@ function toFormState(item?: Item): FormState {
   return {
     name: item?.name ?? "",
     barcode: item?.barcode ?? "",
+    description: item?.description ?? "",
     price: item ? String(minorToDecimal(item.priceMinor)) : "",
     cost: item ? String(minorToDecimal(item.costMinor)) : "",
     stockQty: item ? String(item.stockQty) : "0",
@@ -142,6 +145,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
     const input: ItemInput = {
       name: form.name.trim(),
       barcode: form.barcode.trim() || null,
+      description: form.description.trim() || null,
       priceMinor: decimalToMinor(price),
       costMinor: decimalToMinor(cost),
       stockQty,
@@ -270,6 +274,20 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               }}
               placeholder="Scan or type…"
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-500" htmlFor="item-description">
+              Description <span className="text-slate-400">(optional)</span>
+            </label>
+            <textarea
+              id="item-description"
+              value={form.description}
+              onChange={(e) => set("description", e.target.value)}
+              rows={2}
+              placeholder="A short blurb shown when a cashier taps this item on the billing screen…"
+              className="mt-1 w-full resize-none rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
 

@@ -5,6 +5,8 @@ export type PaymentMethod = "cash" | "card" | "other";
 export interface CartLine {
   itemId: number;
   qty: number;
+  /** A cashier's free-text note on this line — purely informational. */
+  notes?: string | null;
 }
 
 export interface CreateSaleInput {
@@ -22,6 +24,7 @@ export interface SaleLine {
   qty: number;
   priceAtSaleMinor: number;
   lineTotalMinor: number;
+  notes: string | null;
 }
 
 /** A completed sale plus everything a receipt needs. */

@@ -8,31 +8,28 @@ const METHODS: { value: PaymentMethod; label: string; icon: typeof Banknote }[] 
   { value: "other", label: "Other", icon: Wallet },
 ];
 
+/** Restyled to sit beside the promo row (reference's "QRIS" pill) — same
+ * three payment methods, same store, same value sent to `billing_create_sale`. */
 export function PaymentMethodSelector() {
   const paymentMethod = useBillingStore((state) => state.paymentMethod);
   const setPaymentMethod = useBillingStore((state) => state.setPaymentMethod);
 
   return (
-    <div>
-      <span className="block text-xs font-medium text-slate-500">Payment method</span>
-      <div className="mt-1 grid grid-cols-3 gap-2">
-        {METHODS.map(({ value, label, icon: Icon }) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setPaymentMethod(value)}
-            className={[
-              "flex flex-col items-center gap-1 rounded-md border py-2 text-xs font-medium transition-colors",
-              paymentMethod === value
-                ? "border-brand-500 bg-brand-50 text-brand-700"
-                : "border-slate-200 text-slate-500 hover:bg-slate-50",
-            ].join(" ")}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
+    <div className="flex gap-1.5 rounded-full bg-slate-50 p-1">
+      {METHODS.map(({ value, label, icon: Icon }) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => setPaymentMethod(value)}
+          className={[
+            "flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-semibold transition-colors",
+            paymentMethod === value ? "bg-white text-brand-700 shadow-soft" : "text-slate-500 hover:text-slate-700",
+          ].join(" ")}
+        >
+          <Icon className="h-3.5 w-3.5" />
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

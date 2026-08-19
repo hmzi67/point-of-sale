@@ -1,23 +1,29 @@
 import { useEffect, useState } from "react";
-import { Utensils } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { getItems } from "../../services/inventoryService";
 import { attachCartToTable, getParkedCart, getTables } from "../../services/tablesService";
 import { useBillingStore } from "../../store";
 import { computeCartTotals } from "../../utils/billingTotals";
 import type { TableSummary } from "../../types";
 
-interface TableSelectorProps {
+interface OrderTypeAndTableProps {
   taxPercent: number;
   onParked: (message: string) => void;
 }
 
+const selectClass =
+  "w-full appearance-none rounded-xl border-0 bg-slate-50 py-2 pl-3 pr-8 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-200";
+
 /**
- * Only ever rendered when the `tables` module is enabled — see BillingPage,
- * which decides that once, so nothing in here needs its own module check.
- * Lets a cashier tag the current sale with a dine-in table, or park the cart
- * on a table ("Save to table") to bill later instead of completing now.
+ * The cart panel's Table + Order Type row. All the actual park/resume logic
+ * is unchanged from the previous `TableSelector` — only the layout changed,
+ * plus a purely-derived "Order Type" reading: `tableId` set means Dine In,
+ * `null` means Takeaway. There's no `order_type` column anywhere to store —
+ * picking "Takeaway" just clears `tableId`, same as "Counter sale" did
+ * before, so this stays wired to the exact same state the backend already
+ * understands.
  */
-export function TableSelector({ taxPercent, onParked }: TableSelectorProps) {
+export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTableProps) {
   const [tables, setTables] = useState<TableSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
@@ -42,6 +48,7 @@ export function TableSelector({ taxPercent, onParked }: TableSelectorProps) {
   useEffect(reloadTables, []);
 
   const selectedTable = tables.find((t) => t.id === tableId);
+  const orderType = tableId !== null ? "dineIn" : "takeaway";
 
   const saveToTable = async () => {
     if (tableId === null || cartOrder.length === 0) return;
@@ -85,35 +92,51 @@ export function TableSelector({ taxPercent, onParked }: TableSelectorProps) {
   };
 
   return (
-    <div className="rounded-md border border-slate-200 p-3">
-      <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-        <Utensils className="h-3.5 w-3.5" />
-        Table (optional)
-      </span>
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="relative">
+          <select
+            value={tableId ?? ""}
+            onChange={(e) => setTableId(e.target.value ? Number(e.target.value) : null)}
+            disabled={isLoading}
+            className={selectClass}
+          >
+            <option value="">Select Table</option>
+            {tables.map((table) => (
+              <option key={table.id} value={table.id}>
+                {table.name} · {table.status}
+                {table.hasParkedOrder ? " · parked" : ""}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        </div>
 
-      <select
-        value={tableId ?? ""}
-        onChange={(e) => setTableId(e.target.value ? Number(e.target.value) : null)}
-        disabled={isLoading}
-        className="mt-1.5 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-      >
-        <option value="">Counter sale (no table)</option>
-        {tables.map((table) => (
-          <option key={table.id} value={table.id}>
-            {table.name} · {table.status}
-            {table.hasParkedOrder ? " · parked order" : ""}
-          </option>
-        ))}
-      </select>
+        <div className="relative">
+          <select
+            value={orderType}
+            onChange={(e) => {
+              if (e.target.value === "takeaway") setTableId(null);
+            }}
+            className={selectClass}
+          >
+            <option value="dineIn" disabled={tableId === null}>
+              Dine In
+            </option>
+            <option value="takeaway">Takeaway</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        </div>
+      </div>
 
-      {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-red-600">{error}</p>}
 
       {selectedTable?.hasParkedOrder && (
         <button
           type="button"
           onClick={() => void resumeParkedOrder()}
           disabled={isBusy}
-          className="mt-2 w-full rounded-md bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+          className="w-full rounded-xl bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
         >
           Load parked order from {selectedTable.name}
         </button>
@@ -124,7 +147,7 @@ export function TableSelector({ taxPercent, onParked }: TableSelectorProps) {
           type="button"
           onClick={() => void saveToTable()}
           disabled={isBusy}
-          className="mt-2 w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
         >
           Save to table (bill later)
         </button>

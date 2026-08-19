@@ -180,6 +180,7 @@ mod tests {
                 qty: 2,
                 price_at_sale_minor: 500,
                 line_total_minor: 1000,
+                notes: None,
             }],
         }
     }

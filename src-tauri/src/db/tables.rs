@@ -521,7 +521,7 @@ mod tests {
         let sale = sales::create_sale(
             &tx,
             CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 2 }],
+                items: vec![CartLine { item_id: cola, qty: 2, notes: None }],
                 discount_minor: 0,
                 tax_minor: 0,
                 payment_method: "cash".into(),
@@ -553,7 +553,7 @@ mod tests {
 
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: cola, qty: 2 }],
+            items: vec![CartLine { item_id: cola, qty: 2, notes: None }],
             discount_minor: 0,
             tax_minor: 0,
             payment_method: "cash".into(),

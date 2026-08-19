@@ -13,6 +13,8 @@ export interface Item {
   id: number;
   name: string;
   barcode: string | null;
+  /** Short blurb shown on the billing screen's item detail modal. */
+  description: string | null;
   priceMinor: number;
   costMinor: number;
   stockQty: number;
@@ -31,6 +33,7 @@ export interface Item {
 export interface ItemInput {
   name: string;
   barcode: string | null;
+  description: string | null;
   priceMinor: number;
   costMinor: number;
   stockQty: number;

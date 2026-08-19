@@ -131,6 +131,9 @@ CREATE TABLE IF NOT EXISTS items (
     -- Nullable: not every shop barcodes everything. UNIQUE still allows many
     -- NULLs in SQLite, so unbarcoded items do not collide.
     barcode             TEXT    UNIQUE,
+    -- Short blurb shown on the billing screen's item detail modal. Purely
+    -- presentational — never read by pricing/stock/reporting logic.
+    description         TEXT,
     price_minor         INTEGER NOT NULL CHECK (price_minor >= 0),
     cost_minor          INTEGER NOT NULL DEFAULT 0 CHECK (cost_minor >= 0),
     stock_qty           INTEGER NOT NULL DEFAULT 0,
@@ -200,7 +203,10 @@ CREATE TABLE IF NOT EXISTS sale_items (
     item_id              INTEGER NOT NULL REFERENCES items (id) ON DELETE RESTRICT,
     qty                  INTEGER NOT NULL CHECK (qty > 0),
     -- Price as of checkout — never read the live item price for an old bill.
-    price_at_sale_minor  INTEGER NOT NULL CHECK (price_at_sale_minor >= 0)
+    price_at_sale_minor  INTEGER NOT NULL CHECK (price_at_sale_minor >= 0),
+    -- A cashier's free-text note on this line ("no onions"). Purely
+    -- informational — never affects pricing, stock or reporting.
+    notes                TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items (sale_id);

@@ -84,6 +84,8 @@ pub struct Item {
     pub id: i64,
     pub name: String,
     pub barcode: Option<String>,
+    /// Short blurb shown on the billing screen's item detail modal.
+    pub description: Option<String>,
     pub price_minor: i64,
     pub cost_minor: i64,
     pub stock_qty: i64,
@@ -108,6 +110,7 @@ pub struct Item {
 pub struct ItemInput {
     pub name: String,
     pub barcode: Option<String>,
+    pub description: Option<String>,
     pub price_minor: i64,
     pub cost_minor: i64,
     pub stock_qty: i64,
@@ -159,7 +162,7 @@ impl From<rusqlite::Error> for ItemError {
     }
 }
 
-const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.price_minor, i.cost_minor,
+const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.description, i.price_minor, i.cost_minor,
        i.stock_qty, i.category_id, c.name AS category_name,
        i.low_stock_threshold, i.is_active, i.image_path
   FROM items i
@@ -172,6 +175,7 @@ fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
         id: row.get("id")?,
         name: row.get("name")?,
         barcode: row.get("barcode")?,
+        description: row.get("description")?,
         price_minor: row.get("price_minor")?,
         cost_minor: row.get("cost_minor")?,
         stock_qty,
@@ -300,15 +304,17 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
     // Empty string is not a meaningful "no barcode" — normalize to NULL so it
     // never collides with another blank barcode under the UNIQUE constraint.
     let barcode = input.barcode.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let description = input.description.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     conn.execute(
         "INSERT INTO items
-             (name, barcode, price_minor, cost_minor, stock_qty, category_id,
+             (name, barcode, description, price_minor, cost_minor, stock_qty, category_id,
               low_stock_threshold, image_path)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             name,
             barcode,
+            description,
             input.price_minor,
             input.cost_minor,
             input.stock_qty,
@@ -326,17 +332,19 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
     validate(conn, &input)?;
     let name = input.name.trim();
     let barcode = input.barcode.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let description = input.description.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     let changed = conn
         .execute(
             "UPDATE items
-                SET name = ?1, barcode = ?2, price_minor = ?3, cost_minor = ?4,
-                    stock_qty = ?5, category_id = ?6, low_stock_threshold = ?7,
-                    image_path = ?8, updated_at = datetime('now', 'localtime')
-              WHERE id = ?9",
+                SET name = ?1, barcode = ?2, description = ?3, price_minor = ?4, cost_minor = ?5,
+                    stock_qty = ?6, category_id = ?7, low_stock_threshold = ?8,
+                    image_path = ?9, updated_at = datetime('now', 'localtime')
+              WHERE id = ?10",
             params![
                 name,
                 barcode,
+                description,
                 input.price_minor,
                 input.cost_minor,
                 input.stock_qty,
@@ -395,6 +403,7 @@ mod tests {
         ItemInput {
             name: name.to_string(),
             barcode: None,
+            description: None,
             price_minor: 10000,
             cost_minor: 8000,
             stock_qty: 5,
@@ -402,6 +411,20 @@ mod tests {
             low_stock_threshold: 2,
             image_path: None,
         }
+    }
+
+    #[test]
+    fn description_is_trimmed_blank_becomes_none_and_round_trips_through_update() {
+        let conn = test_conn();
+        let mut input = basic_input("Choc Muffin");
+        input.description = Some("  Rich, fudgy, baked fresh daily.  ".into());
+        let created = add_item(&conn, input).unwrap();
+        assert_eq!(created.description.as_deref(), Some("Rich, fudgy, baked fresh daily."));
+
+        let mut update = basic_input("Choc Muffin");
+        update.description = Some("   ".into());
+        let updated = update_item(&conn, created.id, update).unwrap();
+        assert_eq!(updated.description, None, "a blank description must be stored as NULL");
     }
 
     #[test]

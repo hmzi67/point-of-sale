@@ -146,6 +146,8 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // "configured" by definition — only a genuinely brand-new database (no
     // pre-existing row at all) should be routed through onboarding.
     ("app_config", "onboarding_completed", "INTEGER NOT NULL DEFAULT 1"),
+    ("items", "description", "TEXT"),
+    ("sale_items", "notes", "TEXT"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {

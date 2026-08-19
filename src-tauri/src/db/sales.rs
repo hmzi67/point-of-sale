@@ -23,6 +23,11 @@ use super::tables;
 pub struct CartLine {
     pub item_id: i64,
     pub qty: i64,
+    /// A cashier's free-text note on this line (e.g. "no onions") — purely
+    /// informational, never affects pricing or stock. `#[serde(default)]` so
+    /// existing callers that don't send it still deserialize fine.
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,6 +51,7 @@ pub struct SaleLine {
     pub qty: i64,
     pub price_at_sale_minor: i64,
     pub line_total_minor: i64,
+    pub notes: Option<String>,
 }
 
 /// A completed sale plus everything a receipt needs — one round trip covers
@@ -138,13 +144,23 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
             return Err(SaleError::InvalidQuantity);
         }
         match merged.iter_mut().find(|l: &&mut CartLine| l.item_id == line.item_id) {
-            Some(existing) => existing.qty += line.qty,
+            Some(existing) => {
+                existing.qty += line.qty;
+                // Duplicate lines for the same item are a defensive-merge
+                // edge case (the cart UI never sends two), so there's no
+                // real "which note wins" question in practice — first
+                // non-empty one found is kept.
+                if existing.notes.is_none() {
+                    existing.notes = line.notes.clone();
+                }
+            }
             None => merged.push(line.clone()),
         }
     }
 
     let mut subtotal_minor: i64 = 0;
-    let mut resolved: Vec<(i64, String, i64, i64)> = Vec::with_capacity(merged.len()); // (item_id, name, qty, price_minor)
+    // (item_id, name, qty, price_minor, notes)
+    let mut resolved: Vec<(i64, String, i64, i64, Option<String>)> = Vec::with_capacity(merged.len());
 
     for line in &merged {
         let row: Option<(String, i64, i64, i64)> = tx
@@ -169,7 +185,7 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
         }
 
         subtotal_minor += price_minor * line.qty;
-        resolved.push((line.item_id, name, line.qty, price_minor));
+        resolved.push((line.item_id, name, line.qty, price_minor, line.notes.clone()));
     }
 
     if input.discount_minor > subtotal_minor {
@@ -192,11 +208,14 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
     )?;
     let sale_id = tx.last_insert_rowid();
 
-    for (item_id, name, qty, price_minor) in &resolved {
+    for (item_id, name, qty, price_minor, notes) in &resolved {
+        // Blank notes are stored as NULL, not "", same normalization every
+        // other optional text field in the schema uses.
+        let notes = notes.as_deref().map(str::trim).filter(|s| !s.is_empty());
         tx.execute(
-            "INSERT INTO sale_items (sale_id, item_id, qty, price_at_sale_minor)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![sale_id, item_id, qty, price_minor],
+            "INSERT INTO sale_items (sale_id, item_id, qty, price_at_sale_minor, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![sale_id, item_id, qty, price_minor, notes],
         )?;
 
         // The `stock_qty >= ?1` guard makes this a compare-and-swap: if stock
@@ -261,7 +280,7 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
     let Some(mut sale) = sale else { return Ok(None) };
 
     let mut stmt = conn.prepare(
-        "SELECT si.item_id, i.name, si.qty, si.price_at_sale_minor
+        "SELECT si.item_id, i.name, si.qty, si.price_at_sale_minor, si.notes
            FROM sale_items si
            JOIN items i ON i.id = si.item_id
           WHERE si.sale_id = ?1
@@ -277,6 +296,7 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                 qty,
                 price_at_sale_minor,
                 line_total_minor: price_at_sale_minor * qty,
+                notes: row.get(4)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -310,13 +330,46 @@ mod tests {
 
     fn basic_input(conn: &Connection) -> CreateSaleInput {
         CreateSaleInput {
-            items: vec![CartLine { item_id: item_id(conn, "Cola 500ml"), qty: 2 }],
+            items: vec![CartLine { item_id: item_id(conn, "Cola 500ml"), qty: 2, notes: None }],
             discount_minor: 0,
             tax_minor: 0,
             payment_method: "cash".into(),
             cashier_id: None,
             table_id: None,
         }
+    }
+
+    #[test]
+    fn a_cart_lines_note_is_persisted_and_read_back_on_the_sale() {
+        let mut conn = test_conn();
+        let tx = conn.transaction().unwrap();
+        let input = CreateSaleInput {
+            items: vec![CartLine {
+                item_id: item_id(&tx, "Cola 500ml"),
+                qty: 1,
+                notes: Some("  extra cold, no straw  ".into()),
+            }],
+            ..basic_input(&tx)
+        };
+        let sale = create_sale(&tx, input).unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(sale.items[0].notes.as_deref(), Some("extra cold, no straw"), "must be trimmed");
+
+        let reloaded = get_sale(&conn, sale.id).unwrap();
+        assert_eq!(reloaded.items[0].notes.as_deref(), Some("extra cold, no straw"));
+    }
+
+    #[test]
+    fn a_blank_note_is_stored_as_none_not_an_empty_string() {
+        let mut conn = test_conn();
+        let tx = conn.transaction().unwrap();
+        let input = CreateSaleInput {
+            items: vec![CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 1, notes: Some("   ".into()) }],
+            ..basic_input(&tx)
+        };
+        let sale = create_sale(&tx, input).unwrap();
+        assert_eq!(sale.items[0].notes, None);
     }
 
     #[test]
@@ -372,7 +425,7 @@ mod tests {
         let tx = conn.transaction().unwrap();
         let cola = item_id(&tx, "Cola 500ml");
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: cola, qty: 0 }],
+            items: vec![CartLine { item_id: cola, qty: 0, notes: None }],
             ..basic_input(&tx)
         };
         assert!(matches!(create_sale(&tx, input), Err(SaleError::InvalidQuantity)));
@@ -414,8 +467,8 @@ mod tests {
             // the whole transaction, not just its own line.
             let input = CreateSaleInput {
                 items: vec![
-                    CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 1 },
-                    CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: 999 },
+                    CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 1, notes: None },
+                    CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: 999, notes: None },
                 ],
                 discount_minor: 0,
                 tax_minor: 0,
@@ -445,7 +498,7 @@ mod tests {
 
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: noodles_before }],
+            items: vec![CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: noodles_before, notes: None }],
             ..basic_input(&tx)
         };
         create_sale(&tx, input).unwrap();
@@ -463,7 +516,7 @@ mod tests {
 
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: noodles_before + 1 }],
+            items: vec![CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: noodles_before + 1, notes: None }],
             ..basic_input(&tx)
         };
         let err = create_sale(&tx, input).unwrap_err();
@@ -484,7 +537,7 @@ mod tests {
         conn.execute("UPDATE items SET stock_qty = 0 WHERE id = ?1", params![noodles]).unwrap();
 
         let tx = conn.transaction().unwrap();
-        let input = CreateSaleInput { items: vec![CartLine { item_id: noodles, qty: 1 }], ..basic_input(&tx) };
+        let input = CreateSaleInput { items: vec![CartLine { item_id: noodles, qty: 1, notes: None }], ..basic_input(&tx) };
         let err = create_sale(&tx, input).unwrap_err();
         assert!(matches!(err, SaleError::InsufficientStock { available: 0, requested: 1, .. }));
     }
@@ -528,7 +581,7 @@ mod tests {
 
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: cola, qty: 1 }],
+            items: vec![CartLine { item_id: cola, qty: 1, notes: None }],
             discount_minor: 0,
             tax_minor: 0,
             payment_method: "cash".into(),
@@ -545,8 +598,8 @@ mod tests {
         let cola = item_id(&tx, "Cola 500ml");
         let input = CreateSaleInput {
             items: vec![
-                CartLine { item_id: cola, qty: 2 },
-                CartLine { item_id: cola, qty: 3 },
+                CartLine { item_id: cola, qty: 2, notes: None },
+                CartLine { item_id: cola, qty: 3, notes: None },
             ],
             discount_minor: 0,
             tax_minor: 0,

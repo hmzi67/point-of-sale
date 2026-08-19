@@ -52,7 +52,7 @@ export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm rounded-lg bg-white shadow-xl">
+      <div className="w-full max-w-sm rounded-3xl bg-white shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <span className="flex items-center gap-2 text-base font-semibold text-emerald-700">
             <CheckCircle2 className="h-5 w-5" />
