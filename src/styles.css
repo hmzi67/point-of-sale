@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: oklch(0.97 0.014 254.6);
+  --color-brand-100: oklch(0.93 0.032 255.6);
+  --color-brand-500: oklch(0.62 0.19 259.8);
+  --color-brand-600: oklch(0.55 0.2 260.5);
+  --color-brand-700: oklch(0.49 0.19 261.4);
+  --color-brand-900: oklch(0.31 0.11 262.5);
+  --color-brand-950: oklch(0.24 0.08 263.6);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+  /* Cashiers use this all day on low-spec machines: no text selection drag artifacts. */
+  -webkit-font-smoothing: antialiased;
+}

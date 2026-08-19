@@ -1,0 +1,11 @@
+export { AttendancePage } from "./AttendancePage";
+export { BillingPage } from "./BillingPage";
+export { DashboardPage } from "./DashboardPage";
+export { ExpensesPage } from "./ExpensesPage";
+export { InventoryPage } from "./InventoryPage";
+export { LoginPage } from "./LoginPage";
+export { NotFoundPage } from "./NotFoundPage";
+export { ReportsPage } from "./ReportsPage";
+export { SalaryPage } from "./SalaryPage";
+export { SettingsPage } from "./SettingsPage";
+export { TablesPage } from "./TablesPage";
