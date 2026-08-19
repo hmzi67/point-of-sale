@@ -6,7 +6,7 @@
 
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
 pub const MIN_PIN_LEN: usize = 4;
@@ -48,6 +48,18 @@ pub struct User {
     pub role: Role,
 }
 
+/// A user as shown on the user management screen — includes whether the
+/// account is active, unlike `User` (the login screen's `list_active` only
+/// ever returns accounts that are).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedUser {
+    pub id: i64,
+    pub name: String,
+    pub role: Role,
+    pub is_active: bool,
+}
+
 #[derive(Debug)]
 pub enum AuthError {
     InvalidPin,
@@ -55,6 +67,10 @@ pub enum AuthError {
     MalformedPin,
     UnknownUser,
     DuplicateName(String),
+    EmptyName,
+    /// Refused: this would leave the installation with no active Owner
+    /// account at all, and nobody left who could create a new one.
+    LastActiveOwner,
     Hash(String),
     Sqlite(rusqlite::Error),
 }
@@ -70,6 +86,10 @@ impl std::fmt::Display for AuthError {
             ),
             AuthError::UnknownUser => write!(f, "That user no longer exists"),
             AuthError::DuplicateName(name) => write!(f, "A user named {} already exists", name),
+            AuthError::EmptyName => write!(f, "Name cannot be empty"),
+            AuthError::LastActiveOwner => {
+                write!(f, "Can't deactivate the last active Owner account")
+            }
             AuthError::Hash(msg) => write!(f, "Could not process PIN: {}", msg),
             AuthError::Sqlite(err) => write!(f, "database error: {}", err),
         }
@@ -119,6 +139,25 @@ pub fn list_active(conn: &Connection) -> Result<Vec<User>, rusqlite::Error> {
     rows.collect()
 }
 
+/// Every account, active or not — the user management screen, where
+/// deactivated staff still need to be visible (and reactivatable).
+pub fn list_all(conn: &Connection) -> Result<Vec<ManagedUser>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, role, is_active FROM users ORDER BY
+           CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, name",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let role: String = row.get("role")?;
+        Ok(ManagedUser {
+            id: row.get("id")?,
+            name: row.get("name")?,
+            role: Role::parse(&role).unwrap_or(Role::Cashier),
+            is_active: row.get::<_, i64>("is_active")? != 0,
+        })
+    })?;
+    rows.collect()
+}
+
 /// Verifies a PIN against the stored argon2 hash.
 pub fn authenticate(conn: &Connection, user_id: i64, pin: &str) -> Result<User, AuthError> {
     validate_pin(pin)?;
@@ -162,6 +201,71 @@ pub fn create(conn: &Connection, name: &str, pin: &str, role: Role) -> Result<Us
         name: name.to_string(),
         role,
     })
+}
+
+/// Renames a user and/or changes their role — a full-row replace of the
+/// editable fields, same convention `inventory::update_item` uses. Does not
+/// touch the PIN; that's `set_pin`'s job, kept separate so "reset PIN" and
+/// "edit profile" can't accidentally clobber each other on the frontend.
+pub fn update(conn: &Connection, user_id: i64, name: &str, role: Role) -> Result<User, AuthError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AuthError::EmptyName);
+    }
+
+    let changed = conn
+        .execute(
+            "UPDATE users SET name = ?1, role = ?2 WHERE id = ?3",
+            params![name, role.as_str(), user_id],
+        )
+        .map_err(|err| match err {
+            rusqlite::Error::SqliteFailure(e, _) if e.extended_code == 2067 => {
+                AuthError::DuplicateName(name.to_string())
+            }
+            other => AuthError::Sqlite(other),
+        })?;
+
+    if changed == 0 {
+        return Err(AuthError::UnknownUser);
+    }
+    Ok(User { id: user_id, name: name.to_string(), role })
+}
+
+/// Deactivates or reactivates an account (soft — never a hard delete, the
+/// same convention `inventory::delete_item` uses for items with history;
+/// here it's unconditional since a user always "has history" the moment
+/// they've rung up a sale). Refuses to deactivate the installation's last
+/// active Owner, since nobody would be left who could create a new one.
+pub fn set_active(conn: &Connection, user_id: i64, is_active: bool) -> Result<(), AuthError> {
+    if !is_active {
+        let target_role: Option<String> = conn
+            .query_row(
+                "SELECT role FROM users WHERE id = ?1 AND is_active = 1",
+                params![user_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if target_role.as_deref() == Some(Role::Owner.as_str()) {
+            let active_owners: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM users WHERE role = 'owner' AND is_active = 1",
+                [],
+                |row| row.get(0),
+            )?;
+            if active_owners <= 1 {
+                return Err(AuthError::LastActiveOwner);
+            }
+        }
+    }
+
+    let changed = conn.execute(
+        "UPDATE users SET is_active = ?1 WHERE id = ?2",
+        params![is_active as i64, user_id],
+    )?;
+    if changed == 0 {
+        return Err(AuthError::UnknownUser);
+    }
+    Ok(())
 }
 
 /// Changes a user's PIN. Used by onboarding to replace the seeded default.
@@ -253,5 +357,61 @@ mod tests {
             create(&conn, "Sara", "4321", Role::Cashier).unwrap_err(),
             AuthError::DuplicateName(_)
         ));
+    }
+
+    #[test]
+    fn list_all_includes_deactivated_accounts_that_list_active_hides() {
+        let conn = test_conn();
+        let cashier = create(&conn, "Sara", "4321", Role::Cashier).unwrap();
+        set_active(&conn, cashier.id, false).unwrap();
+
+        assert!(!list_active(&conn).unwrap().iter().any(|u| u.id == cashier.id));
+        let all = list_all(&conn).unwrap();
+        let managed = all.iter().find(|u| u.id == cashier.id).unwrap();
+        assert!(!managed.is_active);
+    }
+
+    #[test]
+    fn update_renames_and_reassigns_role() {
+        let conn = test_conn();
+        let cashier = create(&conn, "Sara", "4321", Role::Cashier).unwrap();
+        let updated = update(&conn, cashier.id, "Sara Khan", Role::Admin).unwrap();
+        assert_eq!(updated.name, "Sara Khan");
+        assert_eq!(updated.role, Role::Admin);
+    }
+
+    #[test]
+    fn update_rejects_a_blank_name_or_unknown_user() {
+        let conn = test_conn();
+        let cashier = create(&conn, "Sara", "4321", Role::Cashier).unwrap();
+        assert!(matches!(update(&conn, cashier.id, "   ", Role::Cashier), Err(AuthError::EmptyName)));
+        assert!(matches!(update(&conn, 999_999, "Nobody", Role::Cashier), Err(AuthError::UnknownUser)));
+    }
+
+    #[test]
+    fn set_active_deactivates_and_reactivates_a_non_owner() {
+        let conn = test_conn();
+        let cashier = create(&conn, "Sara", "4321", Role::Cashier).unwrap();
+        set_active(&conn, cashier.id, false).unwrap();
+        assert!(matches!(authenticate(&conn, cashier.id, "4321"), Err(AuthError::UnknownUser)));
+
+        set_active(&conn, cashier.id, true).unwrap();
+        assert!(authenticate(&conn, cashier.id, "4321").is_ok());
+    }
+
+    #[test]
+    fn set_active_refuses_to_deactivate_the_last_active_owner() {
+        let conn = test_conn();
+        let err = set_active(&conn, owner_id(&conn), false).unwrap_err();
+        assert!(matches!(err, AuthError::LastActiveOwner));
+    }
+
+    #[test]
+    fn set_active_allows_deactivating_an_owner_when_another_owner_remains() {
+        let conn = test_conn();
+        let second_owner = create(&conn, "Co-Owner", "5678", Role::Owner).unwrap();
+        // Now there are two active owners, so the seeded one can step down.
+        set_active(&conn, owner_id(&conn), false).unwrap();
+        assert!(authenticate(&conn, second_owner.id, "5678").is_ok());
     }
 }

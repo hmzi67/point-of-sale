@@ -60,7 +60,11 @@ CREATE TABLE IF NOT EXISTS app_config (
     logo_path       TEXT,
     currency        TEXT    NOT NULL DEFAULT 'PKR',
     tax_percent     REAL    NOT NULL DEFAULT 0 CHECK (tax_percent >= 0),
-    receipt_footer  TEXT    NOT NULL DEFAULT 'Thank you for your purchase!'
+    receipt_footer  TEXT    NOT NULL DEFAULT 'Thank you for your purchase!',
+    -- Divisor for salary calculation (base_salary / working_days_per_month *
+    -- days_present) — configurable per installation rather than assuming a
+    -- fixed 26- or 30-day month. See db/salary.rs.
+    working_days_per_month INTEGER NOT NULL DEFAULT 26 CHECK (working_days_per_month > 0)
 );
 
 -- ---------------------------------------------------------------------------

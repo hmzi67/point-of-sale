@@ -139,6 +139,7 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // (table, column, column definition for ALTER TABLE ... ADD COLUMN)
     ("items", "image_path", "TEXT"),
     ("table_orders", "cart_json", "TEXT"),
+    ("app_config", "working_days_per_month", "INTEGER NOT NULL DEFAULT 26"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {

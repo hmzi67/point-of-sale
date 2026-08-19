@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { useModules } from "../../hooks/useModules";
 import { useAuthStore } from "../../store";
-import { roleCanAccessSettings } from "../../utils/permissions";
+import { isAdminRole } from "../../utils/permissions";
 import type { ModuleKey } from "../../types";
 
 interface ModuleRouteProps {
-  /** Omit for admin-only screens that are not modules (Settings). */
+  /** Omit for admin-only screens that are not modules (Settings, Users). */
   moduleKey?: ModuleKey;
   adminOnly?: boolean;
   children: ReactNode;
@@ -26,7 +26,7 @@ export function ModuleRoute({ moduleKey, adminOnly = false, children }: ModuleRo
   // Redirecting before the config has loaded would bounce a valid deep link.
   if (!isLoaded || !role) return null;
 
-  if (adminOnly && !roleCanAccessSettings(role)) {
+  if (adminOnly && !isAdminRole(role)) {
     return <Navigate to={fallbackPath} replace />;
   }
 

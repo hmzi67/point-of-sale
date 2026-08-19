@@ -19,6 +19,7 @@ const placeholderConfig: AppConfig = {
   currency: "PKR",
   taxPercent: 0,
   receiptFooter: "",
+  workingDaysPerMonth: 26,
 };
 
 export const useAppStore = create<AppState>((set) => ({

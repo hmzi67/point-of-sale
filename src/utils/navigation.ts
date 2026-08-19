@@ -7,6 +7,7 @@ import {
   ShoppingCart,
   Table2,
   TrendingUp,
+  Users,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -36,6 +37,10 @@ export const MODULE_NAV: Record<ModuleKey, NavItem> = {
 
 /** Settings is not a module — it is the screen that configures them. */
 export const SETTINGS_NAV = { path: "/settings", label: "Settings", icon: Settings };
+
+/** Same tier as Settings (admin-only, always present when the role allows
+ * it) — not a module either, so it isn't in `MODULE_NAV`/`enabled_modules`. */
+export const USERS_NAV = { path: "/users", label: "Users", icon: Users };
 
 export function pathForModule(key: ModuleKey): string {
   return MODULE_NAV[key]?.path ?? "/";

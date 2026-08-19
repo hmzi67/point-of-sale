@@ -7,4 +7,6 @@ export interface AppConfig {
   currency: string;
   taxPercent: number;
   receiptFooter: string;
+  /** Divisor for salary calculation — see `db/salary.rs`. */
+  workingDaysPerMonth: number;
 }

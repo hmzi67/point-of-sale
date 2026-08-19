@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { login as loginCommand } from "../services/authService";
+import { login as loginCommand, logout as logoutCommand } from "../services/authService";
 import type { User } from "../types";
 
 /**
@@ -30,6 +30,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  logout: () => set({ user: null, error: null }),
+  logout: () => {
+    // Clear the local session immediately for a snappy sign-out; the Rust
+    // side (the one that actually gates sensitive commands) is cleared right
+    // behind it. Fire-and-forget — a failed IPC call here shouldn't block
+    // the cashier from walking away from the till.
+    set({ user: null, error: null });
+    void logoutCommand();
+  },
   clearError: () => set({ error: null }),
 }));

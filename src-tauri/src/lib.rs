@@ -2,10 +2,12 @@ mod commands;
 mod db;
 mod images;
 mod printer;
+mod session;
 
 use tauri::Manager;
 
 use crate::db::Db;
+use crate::session::Session;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,6 +17,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let db = Db::open(dir)?;
             app.manage(db);
+            app.manage(Session::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,10 +55,23 @@ pub fn run() {
             commands::attendance_check_out,
             commands::attendance_get_attendance,
             commands::attendance_get_monthly_summary,
+            commands::expenses_add_expense,
+            commands::expenses_get_expenses,
+            commands::expenses_get_expense_categories,
+            commands::expenses_get_totals_by_category,
+            commands::salary_calculate_salary,
+            commands::salary_get_monthly_overview,
+            commands::salary_record_payment,
+            commands::salary_get_payment_history,
+            commands::dashboard_get_summary,
             commands::get_users,
             commands::login,
+            commands::logout,
             commands::create_user,
-            commands::set_user_pin
+            commands::set_user_pin,
+            commands::get_all_users,
+            commands::update_user,
+            commands::set_user_active
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

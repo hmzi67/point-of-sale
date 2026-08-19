@@ -48,6 +48,10 @@ export function SettingsPage() {
             <dt className="text-slate-500">Tax</dt>
             <dd className="text-slate-900">{config.taxPercent}%</dd>
           </div>
+          <div>
+            <dt className="text-slate-500">Working days / month</dt>
+            <dd className="text-slate-900">{config.workingDaysPerMonth}</dd>
+          </div>
         </dl>
       </div>
 

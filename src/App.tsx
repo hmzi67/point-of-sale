@@ -16,6 +16,7 @@ import {
   SalaryPage,
   SettingsPage,
   TablesPage,
+  UserManagementPage,
 } from "./pages";
 
 /**
@@ -117,6 +118,14 @@ export function App() {
               element={
                 <ModuleRoute adminOnly>
                   <SettingsPage />
+                </ModuleRoute>
+              }
+            />
+            <Route
+              path="users"
+              element={
+                <ModuleRoute adminOnly>
+                  <UserManagementPage />
                 </ModuleRoute>
               }
             />

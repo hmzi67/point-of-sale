@@ -9,3 +9,4 @@ export { ReportsPage } from "./ReportsPage";
 export { SalaryPage } from "./SalaryPage";
 export { SettingsPage } from "./SettingsPage";
 export { TablesPage } from "./TablesPage";
+export { UserManagementPage } from "./UserManagementPage";

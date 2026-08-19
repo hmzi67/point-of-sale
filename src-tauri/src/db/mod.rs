@@ -5,10 +5,13 @@
 pub mod attendance;
 pub mod config;
 pub mod connection;
+pub mod dashboard;
+pub mod expenses;
 pub mod items;
 pub mod modules;
 pub mod reports;
 pub mod sales;
+pub mod salary;
 pub mod schema;
 pub mod seed;
 pub mod tables;

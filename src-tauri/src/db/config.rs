@@ -12,6 +12,8 @@ pub struct AppConfig {
     pub currency: String,
     pub tax_percent: f64,
     pub receipt_footer: String,
+    /// Divisor for salary calculation — see `db/salary.rs`.
+    pub working_days_per_month: i64,
 }
 
 /// Fields a caller may change. `None` means "leave as-is", so the frontend can
@@ -25,6 +27,7 @@ pub struct AppConfigUpdate {
     pub currency: Option<String>,
     pub tax_percent: Option<f64>,
     pub receipt_footer: Option<String>,
+    pub working_days_per_month: Option<i64>,
 }
 
 fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
@@ -35,12 +38,14 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
         currency: row.get("currency")?,
         tax_percent: row.get("tax_percent")?,
         receipt_footer: row.get("receipt_footer")?,
+        working_days_per_month: row.get("working_days_per_month")?,
     })
 }
 
 pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
     conn.query_row(
-        "SELECT business_name, business_type, logo_path, currency, tax_percent, receipt_footer
+        "SELECT business_name, business_type, logo_path, currency, tax_percent, receipt_footer,
+                working_days_per_month
            FROM app_config WHERE id = 1",
         [],
         from_row,
@@ -57,7 +62,8 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
                 logo_path      = COALESCE(?3, logo_path),
                 currency       = COALESCE(?4, currency),
                 tax_percent    = COALESCE(?5, tax_percent),
-                receipt_footer = COALESCE(?6, receipt_footer)
+                receipt_footer = COALESCE(?6, receipt_footer),
+                working_days_per_month = COALESCE(?7, working_days_per_month)
           WHERE id = 1",
         params![
             patch.business_name,
@@ -66,6 +72,7 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
             patch.currency,
             patch.tax_percent,
             patch.receipt_footer,
+            patch.working_days_per_month,
         ],
     )?;
 

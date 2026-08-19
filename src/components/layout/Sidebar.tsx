@@ -2,8 +2,8 @@ import { NavLink } from "react-router-dom";
 import { Store } from "lucide-react";
 import { useModules } from "../../hooks/useModules";
 import { useAuthStore } from "../../store";
-import { SETTINGS_NAV } from "../../utils/navigation";
-import { roleCanAccessSettings } from "../../utils/permissions";
+import { SETTINGS_NAV, USERS_NAV } from "../../utils/navigation";
+import { roleCanAccessSettings, roleCanManageUsers } from "../../utils/permissions";
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   [
@@ -19,6 +19,7 @@ export function Sidebar() {
   const { visibleModules, isLoaded } = useModules();
   const role = useAuthStore((state) => state.user?.role ?? null);
   const showSettings = role ? roleCanAccessSettings(role) : false;
+  const showUsers = role ? roleCanManageUsers(role) : false;
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-slate-800 bg-slate-900 text-slate-300">
@@ -47,12 +48,20 @@ export function Sidebar() {
         )}
       </nav>
 
-      {showSettings && (
+      {(showUsers || showSettings) && (
         <div className="border-t border-slate-800 p-2">
-          <NavLink to={SETTINGS_NAV.path} className={linkClass}>
-            <SETTINGS_NAV.icon className="h-4 w-4" />
-            {SETTINGS_NAV.label}
-          </NavLink>
+          {showUsers && (
+            <NavLink to={USERS_NAV.path} className={linkClass}>
+              <USERS_NAV.icon className="h-4 w-4" />
+              {USERS_NAV.label}
+            </NavLink>
+          )}
+          {showSettings && (
+            <NavLink to={SETTINGS_NAV.path} className={linkClass}>
+              <SETTINGS_NAV.icon className="h-4 w-4" />
+              {SETTINGS_NAV.label}
+            </NavLink>
+          )}
         </div>
       )}
 
