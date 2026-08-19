@@ -435,6 +435,91 @@ mod tests {
         assert_eq!(stock(&conn, "Instant Noodles"), noodles_before);
     }
 
+    /// The exact boundary of `insufficient_stock_rolls_back_the_whole_sale`
+    /// above: selling precisely what's left must succeed and land stock at
+    /// exactly zero, never negative.
+    #[test]
+    fn selling_exactly_the_remaining_stock_succeeds_and_leaves_zero() {
+        let mut conn = test_conn();
+        let noodles_before = stock(&conn, "Instant Noodles");
+
+        let tx = conn.transaction().unwrap();
+        let input = CreateSaleInput {
+            items: vec![CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: noodles_before }],
+            ..basic_input(&tx)
+        };
+        create_sale(&tx, input).unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(stock(&conn, "Instant Noodles"), 0);
+    }
+
+    /// One unit past the boundary above: must be blocked, and — the point of
+    /// the whole check — stock must not be allowed to go negative.
+    #[test]
+    fn selling_one_more_than_available_stock_is_blocked_not_negative() {
+        let mut conn = test_conn();
+        let noodles_before = stock(&conn, "Instant Noodles");
+
+        let tx = conn.transaction().unwrap();
+        let input = CreateSaleInput {
+            items: vec![CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: noodles_before + 1 }],
+            ..basic_input(&tx)
+        };
+        let err = create_sale(&tx, input).unwrap_err();
+        assert!(matches!(err, SaleError::InsufficientStock { available, requested, .. }
+            if available == noodles_before && requested == noodles_before + 1));
+        drop(tx); // rolls back
+
+        assert_eq!(stock(&conn, "Instant Noodles"), noodles_before, "stock must be untouched, not negative");
+    }
+
+    /// Selling against an item already sitting at zero stock is just the
+    /// `requested > 0, available = 0` case of the same guard — worth its own
+    /// test since "already empty" is the state low-stock alerts exist for.
+    #[test]
+    fn selling_an_out_of_stock_item_is_blocked() {
+        let mut conn = test_conn();
+        let noodles = item_id(&conn, "Instant Noodles");
+        conn.execute("UPDATE items SET stock_qty = 0 WHERE id = ?1", params![noodles]).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let input = CreateSaleInput { items: vec![CartLine { item_id: noodles, qty: 1 }], ..basic_input(&tx) };
+        let err = create_sale(&tx, input).unwrap_err();
+        assert!(matches!(err, SaleError::InsufficientStock { available: 0, requested: 1, .. }));
+    }
+
+    #[test]
+    fn rejects_negative_discount_and_negative_tax() {
+        let mut conn = test_conn();
+        {
+            let tx = conn.transaction().unwrap();
+            let mut input = basic_input(&tx);
+            input.discount_minor = -1;
+            assert!(matches!(create_sale(&tx, input), Err(SaleError::InvalidDiscount)));
+        }
+
+        let tx = conn.transaction().unwrap();
+        let mut input = basic_input(&tx);
+        input.tax_minor = -1;
+        assert!(matches!(create_sale(&tx, input), Err(SaleError::InvalidDiscount)));
+    }
+
+    /// The other boundary from `rejects_discount_larger_than_subtotal`: a
+    /// discount exactly equal to the subtotal is a legitimate 100%-off sale,
+    /// not an error — only tax is left in the total.
+    #[test]
+    fn discount_equal_to_the_subtotal_is_allowed() {
+        let mut conn = test_conn();
+        let tx = conn.transaction().unwrap();
+        let mut input = basic_input(&tx); // Cola x2 @ 8000 = 16000 subtotal
+        input.discount_minor = 16000;
+        input.tax_minor = 500;
+
+        let sale = create_sale(&tx, input).unwrap();
+        assert_eq!(sale.total_minor, 500);
+    }
+
     #[test]
     fn rejects_an_archived_item() {
         let mut conn = test_conn();

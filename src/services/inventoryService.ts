@@ -1,4 +1,4 @@
-import type { Category, DeleteOutcome, Item, ItemInput, ItemQuery } from "../types";
+import type { Category, DeleteOutcome, Item, ItemInput, ItemQuery, ImportSummary } from "../types";
 import { call } from "./tauriClient";
 
 export function getItems(query: ItemQuery = {}): Promise<Item[]> {
@@ -39,4 +39,16 @@ export function uploadItemImage(dataBase64: string, extension: string): Promise<
 /** Reads a stored image back as a `data:` URL, ready for an `<img src>`. */
 export function getItemImage(fileName: string): Promise<string> {
   return call<string>("inventory_get_image", { fileName });
+}
+
+/** Bulk-loads a stock list from a CSV file's raw text content. Imports what
+ * it can and reports the rest — see `ImportSummary`. */
+export function importItemsCsv(csvContent: string): Promise<ImportSummary> {
+  return call<ImportSummary>("inventory_import_csv", { csvContent });
+}
+
+/** A ready-to-download example CSV, so a shop owner knows the expected
+ * columns before building their own file. */
+export function getCsvTemplate(): Promise<string> {
+  return call<string>("inventory_csv_template", {});
 }

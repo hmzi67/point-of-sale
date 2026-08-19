@@ -1,12 +1,13 @@
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Upload } from "lucide-react";
 import { useInventoryStore } from "../../store";
 
 interface InventoryToolbarProps {
   isReadOnly: boolean;
   onAddItem: () => void;
+  onImportCsv: () => void;
 }
 
-export function InventoryToolbar({ isReadOnly, onAddItem }: InventoryToolbarProps) {
+export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv }: InventoryToolbarProps) {
   const search = useInventoryStore((state) => state.search);
   const setSearch = useInventoryStore((state) => state.setSearch);
   const categoryId = useInventoryStore((state) => state.categoryId);
@@ -39,14 +40,24 @@ export function InventoryToolbar({ isReadOnly, onAddItem }: InventoryToolbarProp
       </select>
 
       {!isReadOnly && (
-        <button
-          type="button"
-          onClick={onAddItem}
-          className="flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
-        >
-          <Plus className="h-4 w-4" />
-          Add item
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onImportCsv}
+            className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <Upload className="h-4 w-4" />
+            Import CSV
+          </button>
+          <button
+            type="button"
+            onClick={onAddItem}
+            className="flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+          >
+            <Plus className="h-4 w-4" />
+            Add item
+          </button>
+        </>
       )}
     </div>
   );

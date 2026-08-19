@@ -64,7 +64,13 @@ CREATE TABLE IF NOT EXISTS app_config (
     -- Divisor for salary calculation (base_salary / working_days_per_month *
     -- days_present) — configurable per installation rather than assuming a
     -- fixed 26- or 30-day month. See db/salary.rs.
-    working_days_per_month INTEGER NOT NULL DEFAULT 26 CHECK (working_days_per_month > 0)
+    working_days_per_month INTEGER NOT NULL DEFAULT 26 CHECK (working_days_per_month > 0),
+    -- Set once the first-time setup wizard (Phase 14) finishes. A fresh
+    -- install always seeds a row here (see `seed_app_config` in schema.rs) so
+    -- "app_config is empty" can't be tested with a row-existence check — this
+    -- flag is what actually distinguishes "never configured" from "configured
+    -- with defaults nobody's looked at yet".
+    onboarding_completed INTEGER NOT NULL DEFAULT 0 CHECK (onboarding_completed IN (0, 1))
 );
 
 -- ---------------------------------------------------------------------------

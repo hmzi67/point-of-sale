@@ -21,7 +21,9 @@ use crate::db::reports::{DailySales, SalesSummary, TopItem, TopItemSort};
 use crate::db::sales::{CreateSaleInput, Sale};
 use crate::db::tables::{ParkedCartLine, ParkedOrder, TableSummary};
 use crate::db::users::{ManagedUser, Role, User};
-use crate::db::{attendance, config, dashboard, expenses, items, modules, reports, salary, sales, tables, users, Db};
+use crate::db::{
+    attendance, config, csv_import, dashboard, expenses, items, modules, reports, salary, sales, tables, users, Db,
+};
 use crate::images;
 use crate::session::{require_role, Session};
 
@@ -249,6 +251,31 @@ pub fn inventory_add_category(
     db.with_conn(|conn| Ok(items::add_category(conn, &name)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+/// Bulk-loads a stock list — the Phase 14 alternative to typing in every
+/// item by hand when onboarding a client who already has a spreadsheet.
+/// Owner/Admin only, same as every other inventory write. Per-row failures
+/// (a bad price, a duplicate barcode) don't abort the whole import — see the
+/// module doc comment on `db::csv_import` for why that's the right call
+/// here specifically, unlike a sale.
+#[tauri::command]
+pub fn inventory_import_csv(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    csv_content: String,
+) -> Result<csv_import::ImportSummary, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(csv_import::import_csv(conn, &csv_content)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// A ready-to-download example CSV, so a shop owner knows the expected
+/// column names and format before building their own file.
+#[tauri::command]
+pub fn inventory_csv_template() -> &'static str {
+    csv_import::TEMPLATE_CSV
 }
 
 // ---------------------------------------------------------------------------
@@ -516,6 +543,11 @@ pub fn tables_update_table_status(
 /// marks it occupied, so the billing screen has an order to attach a cart to
 /// as items are added. Idempotent for a table that's already mid-order. Only
 /// reachable from the floor view today, hence the same Owner/Admin gate.
+///
+/// `start_table_order` is two writes (the order upsert, then the table's
+/// status flip) — run inside a transaction so a crash between them can never
+/// leave a table marked occupied with no order behind it, or vice versa
+/// (Phase 13 transaction audit; see `TESTING_CHECKLIST.md`).
 #[tauri::command]
 pub fn tables_assign_order_to_table(
     db: State<'_, Db>,
@@ -523,7 +555,7 @@ pub fn tables_assign_order_to_table(
     table_id: i64,
 ) -> Result<TableSummary, String> {
     require_role(&session, STAFF_ROLES)?;
-    db.with_conn(|conn| Ok(tables::start_table_order(conn, table_id)))
+    db.with_transaction(|tx| Ok(tables::start_table_order(tx, table_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
@@ -531,6 +563,9 @@ pub fn tables_assign_order_to_table(
 /// Manually releases a table — cancels its open order (if any) and frees it.
 /// A completed sale frees a table automatically; this is for the other
 /// paths (a cancelled order, a guest who left without paying).
+///
+/// Two writes (cancel the order, free the table) — transactional for the
+/// same reason as `tables_assign_order_to_table` above.
 #[tauri::command]
 pub fn tables_clear_table(
     db: State<'_, Db>,
@@ -538,13 +573,17 @@ pub fn tables_clear_table(
     table_id: i64,
 ) -> Result<TableSummary, String> {
     require_role(&session, STAFF_ROLES)?;
-    db.with_conn(|conn| Ok(tables::clear_table(conn, table_id)))
+    db.with_transaction(|tx| Ok(tables::clear_table(tx, table_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
 /// Parks the current cart on a table ("Save to table") instead of completing
 /// the sale immediately.
+///
+/// Two writes (park the cart, mark the table occupied) — transactional for
+/// the same reason as the two commands above; this one in particular is a
+/// Cashier-reachable path (via Billing), so it's exercised far more often.
 #[tauri::command]
 pub fn tables_attach_cart_to_table(
     db: State<'_, Db>,
@@ -552,7 +591,7 @@ pub fn tables_attach_cart_to_table(
     items: Vec<ParkedCartLine>,
     discount_minor: i64,
 ) -> Result<(), String> {
-    db.with_conn(|conn| Ok(tables::attach_cart_to_table(conn, table_id, &items, discount_minor)))
+    db.with_transaction(|tx| Ok(tables::attach_cart_to_table(tx, table_id, &items, discount_minor)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
@@ -722,6 +761,11 @@ pub fn salary_calculate_salary(
 
 /// The monthly overview table: every active employee's calculated salary,
 /// amount paid so far, and status for `month`.
+///
+/// One write per employee (each refreshes `calculated_amount_minor`) — run
+/// as a single transaction so the whole table reflects one consistent
+/// instant rather than some employees' figures possibly being one attendance
+/// write ahead of others' if the process died mid-loop (Phase 13 audit).
 #[tauri::command]
 pub fn salary_get_monthly_overview(
     db: State<'_, Db>,
@@ -729,7 +773,7 @@ pub fn salary_get_monthly_overview(
     month: String,
 ) -> Result<Vec<SalaryCalculation>, String> {
     require_role(&session, STAFF_ROLES)?;
-    db.with_conn(|conn| Ok(salary::get_monthly_overview(conn, &month)))
+    db.with_transaction(|tx| Ok(salary::get_monthly_overview(tx, &month)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
@@ -737,6 +781,11 @@ pub fn salary_get_monthly_overview(
 /// Records a payment against `month`'s salary — added to whatever has
 /// already been paid that month, not a replacement (pay is often settled in
 /// more than one instalment).
+///
+/// Three writes under the hood (`calculate_salary` to refresh the row,
+/// the `paid_amount_minor` update, `calculate_salary` again for the fresh
+/// return value) — wrapped in one transaction so a crash between them can
+/// never leave a payment partially recorded (Phase 13 audit).
 #[tauri::command]
 pub fn salary_record_payment(
     db: State<'_, Db>,
@@ -747,7 +796,7 @@ pub fn salary_record_payment(
     paid_date: String,
 ) -> Result<SalaryCalculation, String> {
     require_role(&session, STAFF_ROLES)?;
-    db.with_conn(|conn| Ok(salary::record_payment(conn, employee_id, &month, paid_amount_minor, &paid_date)))
+    db.with_transaction(|tx| Ok(salary::record_payment(tx, employee_id, &month, paid_amount_minor, &paid_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }

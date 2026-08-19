@@ -157,6 +157,7 @@ mod tests {
             tax_percent: 5.0,
             receipt_footer: "Thank you!".into(),
             working_days_per_month: 26,
+            onboarding_completed: true,
         }
     }
 

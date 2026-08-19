@@ -5,6 +5,7 @@ export { ExpensesPage } from "./ExpensesPage";
 export { InventoryPage } from "./InventoryPage";
 export { LoginPage } from "./LoginPage";
 export { NotFoundPage } from "./NotFoundPage";
+export { OnboardingPage } from "./OnboardingPage";
 export { ReportsPage } from "./ReportsPage";
 export { SalaryPage } from "./SalaryPage";
 export { SettingsPage } from "./SettingsPage";

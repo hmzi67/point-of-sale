@@ -348,6 +348,9 @@ fn last_day_of_month(first_of_month: NaiveDate) -> NaiveDate {
     } else {
         NaiveDate::from_ymd_opt(first_of_month.year(), first_of_month.month() + 1, 1)
     };
+    // `from_ymd_opt` only returns `None` outside chrono's representable year
+    // range (tens of thousands of years out) — never for a real business
+    // month, and `month` is always a valid 1..=12 constructed just above.
     next_month.unwrap() - chrono::Duration::days(1)
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CsvImportModal } from "../components/inventory/CsvImportModal";
 import { InventoryToolbar } from "../components/inventory/InventoryToolbar";
 import { ItemFormModal } from "../components/inventory/ItemFormModal";
 import { ItemTable } from "../components/inventory/ItemTable";
@@ -21,6 +22,7 @@ export function InventoryPage() {
 
   const [editingItem, setEditingItem] = useState<Item | undefined>(undefined);
   const [isAdding, setIsAdding] = useState(false);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
   const [deletingItem, setDeletingItem] = useState<Item | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -67,7 +69,11 @@ export function InventoryPage() {
         </div>
       </div>
 
-      <InventoryToolbar isReadOnly={isReadOnly} onAddItem={() => setIsAdding(true)} />
+      <InventoryToolbar
+        isReadOnly={isReadOnly}
+        onAddItem={() => setIsAdding(true)}
+        onImportCsv={() => setIsImportingCsv(true)}
+      />
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
       {toast && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{toast}</p>}
@@ -82,6 +88,10 @@ export function InventoryPage() {
           onEdit={setEditingItem}
           onDelete={setDeletingItem}
         />
+      )}
+
+      {isImportingCsv && (
+        <CsvImportModal onClose={() => setIsImportingCsv(false)} onImported={() => void load()} />
       )}
 
       {(isAdding || editingItem) && (

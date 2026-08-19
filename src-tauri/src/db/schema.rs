@@ -140,6 +140,12 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("items", "image_path", "TEXT"),
     ("table_orders", "cart_json", "TEXT"),
     ("app_config", "working_days_per_month", "INTEGER NOT NULL DEFAULT 26"),
+    // Deliberately DEFAULT 1 here, unlike `schema.sql`'s fresh-install
+    // DEFAULT 0 above it: an install upgrading onto this column already has
+    // an `app_config` row from before the wizard existed, so it's already
+    // "configured" by definition — only a genuinely brand-new database (no
+    // pre-existing row at all) should be routed through onboarding.
+    ("app_config", "onboarding_completed", "INTEGER NOT NULL DEFAULT 1"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -442,6 +448,47 @@ mod tests {
 
         // Re-applying (the next app launch) must not error on an already-added column.
         apply(&conn).unwrap();
+    }
+
+    /// An install that predates the onboarding-wizard column already has a
+    /// row in `app_config` — that row must come out of the migration marked
+    /// `onboarding_completed = 1`, not `0`, or every existing client would
+    /// be dropped into the first-time setup wizard on their next launch.
+    /// Contrast with `seeds_exactly_one_config_row_and_one_owner` below,
+    /// which covers the genuinely-fresh-install case (`0`, wizard runs).
+    #[test]
+    fn upgrading_an_existing_install_marks_onboarding_already_complete() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        // A hand-built stand-in for a pre-Phase-14 `app_config` — has
+        // `working_days_per_month` (an earlier migration) but not
+        // `onboarding_completed`.
+        conn.execute_batch(
+            "CREATE TABLE app_config (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 business_name TEXT NOT NULL DEFAULT 'My Business',
+                 business_type TEXT NOT NULL DEFAULT 'retail',
+                 logo_path TEXT,
+                 currency TEXT NOT NULL DEFAULT 'PKR',
+                 tax_percent REAL NOT NULL DEFAULT 0,
+                 receipt_footer TEXT NOT NULL DEFAULT 'Thank you for your purchase!',
+                 working_days_per_month INTEGER NOT NULL DEFAULT 26
+             );",
+        )
+        .unwrap();
+        conn.execute("INSERT INTO app_config (id, business_name) VALUES (1, 'Existing Shop')", [])
+            .unwrap();
+
+        apply(&conn).unwrap();
+
+        let (business_name, onboarding_completed): (String, i64) = conn
+            .query_row("SELECT business_name, onboarding_completed FROM app_config WHERE id = 1", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(business_name, "Existing Shop", "the shop's real config must survive the migration");
+        assert_eq!(onboarding_completed, 1, "an upgraded pre-existing install must not be routed through setup");
     }
 
     #[test]

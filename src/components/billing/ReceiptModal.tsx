@@ -23,9 +23,15 @@ export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
   // it keeps the billing screen's own bundle light and fast to first paint.
   const downloadPdf = async () => {
     setIsPreparingPdf(true);
+    setPrintStatus(null);
     try {
       const { downloadReceiptPdf } = await import("../../utils/receiptPdf");
       downloadReceiptPdf(sale, config);
+    } catch (e) {
+      // Without this, a failed PDF build (or a blocked download) was a
+      // silent unhandled rejection — the cashier just saw the button do
+      // nothing and no way to know why (Phase 13 error-handling review).
+      setPrintStatus(`Could not prepare the PDF: ${(e as Error).message}`);
     } finally {
       setIsPreparingPdf(false);
     }

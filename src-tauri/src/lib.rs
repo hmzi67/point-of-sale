@@ -34,6 +34,8 @@ pub fn run() {
             commands::inventory_delete_item,
             commands::inventory_get_categories,
             commands::inventory_add_category,
+            commands::inventory_import_csv,
+            commands::inventory_csv_template,
             commands::inventory_upload_image,
             commands::inventory_get_image,
             commands::billing_search_items,

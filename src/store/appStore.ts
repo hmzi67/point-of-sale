@@ -20,6 +20,11 @@ const placeholderConfig: AppConfig = {
   taxPercent: 0,
   receiptFooter: "",
   workingDaysPerMonth: 26,
+  // A conservative placeholder: `true` (not the real, usually-`false` value)
+  // so the onboarding-gate check below never fires a redirect off a value
+  // that hasn't loaded from SQLite yet — it waits on `isLoadingConfig`
+  // instead. See `RequireOnboarding`.
+  onboardingCompleted: true,
 };
 
 export const useAppStore = create<AppState>((set) => ({

@@ -39,6 +39,19 @@ export interface ItemInput {
   imagePath: string | null;
 }
 
+/** Result of a bulk CSV import — see `db::csv_import` on the Rust side. */
+export interface ImportRowError {
+  /** 1-based, counting the header as row 1 — matches what a spreadsheet
+   * program shows for that row. */
+  row: number;
+  message: string;
+}
+
+export interface ImportSummary {
+  imported: number;
+  errors: ImportRowError[];
+}
+
 export interface ItemQuery {
   search?: string;
   categoryId?: number;

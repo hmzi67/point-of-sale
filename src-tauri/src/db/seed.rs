@@ -300,6 +300,21 @@ mod tests {
         .unwrap()
     }
 
+    /// Known-value checks (not just "recomputed the same way twice") that
+    /// `tax_on` rounds to the nearest minor unit rather than truncating —
+    /// money must never accumulate rounding drift by consistently rounding
+    /// one direction.
+    #[test]
+    fn tax_on_rounds_to_the_nearest_minor_unit() {
+        assert_eq!(tax_on(1000, 12.5), 125, "exact case: 1000 * 12.5% = 125.0");
+        assert_eq!(tax_on(333, 1.5), 5, "333 * 1.5% = 4.995, rounds up to 5");
+        assert_eq!(tax_on(100, 7.0), 7, "100 * 7% = 7.0 exactly");
+        assert_eq!(tax_on(999, 5.0), 50, "999 * 5% = 49.95, rounds up to 50");
+        assert_eq!(tax_on(100, 12.5), 13, "exact .5 tie (100 * 12.5% = 12.5) rounds away from zero, to 13");
+        assert_eq!(tax_on(0, 15.0), 0, "no tax on a zero base");
+        assert_eq!(tax_on(100, 0.0), 0, "no tax at a zero rate");
+    }
+
     #[test]
     fn seeds_a_shop_worth_of_demo_data() {
         let conn = test_conn();

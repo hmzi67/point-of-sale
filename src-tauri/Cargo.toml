@@ -1,8 +1,8 @@
 [package]
 name = "tauri-app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "1.0.0"
+description = "Offline-first, module-configurable point of sale for retail and restaurant shops"
+authors = ["Applr"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,3 +26,4 @@ serde_json = "1"
 chrono = "0.4"
 argon2 = { version = "0.5", features = ["std"] }
 base64 = "0.22"
+csv = "1"

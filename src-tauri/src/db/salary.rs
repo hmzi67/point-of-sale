@@ -282,6 +282,39 @@ mod tests {
         assert!(matches!(calc.status, PaymentStatus::Unpaid));
     }
 
+    /// A known-value check (not a self-referential recompute of the same
+    /// formula) that picks numbers where rounding and truncation actually
+    /// disagree: 100000 * 5 / 7 = 71428.5714…, which rounds to 71429 but
+    /// would truncate to 71428 — proving the result is genuinely rounded to
+    /// the nearest minor unit, not floored.
+    #[test]
+    fn calculate_salary_rounds_a_fractional_result_to_the_nearest_minor_unit() {
+        let conn = test_conn();
+        conn.execute("UPDATE app_config SET working_days_per_month = 7 WHERE id = 1", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO employees (name, role, base_salary_minor) VALUES ('Rounding Test', 'Staff', 100000)",
+            [],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+
+        let month = this_month();
+        for day in 0..5 {
+            conn.execute(
+                "INSERT INTO attendance (employee_id, work_date, check_in, check_out)
+                 VALUES (?1, date('now', 'localtime', 'start of month', ?2), '09:00:00', '18:00:00')",
+                params![id, format!("+{} days", day)],
+            )
+            .unwrap();
+        }
+
+        let calc = calculate_salary(&conn, id, &month).unwrap();
+        assert_eq!(calc.days_present, 5);
+        assert_eq!(calc.working_days_in_month, 7);
+        assert_eq!(calc.calculated_amount_minor, 71429, "71428.57... must round up, not truncate down to 71428");
+    }
+
     #[test]
     fn calculate_salary_respects_a_configured_working_days_value() {
         let conn = test_conn();

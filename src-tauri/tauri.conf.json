@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "POS",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.applr.pos",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -21,18 +21,28 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "Applr",
+    "copyright": "Copyright © 2026 Applr",
+    "category": "Business",
+    "shortDescription": "Offline-first point of sale for retail and restaurant shops",
+    "longDescription": "POS is an offline-first, module-configurable point of sale system for small retail and restaurant businesses — billing, inventory, tables, staff attendance, expenses, salary and reporting, all running locally with no internet dependency.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
   }
 }
