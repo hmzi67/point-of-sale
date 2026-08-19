@@ -2,6 +2,7 @@
 //! Tauri commands in `commands.rs` call into here, and nothing outside
 //! `src-tauri` ever touches the database.
 
+pub mod attendance;
 pub mod config;
 pub mod connection;
 pub mod items;
@@ -10,6 +11,7 @@ pub mod reports;
 pub mod sales;
 pub mod schema;
 pub mod seed;
+pub mod tables;
 pub mod users;
 
 #[allow(unused_imports)]

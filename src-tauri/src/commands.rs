@@ -10,13 +10,15 @@
 
 use tauri::{AppHandle, Manager, State};
 
+use crate::db::attendance::{AttendanceRecord, Employee, MonthlySummary};
 use crate::db::config::{AppConfig, AppConfigUpdate};
 use crate::db::items::{Category, DeleteOutcome, Item, ItemInput, ItemQuery};
 use crate::db::modules::{ModuleState, Platform};
 use crate::db::reports::{DailySales, SalesSummary, TopItem, TopItemSort};
-use crate::db::sales::{CreateSaleInput, ParkedCartLine, ParkedOrder, Sale, TableSummary};
+use crate::db::sales::{CreateSaleInput, Sale};
+use crate::db::tables::{ParkedCartLine, ParkedOrder, TableSummary};
 use crate::db::users::{Role, User};
-use crate::db::{config, items, modules, reports, sales, users, Db};
+use crate::db::{attendance, config, items, modules, reports, sales, tables, users, Db};
 use crate::images;
 
 // ---------------------------------------------------------------------------
@@ -279,36 +281,6 @@ pub fn billing_get_sale(db: State<'_, Db>, id: i64) -> Result<Sale, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Tables with status, for the billing screen's table picker. Only called
-/// when the `tables` module is enabled — the frontend hides all table UI
-/// otherwise, so this is never invoked for an installation that doesn't want it.
-#[tauri::command]
-pub fn billing_get_tables(db: State<'_, Db>) -> Result<Vec<TableSummary>, String> {
-    db.with_conn(sales::list_tables).map_err(|e| e.to_string())
-}
-
-/// Parks the current cart on a table ("Save to table") instead of completing
-/// the sale immediately.
-#[tauri::command]
-pub fn billing_attach_cart_to_table(
-    db: State<'_, Db>,
-    table_id: i64,
-    items: Vec<ParkedCartLine>,
-    discount_minor: i64,
-) -> Result<(), String> {
-    db.with_conn(|conn| Ok(sales::attach_cart_to_table(conn, table_id, &items, discount_minor)))
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
-}
-
-/// The cart parked on a table, if any — used to resume billing it.
-#[tauri::command]
-pub fn billing_get_parked_cart(db: State<'_, Db>, table_id: i64) -> Result<Option<ParkedOrder>, String> {
-    db.with_conn(|conn| Ok(sales::get_parked_cart(conn, table_id)))
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
-}
-
 /// Attempts to print a receipt on a thermal printer. Always fails with a
 /// friendly "not configured" message until real hardware is wired up in
 /// `printer::escpos::send_to_printer` — the PDF receipt (built entirely in
@@ -364,6 +336,129 @@ pub fn reports_get_sales_over_time(
     end_date: String,
 ) -> Result<Vec<DailySales>, String> {
     db.with_conn(|conn| Ok(reports::get_sales_over_time(conn, &start_date, &end_date)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Tables (restaurant floor view — only called when the `tables` module is
+// enabled; the frontend hides all table UI otherwise)
+// ---------------------------------------------------------------------------
+
+/// Every table with its status and whether it has a cart parked on it, for
+/// the floor view and the billing screen's table picker.
+#[tauri::command]
+pub fn tables_get_tables(db: State<'_, Db>) -> Result<Vec<TableSummary>, String> {
+    db.with_conn(tables::list_tables).map_err(|e| e.to_string())
+}
+
+/// Adds a new physical table to the floor. Owner/admin only — enforced by
+/// the same role+module guard as the rest of the `tables` screen.
+#[tauri::command]
+pub fn tables_add_table(db: State<'_, Db>, name: String, seats: i64) -> Result<TableSummary, String> {
+    db.with_conn(|conn| Ok(tables::add_table(conn, &name, seats)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Directly sets a table's status (e.g. marking one reserved for a booking).
+#[tauri::command]
+pub fn tables_update_table_status(db: State<'_, Db>, table_id: i64, status: String) -> Result<TableSummary, String> {
+    db.with_conn(|conn| Ok(tables::update_table_status(conn, table_id, &status)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Seats a table: starts an empty draft order (if none is already open) and
+/// marks it occupied, so the billing screen has an order to attach a cart to
+/// as items are added. Idempotent for a table that's already mid-order.
+#[tauri::command]
+pub fn tables_assign_order_to_table(db: State<'_, Db>, table_id: i64) -> Result<TableSummary, String> {
+    db.with_conn(|conn| Ok(tables::start_table_order(conn, table_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Manually releases a table — cancels its open order (if any) and frees it.
+/// A completed sale frees a table automatically; this is for the other
+/// paths (a cancelled order, a guest who left without paying).
+#[tauri::command]
+pub fn tables_clear_table(db: State<'_, Db>, table_id: i64) -> Result<TableSummary, String> {
+    db.with_conn(|conn| Ok(tables::clear_table(conn, table_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Parks the current cart on a table ("Save to table") instead of completing
+/// the sale immediately.
+#[tauri::command]
+pub fn tables_attach_cart_to_table(
+    db: State<'_, Db>,
+    table_id: i64,
+    items: Vec<ParkedCartLine>,
+    discount_minor: i64,
+) -> Result<(), String> {
+    db.with_conn(|conn| Ok(tables::attach_cart_to_table(conn, table_id, &items, discount_minor)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// The cart parked on a table, if any — used to resume billing it.
+#[tauri::command]
+pub fn tables_get_parked_cart(db: State<'_, Db>, table_id: i64) -> Result<Option<ParkedOrder>, String> {
+    db.with_conn(|conn| Ok(tables::get_parked_cart(conn, table_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Attendance (only called when the `attendance` module is enabled; the
+// frontend hides all attendance UI otherwise)
+// ---------------------------------------------------------------------------
+
+/// Active staff, for the check-in/out screen and the monthly summary.
+#[tauri::command]
+pub fn attendance_get_employees(db: State<'_, Db>) -> Result<Vec<Employee>, String> {
+    db.with_conn(attendance::list_employees).map_err(|e| e.to_string())
+}
+
+/// Checks an employee in for today. Idempotent — a repeated call the same day
+/// updates the existing row rather than creating a second one.
+#[tauri::command]
+pub fn attendance_check_in(db: State<'_, Db>, employee_id: i64) -> Result<AttendanceRecord, String> {
+    db.with_conn(|conn| Ok(attendance::check_in(conn, employee_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Checks an employee out for today. Fails clearly (rather than fabricating a
+/// row) if they never checked in today.
+#[tauri::command]
+pub fn attendance_check_out(db: State<'_, Db>, employee_id: i64) -> Result<AttendanceRecord, String> {
+    db.with_conn(|conn| Ok(attendance::check_out(conn, employee_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// The attendance log for a date range, optionally scoped to one employee —
+/// omit `employeeId` for every employee's shifts in the range.
+#[tauri::command]
+pub fn attendance_get_attendance(
+    db: State<'_, Db>,
+    employee_id: Option<i64>,
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<AttendanceRecord>, String> {
+    db.with_conn(|conn| Ok(attendance::get_attendance(conn, employee_id, &start_date, &end_date)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Days present/absent and total hours per employee for `month` (`YYYY-MM`) —
+/// feeds Phase 9's salary calculation.
+#[tauri::command]
+pub fn attendance_get_monthly_summary(db: State<'_, Db>, month: String) -> Result<Vec<MonthlySummary>, String> {
+    db.with_conn(|conn| Ok(attendance::get_monthly_summary(conn, &month)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }

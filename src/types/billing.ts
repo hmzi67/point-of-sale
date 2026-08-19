@@ -40,19 +40,5 @@ export interface Sale {
   items: SaleLine[];
 }
 
-export interface TableSummary {
-  id: number;
-  name: string;
-  status: "free" | "occupied" | "reserved";
-  hasParkedOrder: boolean;
-}
-
-export interface ParkedCartLine {
-  itemId: number;
-  qty: number;
-}
-
-export interface ParkedOrder {
-  items: ParkedCartLine[];
-  discountMinor: number;
-}
+// TableSummary / ParkedCartLine / ParkedOrder now live in ./tables — this
+// module only needs `tableId` on CreateSaleInput/Sale above.

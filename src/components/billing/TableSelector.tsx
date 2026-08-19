@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Utensils } from "lucide-react";
-import { attachCartToTable, getParkedCart, getTables } from "../../services/billingService";
 import { getItems } from "../../services/inventoryService";
+import { attachCartToTable, getParkedCart, getTables } from "../../services/tablesService";
 import { useBillingStore } from "../../store";
 import { computeCartTotals } from "../../utils/billingTotals";
 import type { TableSummary } from "../../types";

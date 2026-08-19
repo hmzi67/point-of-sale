@@ -1,15 +1,15 @@
 //! Billing: creating a sale atomically (line items + stock decrement) and
 //! reading one back for receipt reprint.
 //!
-//! Restaurant "park the cart at a table" support lives here too, since it
-//! shares the same cart shape. It is intentionally a lightweight stand-in —
-//! the parked cart is stored as JSON on `table_orders.cart_json` rather than
-//! as real relational line items — that Phase 6 (full Table Management) is
-//! expected to replace with a proper draft-order schema once it needs to do
-//! more than park-and-resume (e.g. per-line kitchen status).
+//! Restaurant table lifecycle (seating, parking a cart, clearing) lives in
+//! `db::tables` — this module only calls into it once, at the very end of
+//! `create_sale`, to close out the table's order when a dine-in sale
+//! completes.
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
+
+use super::tables;
 
 // ---------------------------------------------------------------------------
 // Sales
@@ -218,7 +218,7 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
     }
 
     if let Some(table_id) = input.table_id {
-        close_table_order_for_sale(tx, table_id, sale_id)?;
+        tables::close_table_order_for_sale(tx, table_id, sale_id)?;
     }
 
     load_sale(tx, sale_id)?.ok_or(SaleError::NotFound)
@@ -289,190 +289,6 @@ pub fn get_sale(conn: &Connection, id: i64) -> Result<Sale, SaleError> {
     load_sale(conn, id)?.ok_or(SaleError::NotFound)
 }
 
-// ---------------------------------------------------------------------------
-// Restaurant: park a cart at a table, and resume it later
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ParkedCartLine {
-    pub item_id: i64,
-    pub qty: i64,
-}
-
-/// The JSON payload stored in `table_orders.cart_json`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ParkedCart {
-    items: Vec<ParkedCartLine>,
-    discount_minor: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TableSummary {
-    pub id: i64,
-    pub name: String,
-    pub status: String,
-    pub has_parked_order: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ParkedOrder {
-    pub items: Vec<ParkedCartLine>,
-    pub discount_minor: i64,
-}
-
-#[derive(Debug)]
-pub enum TableOrderError {
-    TableNotFound,
-    EmptyCart,
-    Corrupt(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for TableOrderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TableOrderError::TableNotFound => write!(f, "Table not found"),
-            TableOrderError::EmptyCart => write!(f, "Cart is empty"),
-            TableOrderError::Corrupt(msg) => write!(f, "Could not read the parked order: {}", msg),
-            TableOrderError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for TableOrderError {
-    fn from(err: rusqlite::Error) -> Self {
-        TableOrderError::Sqlite(err)
-    }
-}
-
-/// Tables with their status and whether one already has a cart parked on it,
-/// for the billing screen's table picker.
-pub fn list_tables(conn: &Connection) -> Result<Vec<TableSummary>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT t.id, t.name, t.status,
-                EXISTS (SELECT 1 FROM table_orders o
-                         WHERE o.table_id = t.id AND o.status = 'open') AS has_parked
-           FROM tables t
-          ORDER BY t.name",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(TableSummary {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            status: row.get(2)?,
-            has_parked_order: row.get::<_, i64>(3)? != 0,
-        })
-    })?;
-    rows.collect()
-}
-
-/// Parks (creates, or replaces the existing open one for) a table's draft
-/// order and marks the table occupied. Used by "Save to table" on the billing
-/// screen — the sale itself is not created until the table is billed.
-pub fn attach_cart_to_table(
-    conn: &Connection,
-    table_id: i64,
-    items: &[ParkedCartLine],
-    discount_minor: i64,
-) -> Result<(), TableOrderError> {
-    if items.is_empty() {
-        return Err(TableOrderError::EmptyCart);
-    }
-
-    let table_exists: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM tables WHERE id = ?1)",
-        params![table_id],
-        |row| row.get(0),
-    )?;
-    if !table_exists {
-        return Err(TableOrderError::TableNotFound);
-    }
-
-    let cart_json = serde_json::to_string(&ParkedCart { items: items.to_vec(), discount_minor })
-        .map_err(|e| TableOrderError::Corrupt(e.to_string()))?;
-
-    let existing_order_id: Option<i64> = conn
-        .query_row(
-            "SELECT id FROM table_orders WHERE table_id = ?1 AND status = 'open'",
-            params![table_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-
-    match existing_order_id {
-        Some(order_id) => {
-            conn.execute(
-                "UPDATE table_orders SET cart_json = ?1 WHERE id = ?2",
-                params![cart_json, order_id],
-            )?;
-        }
-        None => {
-            conn.execute(
-                "INSERT INTO table_orders (table_id, status, cart_json) VALUES (?1, 'open', ?2)",
-                params![table_id, cart_json],
-            )?;
-        }
-    }
-
-    conn.execute("UPDATE tables SET status = 'occupied' WHERE id = ?1", params![table_id])?;
-    Ok(())
-}
-
-/// The cart currently parked on a table, if any — used to resume billing it.
-pub fn get_parked_cart(conn: &Connection, table_id: i64) -> Result<Option<ParkedOrder>, TableOrderError> {
-    let cart_json: Option<String> = conn
-        .query_row(
-            "SELECT cart_json FROM table_orders WHERE table_id = ?1 AND status = 'open'",
-            params![table_id],
-            |row| row.get(0),
-        )
-        .optional()?
-        .flatten();
-
-    let Some(cart_json) = cart_json else { return Ok(None) };
-    let parsed: ParkedCart =
-        serde_json::from_str(&cart_json).map_err(|e| TableOrderError::Corrupt(e.to_string()))?;
-
-    Ok(Some(ParkedOrder { items: parsed.items, discount_minor: parsed.discount_minor }))
-}
-
-/// Called from inside `create_sale` when the completed sale has a table: any
-/// still-open parked order for that table is closed out against the new
-/// sale, and the table is freed for the next customers.
-fn close_table_order_for_sale(tx: &Transaction, table_id: i64, sale_id: i64) -> Result<(), rusqlite::Error> {
-    let existing_order_id: Option<i64> = tx
-        .query_row(
-            "SELECT id FROM table_orders WHERE table_id = ?1 AND status = 'open'",
-            params![table_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-
-    match existing_order_id {
-        Some(order_id) => {
-            tx.execute(
-                "UPDATE table_orders
-                    SET sale_id = ?1, status = 'billed', closed_at = datetime('now', 'localtime')
-                  WHERE id = ?2",
-                params![sale_id, order_id],
-            )?;
-        }
-        None => {
-            tx.execute(
-                "INSERT INTO table_orders (table_id, sale_id, status, closed_at)
-                 VALUES (?1, ?2, 'billed', datetime('now', 'localtime'))",
-                params![table_id, sale_id],
-            )?;
-        }
-    }
-
-    tx.execute("UPDATE tables SET status = 'free' WHERE id = ?1", params![table_id])?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -490,11 +306,6 @@ mod tests {
             |row| row.get(0),
         )
         .unwrap()
-    }
-
-    fn table_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM tables WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
     }
 
     fn basic_input(conn: &Connection) -> CreateSaleInput {
@@ -672,100 +483,6 @@ mod tests {
         assert!(matches!(get_sale(&conn, 999_999), Err(SaleError::NotFound)));
     }
 
-    #[test]
-    fn a_sale_with_a_table_closes_the_parked_order_and_frees_the_table() {
-        let mut conn = test_conn();
-        let cola = item_id(&conn, "Cola 500ml");
-        let t1 = table_id(&conn, "Table 1"); // seeded status: occupied
-
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 2 }], 0).unwrap();
-        let status_before: String =
-            conn.query_row("SELECT status FROM tables WHERE id = ?1", params![t1], |row| row.get(0)).unwrap();
-        assert_eq!(status_before, "occupied");
-
-        let tx = conn.transaction().unwrap();
-        let input = CreateSaleInput {
-            items: vec![CartLine { item_id: cola, qty: 2 }],
-            discount_minor: 0,
-            tax_minor: 0,
-            payment_method: "cash".into(),
-            cashier_id: None,
-            table_id: Some(t1),
-        };
-        let sale = create_sale(&tx, input).unwrap();
-        tx.commit().unwrap();
-
-        let (order_status, order_sale_id): (String, Option<i64>) = conn
-            .query_row(
-                "SELECT status, sale_id FROM table_orders WHERE table_id = ?1",
-                params![t1],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(order_status, "billed");
-        assert_eq!(order_sale_id, Some(sale.id));
-
-        let status_after: String =
-            conn.query_row("SELECT status FROM tables WHERE id = ?1", params![t1], |row| row.get(0)).unwrap();
-        assert_eq!(status_after, "free");
-
-        assert!(get_parked_cart(&conn, t1).unwrap().is_none(), "parked cart should be gone once billed");
-    }
-
-    #[test]
-    fn attaching_a_cart_twice_updates_the_same_open_order() {
-        let conn = test_conn();
-        let cola = item_id(&conn, "Cola 500ml");
-        let t2 = table_id(&conn, "Table 2"); // seeded status: free
-
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 4 }], 200).unwrap();
-
-        let order_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM table_orders WHERE table_id = ?1",
-                params![t2],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(order_count, 1, "second attach should update, not duplicate");
-
-        let parked = get_parked_cart(&conn, t2).unwrap().unwrap();
-        assert_eq!(parked.items[0].qty, 4);
-        assert_eq!(parked.discount_minor, 200);
-
-        let status: String =
-            conn.query_row("SELECT status FROM tables WHERE id = ?1", params![t2], |row| row.get(0)).unwrap();
-        assert_eq!(status, "occupied");
-    }
-
-    #[test]
-    fn attach_cart_rejects_empty_items_and_unknown_table() {
-        let conn = test_conn();
-        let cola = item_id(&conn, "Cola 500ml");
-        let t2 = table_id(&conn, "Table 2");
-
-        assert!(matches!(
-            attach_cart_to_table(&conn, t2, &[], 0),
-            Err(TableOrderError::EmptyCart)
-        ));
-        assert!(matches!(
-            attach_cart_to_table(&conn, 999_999, &[ParkedCartLine { item_id: cola, qty: 1 }], 0),
-            Err(TableOrderError::TableNotFound)
-        ));
-    }
-
-    #[test]
-    fn list_tables_reports_status_and_parked_flag() {
-        let conn = test_conn();
-        let cola = item_id(&conn, "Cola 500ml");
-        let t3 = table_id(&conn, "Table 3");
-        attach_cart_to_table(&conn, t3, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
-
-        let tables = list_tables(&conn).unwrap();
-        assert_eq!(tables.len(), 6, "all six seeded tables should be listed");
-        let table3 = tables.iter().find(|t| t.id == t3).unwrap();
-        assert!(table3.has_parked_order);
-        assert_eq!(table3.status, "occupied");
-    }
+    // Table-linked sales (closing the parked order, freeing the table) are
+    // covered in db::tables::tests, alongside the rest of the table lifecycle.
 }
