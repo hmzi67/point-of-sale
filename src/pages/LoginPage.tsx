@@ -1,9 +1,16 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Delete, Store } from "lucide-react";
 import { getUsers } from "../services/authService";
+import { useSecretTapTrigger } from "../hooks/useSecretTapTrigger";
 import { useAuthStore } from "../store";
 import { PIN_MAX_LENGTH, PIN_MIN_LENGTH, type User } from "../types";
+
+// Lazy so this never loads for the overwhelming majority of app sessions
+// that never trigger it — see `useSecretTapTrigger`'s doc comment.
+const ProductOwnerModal = lazy(() =>
+  import("../components/productOwner/ProductOwnerModal").then((m) => ({ default: m.ProductOwnerModal })),
+);
 
 const KEYPAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
@@ -22,6 +29,9 @@ export function LoginPage() {
   const isAuthenticating = useAuthStore((state) => state.isAuthenticating);
   const error = useAuthStore((state) => state.error);
   const clearError = useAuthStore((state) => state.clearError);
+
+  const [showVendorAccess, setShowVendorAccess] = useState(false);
+  const onSecretTap = useSecretTapTrigger(() => setShowVendorAccess(true));
 
   useEffect(() => {
     getUsers()
@@ -60,7 +70,7 @@ export function LoginPage() {
     <div className="flex h-full items-center justify-center bg-slate-900 p-6">
       <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
         <div className="mb-6 flex items-center gap-2">
-          <Store className="h-6 w-6 text-brand-600" />
+          <Store className="h-6 w-6 text-brand-600" onClick={onSecretTap} />
           <h1 className="text-lg font-semibold text-slate-900">Sign in</h1>
         </div>
 
@@ -142,6 +152,12 @@ export function LoginPage() {
           First run? Sign in as Owner with PIN 1234, then change it.
         </p>
       </div>
+
+      {showVendorAccess && (
+        <Suspense fallback={null}>
+          <ProductOwnerModal onClose={() => setShowVendorAccess(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

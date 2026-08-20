@@ -22,7 +22,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -32,6 +32,7 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "modules",
     "enabled_modules",
     "users",
+    "product_owner_account",
     // Phase 2 — operations
     "categories",
     "items",
@@ -165,6 +166,10 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // exists — `apply()` runs `execute_batch(SCHEMA_SQL)` (creating
     // `shifts`) before calling this function.
     ("sales", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
+    // Product-owner module locks — see schema.sql's comment on
+    // `enabled_modules` for what these mean.
+    ("enabled_modules", "desktop_locked", "INTEGER NOT NULL DEFAULT 0"),
+    ("enabled_modules", "android_locked", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs
@@ -553,6 +558,55 @@ mod tests {
 
         // Re-applying (the next app launch) must not error on an already-added column/index.
         apply(&conn).unwrap();
+    }
+
+    /// The other `ADDED_COLUMNS` case that needs its own test: an install
+    /// that predates the product-owner lock feature already has an
+    /// `enabled_modules` row per module — those rows, and any toggle the
+    /// client already made, must survive with the new columns defaulting
+    /// to "unlocked".
+    #[test]
+    fn adds_lock_columns_to_an_existing_enabled_modules_table_without_losing_toggles() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        conn.execute_batch(
+            "CREATE TABLE modules (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE,
+                 name TEXT NOT NULL, is_core INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE enabled_modules (
+                 module_id INTEGER PRIMARY KEY REFERENCES modules (id) ON DELETE CASCADE,
+                 desktop_enabled INTEGER NOT NULL DEFAULT 1,
+                 android_enabled INTEGER NOT NULL DEFAULT 0
+             );
+             INSERT INTO modules (key, name) VALUES ('expenses', 'Expenses');
+             INSERT INTO enabled_modules (module_id, desktop_enabled, android_enabled) VALUES (1, 0, 0);",
+        )
+        .unwrap();
+
+        apply(&conn).unwrap();
+
+        let has_columns = conn
+            .prepare("PRAGMA table_info(enabled_modules)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(has_columns.iter().any(|c| c == "desktop_locked"));
+        assert!(has_columns.iter().any(|c| c == "android_locked"));
+
+        let (desktop_enabled, desktop_locked, android_locked): (i64, i64, i64) = conn
+            .query_row(
+                "SELECT desktop_enabled, desktop_locked, android_locked FROM enabled_modules WHERE module_id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(desktop_enabled, 0, "the client's existing toggle must survive the migration");
+        assert_eq!(desktop_locked, 0, "an upgraded install must default to unlocked, not locked");
+        assert_eq!(android_locked, 0);
+
+        apply(&conn).unwrap(); // must not error re-applying
     }
 
     /// An install that predates the onboarding-wizard column already has a

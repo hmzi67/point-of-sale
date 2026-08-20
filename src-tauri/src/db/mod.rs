@@ -10,6 +10,7 @@ pub mod dashboard;
 pub mod expenses;
 pub mod items;
 pub mod modules;
+pub mod product_owner;
 pub mod refunds;
 pub mod reports;
 pub mod sales;

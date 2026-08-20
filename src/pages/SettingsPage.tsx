@@ -81,6 +81,15 @@ export function SettingsPage() {
                       Core
                     </span>
                   )}
+                  {module.locked && (
+                    <span
+                      title="Locked by the product administrator — cannot be changed here"
+                      className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-700"
+                    >
+                      <Lock className="h-3 w-3" />
+                      Locked
+                    </span>
+                  )}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-500">
                   Android: {module.androidEnabled ? "shown" : "hidden"}
@@ -90,7 +99,7 @@ export function SettingsPage() {
               <ToggleSwitch
                 label={`Toggle ${module.name}`}
                 checked={module.enabled}
-                disabled={module.isCore || pendingKey === module.key}
+                disabled={module.isCore || module.locked || pendingKey === module.key}
                 onChange={(enabled) => void onToggle(module.key, enabled)}
               />
             </li>

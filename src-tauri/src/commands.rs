@@ -24,10 +24,11 @@ use crate::db::shifts::{Shift, ShiftSummary};
 use crate::db::tables::{ParkedCartLine, ParkedOrder, TableSummary};
 use crate::db::users::{ManagedUser, Role, User};
 use crate::db::{
-    attendance, config, csv_import, dashboard, expenses, items, modules, refunds, reports, salary, sales, shifts,
-    tables, users, Db,
+    attendance, config, csv_import, dashboard, expenses, items, modules, product_owner, refunds, reports, salary,
+    sales, shifts, tables, users, Db,
 };
 use crate::images;
+use crate::product_owner_session::{require_product_owner, ProductOwnerSession};
 use crate::session::{require_role, Session};
 
 /// Owner and Admin are this product's two "full access" roles — see
@@ -1054,4 +1055,100 @@ pub fn dashboard_get_summary(
     db.with_conn(|conn| Ok(dashboard::get_summary(conn, &start_date, &end_date, platform)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Product owner (vendor) — a hidden, separate account for the product's
+// developer/vendor, not for any client's staff. Never appears in Manage
+// Users or any client-facing query; gated by `ProductOwnerSession`, never
+// `session::Session`, so reaching it neither requires nor disturbs whatever
+// staff account is currently signed in. See `db::product_owner`'s module
+// doc for the full rationale, and SUPPORT.md for the (deliberately
+// non-in-app) credential-recovery process.
+// ---------------------------------------------------------------------------
+
+/// Whether a credential has already been set on this install — the hidden
+/// entry point's UI uses this to decide whether to show a setup form or a
+/// login form. Unauthenticated on purpose: there's nothing to gate yet on
+/// the "no account" branch, and the answer alone reveals nothing about the
+/// credential itself.
+#[tauri::command]
+pub fn product_owner_get_status(db: State<'_, Db>) -> Result<bool, String> {
+    db.with_conn(product_owner::has_account).map_err(|e| e.to_string())
+}
+
+/// Sets the initial credential for this install and immediately grants an
+/// elevated session (so setting it and using it is one step, not two).
+/// Refuses if a credential already exists — see
+/// `product_owner::ProductOwnerError::AlreadyConfigured`.
+#[tauri::command]
+pub fn product_owner_setup(
+    db: State<'_, Db>,
+    po_session: State<'_, ProductOwnerSession>,
+    password: String,
+) -> Result<(), String> {
+    db.with_conn(|conn| Ok(product_owner::setup(conn, &password)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    po_session.grant();
+    Ok(())
+}
+
+/// Verifies `password` and, on success, grants an elevated session — see
+/// `ProductOwnerSession` for its (short, idle-based) lifetime.
+#[tauri::command]
+pub fn product_owner_login(
+    db: State<'_, Db>,
+    po_session: State<'_, ProductOwnerSession>,
+    password: String,
+) -> Result<(), String> {
+    db.with_conn(|conn| Ok(product_owner::verify(conn, &password)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    po_session.grant();
+    Ok(())
+}
+
+/// Ends the elevated session immediately, without waiting for it to idle out.
+#[tauri::command]
+pub fn product_owner_logout(po_session: State<'_, ProductOwnerSession>) {
+    po_session.revoke();
+}
+
+/// Every module's state (including per-platform lock flags) — the
+/// module-override UI's list. Requires a currently-valid elevated session.
+#[tauri::command]
+pub fn product_owner_get_modules(
+    db: State<'_, Db>,
+    po_session: State<'_, ProductOwnerSession>,
+    platform: String,
+) -> Result<Vec<ModuleState>, String> {
+    require_product_owner(&po_session)?;
+    let platform = parse_platform(&platform)?;
+    db.with_conn(|conn| modules::list(conn, platform)).map_err(|e| e.to_string())
+}
+
+/// Sets a module's `enabled` and/or `locked` state on one platform,
+/// independently (`None` leaves that half unchanged) — see
+/// `db::modules::set_by_product_owner`. This is the higher-privilege path:
+/// it bypasses the client-facing `toggle_module`'s lock check entirely
+/// (it's the thing that *sets* the lock), reusing the exact same
+/// `enabled_modules` update logic rather than a parallel implementation.
+#[tauri::command]
+pub fn product_owner_set_module(
+    db: State<'_, Db>,
+    po_session: State<'_, ProductOwnerSession>,
+    module_key: String,
+    platform: String,
+    enabled: Option<bool>,
+    locked: Option<bool>,
+) -> Result<Vec<ModuleState>, String> {
+    require_product_owner(&po_session)?;
+    let platform = parse_platform(&platform)?;
+    db.with_conn(|conn| {
+        Ok(modules::set_by_product_owner(conn, &module_key, platform, enabled, locked)
+            .map_err(|e| e.to_string())
+            .and_then(|()| modules::list(conn, platform).map_err(|e| e.to_string())))
+    })
+    .map_err(|e| e.to_string())?
 }

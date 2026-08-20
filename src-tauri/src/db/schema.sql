@@ -107,7 +107,17 @@ CREATE TABLE IF NOT EXISTS enabled_modules (
     module_id       INTEGER PRIMARY KEY
                     REFERENCES modules (id) ON DELETE CASCADE,
     desktop_enabled INTEGER NOT NULL DEFAULT 1 CHECK (desktop_enabled IN (0, 1)),
-    android_enabled INTEGER NOT NULL DEFAULT 0 CHECK (android_enabled IN (0, 1))
+    android_enabled INTEGER NOT NULL DEFAULT 0 CHECK (android_enabled IN (0, 1)),
+    -- Set only by the product-owner override path (`db::product_owner`),
+    -- never by the client-facing `toggle_module` command. When true for a
+    -- platform, the client's own Owner/Admin cannot change that platform's
+    -- `*_enabled` value at all — `modules::set_enabled` checks this first
+    -- and refuses with a clear error rather than silently no-op'ing. Two
+    -- columns (not one shared flag) because a lock is per-platform, same
+    -- split as `*_enabled` itself: the product owner may lock Android's
+    -- visibility while leaving desktop free to toggle, or vice versa.
+    desktop_locked  INTEGER NOT NULL DEFAULT 0 CHECK (desktop_locked IN (0, 1)),
+    android_locked  INTEGER NOT NULL DEFAULT 0 CHECK (android_locked IN (0, 1))
 );
 
 -- ---------------------------------------------------------------------------
@@ -124,6 +134,23 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_active ON users (is_active);
+
+-- ---------------------------------------------------------------------------
+-- The vendor/developer account — deliberately NOT a row in `users`, and
+-- never joined against or exposed by any client-facing query (Manage Users,
+-- the login screen's account list, etc). One row, pinned `id = 1`, exactly
+-- like `app_config`; absent until the vendor sets a credential on this
+-- specific install via the hidden entry point (`db::product_owner`) — there
+-- is no default/shared password baked into the binary. See SUPPORT.md for
+-- what recovering a forgotten credential actually looks like, since there
+-- is deliberately no in-app reset path for this account.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS product_owner_account (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    pin_hash   TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
 
 -- ###########################################################################
 -- Phase 2 — operational schema

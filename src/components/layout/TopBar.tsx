@@ -1,5 +1,13 @@
+import { lazy, Suspense, useState } from "react";
 import { LogOut, Menu } from "lucide-react";
+import { useSecretTapTrigger } from "../../hooks/useSecretTapTrigger";
 import { useAppStore, useAuthStore } from "../../store";
+
+// Lazy so this never loads for the overwhelming majority of app sessions
+// that never trigger it — see `useSecretTapTrigger`'s doc comment.
+const ProductOwnerModal = lazy(() =>
+  import("../productOwner/ProductOwnerModal").then((m) => ({ default: m.ProductOwnerModal })),
+);
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner",
@@ -16,6 +24,9 @@ export function TopBar({ onOpenNav }: TopBarProps) {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
 
+  const [showVendorAccess, setShowVendorAccess] = useState(false);
+  const onSecretTap = useSecretTapTrigger(() => setShowVendorAccess(true));
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4">
       <div className="flex items-center gap-2">
@@ -27,8 +38,16 @@ export function TopBar({ onOpenNav }: TopBarProps) {
         >
           <Menu className="h-5 w-5" />
         </button>
-        <h1 className="text-base font-semibold text-slate-900">{businessName}</h1>
+        <h1 className="text-base font-semibold text-slate-900" onClick={onSecretTap}>
+          {businessName}
+        </h1>
       </div>
+
+      {showVendorAccess && (
+        <Suspense fallback={null}>
+          <ProductOwnerModal onClose={() => setShowVendorAccess(false)} />
+        </Suspense>
+      )}
 
       <div className="flex items-center gap-4 text-sm">
         <span className="hidden items-center gap-1.5 text-slate-500 sm:inline-flex">

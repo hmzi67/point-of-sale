@@ -2,11 +2,13 @@ mod commands;
 mod db;
 mod images;
 mod printer;
+mod product_owner_session;
 mod session;
 
 use tauri::Manager;
 
 use crate::db::Db;
+use crate::product_owner_session::ProductOwnerSession;
 use crate::session::Session;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -18,6 +20,7 @@ pub fn run() {
             let db = Db::open(dir)?;
             app.manage(db);
             app.manage(Session::new());
+            app.manage(ProductOwnerSession::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -79,6 +82,12 @@ pub fn run() {
             commands::salary_record_payment,
             commands::salary_get_payment_history,
             commands::dashboard_get_summary,
+            commands::product_owner_get_status,
+            commands::product_owner_setup,
+            commands::product_owner_login,
+            commands::product_owner_logout,
+            commands::product_owner_get_modules,
+            commands::product_owner_set_module,
             commands::get_users,
             commands::login,
             commands::logout,

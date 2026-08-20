@@ -34,4 +34,11 @@ export interface ModuleState {
   enabled: boolean;
   desktopEnabled: boolean;
   androidEnabled: boolean;
+  /** Whether the product owner has locked *this platform's* visibility —
+   * when true, the client's own Owner/Admin cannot change `enabled` here;
+   * only the hidden product-owner override can. Derived from the requested
+   * platform's lock column, same as `enabled` is. */
+  locked: boolean;
+  desktopLocked: boolean;
+  androidLocked: boolean;
 }
