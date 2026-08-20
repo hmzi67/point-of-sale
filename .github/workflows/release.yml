@@ -1,0 +1,264 @@
+# Builds production artifacts for Windows, macOS (Apple Silicon + Intel) and
+# Android whenever a `v*` tag is pushed, and collects them all onto a single
+# GitHub release for that tag.
+#
+# iOS is intentionally out of scope — see PROJECT_GOALS.md / BUILD_PLAN.md.
+#
+# ---------------------------------------------------------------------------
+# VERSION PINS THAT NEED PERIODIC VERIFICATION
+# ---------------------------------------------------------------------------
+# The versions below were checked against this repo's installed
+# `@tauri-apps/cli` (see package.json) at the time this workflow was written.
+# Tauri's Android tooling requirements (JDK, NDK) change between releases —
+# re-check https://v2.tauri.app/start/prerequisites/#android and
+# https://github.com/tauri-apps/tauri-action/releases before assuming these
+# are still correct, especially after bumping @tauri-apps/cli:
+#   - tauri-apps/tauri-action@v1   (added Android build support in 1.0.0)
+#   - JDK 17 (Zulu)                 — standard for current Android Gradle Plugin
+#   - Android NDK r27c              — pinned via nttld/setup-ndk; the repo's
+#                                      generated src-tauri/gen/android project
+#                                      does not itself pin an NDK version
+#   - android-actions/setup-android@v4
+# ---------------------------------------------------------------------------
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Re-pushing the same tag cancels any in-progress run for it instead of
+# racing duplicate builds / duplicate release uploads.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  # actions/checkout leaves github.ref_name populated with the bare tag
+  # (e.g. "v1.0.0") for a tag push — used as both the release tag and name.
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  # Creates the (draft) GitHub release once, up front, so the Windows,
+  # macOS and Android jobs all upload their artifacts onto the SAME
+  # release instead of each creating their own.
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create-release.outputs.result }}
+    steps:
+      - name: Create draft release
+        id: create-release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: process.env.RELEASE_TAG,
+              name: `POS ${process.env.RELEASE_TAG}`,
+              draft: true,
+              prerelease: false,
+            });
+            return data.id;
+
+  windows:
+    name: Build Windows
+    needs: create-release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+
+  macos:
+    name: Build macOS (${{ matrix.target }})
+    needs: create-release
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # ---------------------------------------------------------------
+      # Code signing / notarization — NOT yet configured (no Apple
+      # Developer account). When one is available, this is the small
+      # addition needed (no rewrite of the job):
+      #
+      #   - name: Import Apple signing certificate
+      #     uses: apple-actions/import-codesign-certs@v3
+      #     with:
+      #       p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+      #       p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #
+      # ...placed before the tauri-action step below, and these env vars
+      # added to that step (tauri-action / tauri-bundler read them
+      # directly):
+      #
+      #   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      #   APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #   APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      #   APPLE_ID: ${{ secrets.APPLE_ID }}
+      #   APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      #   APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      #
+      # See https://v2.tauri.app/distribute/sign/macos/ for the full setup.
+      # ---------------------------------------------------------------
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target ${{ matrix.target }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+
+  android:
+    name: Build Android
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >-
+            aarch64-linux-android,
+            armv7-linux-androideabi,
+            i686-linux-android,
+            x86_64-linux-android
+
+      # VERIFY: JDK version required by this repo's @tauri-apps/cli — see
+      # the pin notes at the top of this file.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      # VERIFY: Android SDK platform/build-tools versions. compileSdk/
+      # targetSdk (currently 36) come from src-tauri/gen/android — Gradle
+      # will pull any additional SDK packages it needs on top of this
+      # baseline as long as licenses are pre-accepted, which this action
+      # does.
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
+
+      # VERIFY: NDK version — not pinned anywhere in the repo (see pin
+      # notes at the top of this file).
+      - name: Set up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+          link-to-sdk: true
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # src-tauri/gen/android is generated output (see the repo's git
+      # status — it's untracked). Regenerate it if it isn't already
+      # present so this job doesn't depend on it being committed.
+      - name: Initialize Android project (if needed)
+        run: test -d src-tauri/gen/android || npm run tauri android init
+
+      # Tauri's Android signing reads src-tauri/gen/android/keystore.properties
+      # (see https://v2.tauri.app/distribute/sign/android/). The documented
+      # format uses a single `password` field for the keystore; `keyPassword`
+      # is written defensively in case the key password differs from the
+      # store password — VERIFY against your @tauri-apps/cli version whether
+      # it's honored, since Tauri's own CI example only uses one password.
+      # This step never logs the decoded keystore or password values.
+      - name: Configure Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYSTORE_PATH="$RUNNER_TEMP/pos-release.keystore.jks"
+          base64 --decode <<< "$ANDROID_KEYSTORE_BASE64" > "$KEYSTORE_PATH"
+          {
+            echo "storeFile=$KEYSTORE_PATH"
+            echo "password=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > src-tauri/gen/android/keystore.properties
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Build signed Android app
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: npm run tauri android build -- --apk --aab
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "$KEYSTORE_PATH" src-tauri/gen/android/keystore.properties
+
+      - name: Upload Android artifacts to the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s globstar nullglob
+          FILES=(src-tauri/gen/android/app/build/outputs/**/*.apk src-tauri/gen/android/app/build/outputs/**/*.aab)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No APK/AAB files found under src-tauri/gen/android/app/build/outputs" >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${FILES[@]}" --clobber --repo "${{ github.repository }}"
+
+  # Only flip the release out of draft once every platform's artifacts have
+  # actually landed on it, so the release page never shows an incomplete set.
+  finalize-release:
+    name: Publish release
+    needs: [create-release, windows, macos, android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Undraft release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.create-release.outputs.release_id }},
+              draft: false,
+            });
