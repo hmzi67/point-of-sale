@@ -198,6 +198,17 @@ jobs:
       - name: Initialize Android project (if needed)
         run: test -d src-tauri/gen/android || npm run tauri android init
 
+      # `tauri android init` regenerates build.gradle.kts from scratch every
+      # run, and the generated file does NOT read keystore.properties or
+      # apply a signing config to the release build type on its own — see
+      # https://v2.tauri.app/distribute/sign/android/. Without this, the
+      # keystore.properties written by the next step is inert and the build
+      # silently produces an unsigned APK/AAB. scripts/patch_android_signing.py
+      # is idempotent (safe to re-run) and is the same script a developer
+      # runs locally after `npm run tauri android init` — see DEPLOYMENT.md.
+      - name: Patch Android Gradle project to use keystore.properties
+        run: python3 scripts/patch_android_signing.py
+
       # Tauri's Android signing reads src-tauri/gen/android/keystore.properties
       # (see https://v2.tauri.app/distribute/sign/android/). The documented
       # format uses a single `password` field for the keystore; `keyPassword`
@@ -228,6 +239,34 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: npm run tauri android build -- --apk --aab
+
+      # Regression guard: if the Gradle signing patch above ever stops
+      # applying (Tauri changes the generated file's shape, the marker
+      # comment stops matching, etc.), Gradle silently falls back to
+      # producing e.g. app-universal-release-unsigned.apk instead of
+      # failing the build. Fail loudly here instead of shipping an
+      # unsigned artifact under a release named "signed".
+      - name: Verify build outputs are signed
+        run: |
+          shopt -s globstar nullglob
+          FILES=(src-tauri/gen/android/app/build/outputs/**/*.apk src-tauri/gen/android/app/build/outputs/**/*.aab)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No APK/AAB files found under src-tauri/gen/android/app/build/outputs" >&2
+            exit 1
+          fi
+          UNSIGNED=()
+          for f in "${FILES[@]}"; do
+            case "$f" in
+              *unsigned*) UNSIGNED+=("$f") ;;
+            esac
+          done
+          if [ ${#UNSIGNED[@]} -ne 0 ]; then
+            echo "error: found unsigned build output(s) — the signing config was not applied:" >&2
+            printf '  %s\n' "${UNSIGNED[@]}" >&2
+            exit 1
+          fi
+          echo "All build outputs are signed:"
+          printf '  %s\n' "${FILES[@]}"
 
       - name: Remove decoded keystore
         if: always()

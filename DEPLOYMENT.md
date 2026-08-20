@@ -82,3 +82,35 @@ in this repo). If you'd rather have CI use an exact, hand-configured Android
 project instead of a freshly generated one, commit `src-tauri/gen/android`
 to the repo (minus `keystore.properties`, which must stay secret) and drop
 that init step.
+
+### Android signing works locally too, not just in CI
+
+`tauri android init` generates `src-tauri/gen/android/app/build.gradle.kts`
+from scratch every time, and Tauri does not wire that file up to read
+`keystore.properties` or sign the release build type on its own — see
+[Tauri's Android signing guide](https://v2.tauri.app/distribute/sign/android/).
+The release workflow patches this in automatically (`scripts/patch_android_signing.py`,
+run right after `tauri android init`); without it, `tauri android build`
+silently produces an *unsigned* APK/AAB
+(`app-universal-release-unsigned.apk`) instead of a signed one.
+
+To get the same signed output locally:
+
+```bash
+npm run tauri android init          # only needed once, or after deleting gen/android
+python3 scripts/patch_android_signing.py
+
+cat > src-tauri/gen/android/keystore.properties <<EOF
+storeFile=/absolute/path/to/pos-release.keystore
+password=<your keystore password>
+keyAlias=<your key alias>
+keyPassword=<your key password>
+EOF
+
+npm run tauri android build -- --apk --aab
+```
+
+`scripts/patch_android_signing.py` is idempotent — re-run it after any
+`tauri android init` that regenerates `gen/android`; it no-ops if the patch
+is already present. Never commit `keystore.properties` — it's inside the
+gitignored `gen/android` tree.
