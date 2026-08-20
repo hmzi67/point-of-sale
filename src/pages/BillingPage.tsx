@@ -32,6 +32,15 @@ export function BillingPage() {
   const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Search (from ItemSearchBar) always queries the whole catalog, never
+  // scoped to `selectedCategoryId`. Non-empty `searchQuery` means the grid
+  // shows `searchResults` instead of the category-filtered view below —
+  // clearing the search box (searchQuery === "") reverts to whichever
+  // category pill is selected, without needing to remember/restore anything.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Item[]>([]);
+  const isSearching = searchQuery.trim().length > 0;
+
   const loadCatalog = () => {
     setIsLoadingItems(true);
     setLoadError(null);
@@ -46,8 +55,11 @@ export function BillingPage() {
 
   useEffect(loadCatalog, []);
 
-  const visibleItems =
-    selectedCategoryId === null ? items : items.filter((item) => item.categoryId === selectedCategoryId);
+  const visibleItems = isSearching
+    ? searchResults
+    : selectedCategoryId === null
+      ? items
+      : items.filter((item) => item.categoryId === selectedCategoryId);
 
   // --- Item detail modal: add-mode (grid tap) and edit-mode (cart pencil) ---
   const [openItem, setOpenItem] = useState<Item | null>(null);
@@ -108,13 +120,24 @@ export function BillingPage() {
           selectedCategoryId={selectedCategoryId}
           onSelect={setSelectedCategoryId}
         />
-        <ItemSearchBar currency={config.currency} />
+        <ItemSearchBar
+          onResultsChange={(query, results) => {
+            setSearchQuery(query);
+            setSearchResults(results);
+          }}
+        />
 
         {loadError && <p className="rounded-2xl bg-red-50 px-4 py-2.5 text-sm text-red-700">{loadError}</p>}
         {notice && <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700">{notice}</p>}
 
         <div className="flex-1 overflow-y-auto pb-2">
-          <ItemGrid items={visibleItems} currency={config.currency} isLoading={isLoadingItems} onOpenItem={setOpenItem} />
+          <ItemGrid
+            items={visibleItems}
+            currency={config.currency}
+            isLoading={isLoadingItems}
+            isSearching={isSearching}
+            onOpenItem={setOpenItem}
+          />
         </div>
       </div>
 

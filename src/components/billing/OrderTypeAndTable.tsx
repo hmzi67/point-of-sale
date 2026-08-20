@@ -12,7 +12,7 @@ interface OrderTypeAndTableProps {
 }
 
 const selectClass =
-  "w-full appearance-none rounded-xl border-0 bg-slate-50 py-2 pl-3 pr-8 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-200";
+  "w-full appearance-none rounded-2xl border-0 bg-slate-50 py-2.5 pl-4 pr-9 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-200";
 
 /**
  * The cart panel's Table + Order Type row. All the actual park/resume logic
@@ -109,7 +109,7 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
               </option>
             ))}
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         </div>
 
         <div className="relative">
@@ -125,7 +125,7 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
             </option>
             <option value="takeaway">Takeaway</option>
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         </div>
       </div>
 

@@ -3,25 +3,31 @@ import { Search } from "lucide-react";
 import { searchItems } from "../../services/billingService";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useBillingStore } from "../../store";
-import { formatMinor } from "../../utils/format";
 import type { Item } from "../../types";
 
 interface ItemSearchBarProps {
-  currency: string;
+  /** Fired whenever the (debounced) search settles — with the trimmed
+   * query and its full-catalog results. `query === ""` means "search
+   * cleared"; the caller (BillingPage) uses that to fall back to whatever
+   * category pill is selected, and treats a non-empty query as overriding
+   * the category filter entirely, matching the item grid to these same
+   * results. */
+  onResultsChange: (query: string, results: Item[]) => void;
 }
 
 /**
- * The billing screen's only mandatory input: typing filters items live, and
- * a barcode scan — which types the code then sends Enter, indistinguishable
- * from fast typing — adds the top match straight to the cart with no mouse
- * involved. Search state (query, results, highlight) is local to this
- * component rather than in the billing store, so typing here never
- * re-renders the cart panel, and the cart's own updates never re-render this.
+ * The billing screen's only mandatory input: typing filters the item grid
+ * live (via `onResultsChange`, always against the whole catalog — never
+ * scoped to the currently selected category), and a barcode scan — which
+ * types the code then sends Enter, indistinguishable from fast typing —
+ * adds the top match straight to the cart with no mouse involved. Search
+ * state (query, results) is local to this component rather than in the
+ * billing store, so typing here never re-renders the cart panel, and the
+ * cart's own updates never re-render this.
  */
-export function ItemSearchBar({ currency }: ItemSearchBarProps) {
+export function ItemSearchBar({ onResultsChange }: ItemSearchBarProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
@@ -37,6 +43,7 @@ export function ItemSearchBar({ currency }: ItemSearchBarProps) {
     if (!trimmed) {
       setResults([]);
       setError(null);
+      onResultsChange("", []);
       return;
     }
 
@@ -46,13 +53,16 @@ export function ItemSearchBar({ currency }: ItemSearchBarProps) {
         // A slower, earlier request must never clobber a newer result set.
         if (requestId !== requestIdRef.current) return;
         setResults(items);
-        setHighlightedIndex(0);
         setError(null);
+        onResultsChange(trimmed, items);
       })
       .catch((e: Error) => {
         if (requestId !== requestIdRef.current) return;
         setError(e.message);
       });
+    // Deliberately omits onResultsChange: it's a fresh closure from
+    // BillingPage every render, and only the settled query should
+    // re-trigger this search.
   }, [debouncedQuery]);
 
   const addAndReset = (item: Item) => {
@@ -64,6 +74,7 @@ export function ItemSearchBar({ currency }: ItemSearchBarProps) {
     setQuery("");
     setResults([]);
     setError(null);
+    onResultsChange("", []);
     inputRef.current?.focus();
   };
 
@@ -74,65 +85,31 @@ export function ItemSearchBar({ currency }: ItemSearchBarProps) {
       // have caught up with the very latest keystroke yet, but the exact
       // barcode match is always sorted first by the backend, so acting on
       // whatever the current top result is remains correct.
-      const top = results[highlightedIndex] ?? results[0];
+      const top = results[0];
       if (top) addAndReset(top);
-    } else if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlightedIndex((i) => Math.min(i + 1, results.length - 1));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlightedIndex((i) => Math.max(i - 1, 0));
     } else if (event.key === "Escape") {
       setQuery("");
       setResults([]);
+      onResultsChange("", []);
     }
   };
 
   return (
     <div className="relative">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Search something sweet on your mind…"
-          autoFocus
-          className="w-full rounded-2xl bg-white py-3.5 pl-12 pr-4 text-sm shadow-soft placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-200"
-        />
-      </div>
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder="Search something sweet on your mind…"
+        autoFocus
+        className="w-full rounded-2xl bg-white py-3.5 pl-5 pr-14 text-sm shadow-soft placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-200"
+      />
+      <span className="pointer-events-none absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-slate-100">
+        <Search className="h-4 w-4 text-slate-500" />
+      </span>
 
       {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
-
-      {results.length > 0 && (
-        <ul className="absolute z-20 mt-1.5 max-h-80 w-full overflow-y-auto rounded-2xl bg-white shadow-soft-lg">
-          {results.map((item, index) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => addAndReset(item)}
-                onMouseEnter={() => setHighlightedIndex(index)}
-                disabled={item.stockQty <= 0}
-                className={[
-                  "flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50",
-                  index === highlightedIndex ? "bg-brand-50" : "hover:bg-slate-50",
-                ].join(" ")}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium text-slate-900">{item.name}</span>
-                  <span className="block text-xs text-slate-500">
-                    {item.barcode ?? "No barcode"} · {item.stockQty} in stock
-                  </span>
-                </span>
-                <span className="shrink-0 font-medium text-slate-900">
-                  {formatMinor(item.priceMinor, currency)}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

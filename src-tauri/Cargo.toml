@@ -27,3 +27,8 @@ chrono = "0.4"
 argon2 = { version = "0.5", features = ["std"] }
 base64 = "0.22"
 csv = "1"
+# USB transport for `printer::escpos::send_to_printer`. "vendored" builds
+# libusb from source instead of requiring it preinstalled on the dev/client
+# machine (e.g. `brew install libusb` on macOS) — one less setup step for a
+# feature that's meant to just work once a USB thermal printer is plugged in.
+rusb = { version = "0.9", features = ["vendored"] }

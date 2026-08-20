@@ -6,10 +6,14 @@ interface ItemGridProps {
   items: Item[];
   currency: string;
   isLoading: boolean;
+  /** True while a search query is driving `items` (see BillingPage) — only
+   * changes the empty-state copy, so "no matches" doesn't read as "this
+   * category is empty". */
+  isSearching?: boolean;
   onOpenItem: (item: Item) => void;
 }
 
-export function ItemGrid({ items, currency, isLoading, onOpenItem }: ItemGridProps) {
+export function ItemGrid({ items, currency, isLoading, isSearching = false, onOpenItem }: ItemGridProps) {
   if (isLoading) {
     return (
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
@@ -24,7 +28,7 @@ export function ItemGrid({ items, currency, isLoading, onOpenItem }: ItemGridPro
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-slate-400">
         <PackageSearch className="h-8 w-8" />
-        <p className="text-sm">No items in this category yet</p>
+        <p className="text-sm">{isSearching ? "No items match your search" : "No items in this category yet"}</p>
       </div>
     );
   }

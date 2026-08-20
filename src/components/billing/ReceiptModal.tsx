@@ -11,8 +11,10 @@ interface ReceiptModalProps {
 }
 
 /** Shown right after a sale completes (and reusable for a reprint later).
- * PDF is the default/working path; thermal is a best-effort extra that fails
- * gracefully today since no printer hardware is wired up yet. */
+ * PDF is the default/working path; thermal is a best-effort extra — it
+ * auto-detects a USB ESC/POS printer and fails gracefully (with a message
+ * to fall back to the PDF) if none is found. Serial/network printers
+ * aren't supported yet. */
 export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);

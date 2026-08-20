@@ -425,10 +425,11 @@ pub fn billing_get_sale(db: State<'_, Db>, id: i64) -> Result<Sale, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Attempts to print a receipt on a thermal printer. Always fails with a
-/// friendly "not configured" message until real hardware is wired up in
-/// `printer::escpos::send_to_printer` — the PDF receipt (built entirely in
-/// the frontend with jsPDF) is what actually gets used until then.
+/// Attempts to print a receipt on a USB thermal printer (auto-detected —
+/// see `printer::escpos::send_to_printer`). Fails with a friendly message
+/// if none is found/reachable; the PDF receipt (built entirely in the
+/// frontend with jsPDF) is the reliable fallback either way, and serial/
+/// network printers aren't supported yet.
 #[tauri::command]
 pub fn billing_print_receipt_thermal(db: State<'_, Db>, sale_id: i64) -> Result<(), String> {
     let sale = db

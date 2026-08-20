@@ -27,29 +27,35 @@ export function ItemCard({ item, currency, onOpen }: ItemCardProps) {
       ].join(" ")}
     >
       {/* Padded, tinted mount for the photo instead of an edge-to-edge crop —
-       * reads as a framed thumbnail rather than a raw cropped image. */}
+       * reads as a framed thumbnail floating on a soft neutral surface,
+       * inset within the card, not filling its whole top edge. */}
       <div className="p-2.5 pb-0">
-        <div className="overflow-hidden rounded-xl bg-slate-50">
+        <div className="relative overflow-hidden rounded-xl bg-slate-50">
           <ItemImage imagePath={item.imagePath} alt={item.name} className="h-28 w-full" />
+          {outOfStock && (
+            <span className="absolute left-2 top-2 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-semibold text-white">
+              Out of stock
+            </span>
+          )}
         </div>
       </div>
 
-      {/* image → name → category → price as one tight vertical rhythm,
-       * rather than a name row plus a separate category/price row. */}
-      <div className="flex flex-1 flex-col gap-1 px-3 pb-3 pt-2.5">
+      {/* Name is the anchor; category pill + price share one row below it,
+       * consistent padding all round so image → name → row reads as one
+       * block instead of separately-spaced pieces. */}
+      <div className="flex flex-1 flex-col gap-1.5 p-3 pt-2.5">
         <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
-        {item.categoryName && (
-          <span
-            className={`w-fit truncate rounded-full px-2 py-0.5 text-[10.5px] font-medium ${color.bg} ${color.text}`}
-          >
-            {item.categoryName}
-          </span>
-        )}
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="text-base font-extrabold tracking-tight text-slate-900">
+        <div className="flex items-center justify-between gap-2">
+          {item.categoryName ? (
+            <span className={`truncate rounded-full px-2 py-0.5 text-[10.5px] font-medium ${color.bg} ${color.text}`}>
+              {item.categoryName}
+            </span>
+          ) : (
+            <span />
+          )}
+          <span className="shrink-0 text-base font-extrabold tracking-tight text-slate-900">
             {formatMinor(item.priceMinor, currency)}
           </span>
-          {outOfStock && <span className="text-[11px] font-medium text-red-500">Out of stock</span>}
         </div>
       </div>
     </button>
