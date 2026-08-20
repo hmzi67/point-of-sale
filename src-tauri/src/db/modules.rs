@@ -161,7 +161,7 @@ mod tests {
 
         assert!(!enabled_keys(&conn, Platform::Desktop).contains(&"inventory".to_string()));
         // The module itself still exists — only its visibility changed.
-        assert_eq!(list(&conn, Platform::Desktop).unwrap().len(), 8);
+        assert_eq!(list(&conn, Platform::Desktop).unwrap().len(), 9);
     }
 
     #[test]

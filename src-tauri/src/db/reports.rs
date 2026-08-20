@@ -73,10 +73,33 @@ fn validate_range(start_date: &str, end_date: &str) -> Result<(String, String), 
 pub struct SalesSummary {
     pub start_date: String,
     pub end_date: String,
+    /// Gross — the sum of `sales.total_minor` in the range, unaffected by
+    /// any refund. Kept as its own field (rather than folding refunds in
+    /// here) so "how much did we ring up" and "how much did we actually
+    /// keep" both stay answerable from one summary.
     pub total_sales_minor: i64,
+    /// Refunds *recorded* in the range (by `refunds.created_at`, not by
+    /// when the original sale happened) — a refund issued today against
+    /// last week's sale reduces today's figure, not last week's.
+    pub refunds_minor: i64,
+    /// `total_sales_minor - refunds_minor` — the number profit/dashboard
+    /// math should use, never `total_sales_minor` alone.
+    pub net_sales_minor: i64,
     pub transaction_count: i64,
     /// Rounded to the nearest minor unit — never a fraction of a cent.
+    /// Computed against gross per-sale totals (a refund isn't "one more
+    /// transaction" with its own average), same as `transaction_count`.
     pub average_sale_minor: i64,
+}
+
+fn refunds_total(conn: &Connection, start_ts: &str, end_ts: &str) -> Result<i64, rusqlite::Error> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(total_refund_amount_minor), 0)
+           FROM refunds
+          WHERE created_at >= ?1 AND created_at <= ?2",
+        params![start_ts, end_ts],
+        |row| row.get(0),
+    )
 }
 
 pub fn get_sales_summary(
@@ -93,6 +116,7 @@ pub fn get_sales_summary(
         params![start_ts, end_ts],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
+    let refunds_minor = refunds_total(conn, &start_ts, &end_ts)?;
 
     let average_sale_minor = if transaction_count > 0 {
         (total_sales_minor as f64 / transaction_count as f64).round() as i64
@@ -104,6 +128,8 @@ pub fn get_sales_summary(
         start_date: start_date.to_string(),
         end_date: end_date.to_string(),
         total_sales_minor,
+        refunds_minor,
+        net_sales_minor: total_sales_minor - refunds_minor,
         transaction_count,
         average_sale_minor,
     })
@@ -172,6 +198,101 @@ pub fn get_top_items(
 }
 
 // ---------------------------------------------------------------------------
+// Category-wise sale — one grouped section per category (header, item rows,
+// subtotal), grand total at the end. Feeds both the PDF export and the
+// print templates (ESC/POS + PDF) built on top of it.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategorySalesLine {
+    pub item_id: i64,
+    pub item_name: String,
+    pub qty_sold: i64,
+    pub revenue_minor: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategorySalesGroup {
+    /// `None` for items with no category — grouped under `category_name:
+    /// "Uncategorized"` rather than dropped from the report.
+    pub category_id: Option<i64>,
+    pub category_name: String,
+    pub items: Vec<CategorySalesLine>,
+    pub subtotal_minor: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategorySalesReport {
+    pub start_date: String,
+    pub end_date: String,
+    pub groups: Vec<CategorySalesGroup>,
+    pub grand_total_minor: i64,
+}
+
+/// Every item sold in the range, grouped by category (highest-revenue
+/// category first), each with a per-item breakdown and a subtotal — the
+/// "Category Wise Sale" report.
+pub fn get_category_sales(
+    conn: &Connection,
+    start_date: &str,
+    end_date: &str,
+) -> Result<CategorySalesReport, ReportError> {
+    let (start_ts, end_ts) = validate_range(start_date, end_date)?;
+
+    let mut stmt = conn.prepare(
+        "SELECT i.category_id, COALESCE(c.name, 'Uncategorized') AS category_name,
+                si.item_id, i.name, SUM(si.qty) AS qty_sold,
+                SUM(si.qty * si.price_at_sale_minor) AS revenue_minor
+           FROM sale_items si
+           JOIN sales s ON s.id = si.sale_id
+           JOIN items i ON i.id = si.item_id
+           LEFT JOIN categories c ON c.id = i.category_id
+          WHERE s.created_at >= ?1 AND s.created_at <= ?2
+          GROUP BY i.category_id, si.item_id
+          ORDER BY category_name, i.name",
+    )?;
+    let rows: Vec<(Option<i64>, String, i64, String, i64, i64)> = stmt
+        .query_map(params![start_ts, end_ts], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut groups: Vec<CategorySalesGroup> = Vec::new();
+    for (category_id, category_name, item_id, item_name, qty_sold, revenue_minor) in rows {
+        let line = CategorySalesLine { item_id, item_name, qty_sold, revenue_minor };
+        match groups.iter_mut().find(|g| g.category_id == category_id) {
+            Some(group) => {
+                group.subtotal_minor += revenue_minor;
+                group.items.push(line);
+            }
+            None => {
+                groups.push(CategorySalesGroup {
+                    category_id,
+                    category_name,
+                    subtotal_minor: revenue_minor,
+                    items: vec![line],
+                });
+            }
+        }
+    }
+    // Highest-earning category first — the report reads top-down as "what
+    // actually drove revenue", not an arbitrary/alphabetical order.
+    groups.sort_by(|a, b| b.subtotal_minor.cmp(&a.subtotal_minor));
+
+    let grand_total_minor = groups.iter().map(|g| g.subtotal_minor).sum();
+
+    Ok(CategorySalesReport {
+        start_date: start_date.to_string(),
+        end_date: end_date.to_string(),
+        groups,
+        grand_total_minor,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Sales over time
 // ---------------------------------------------------------------------------
 
@@ -180,7 +301,11 @@ pub fn get_top_items(
 pub struct DailySales {
     /// `YYYY-MM-DD`.
     pub date: String,
+    /// Gross for the day — see `SalesSummary::total_sales_minor`.
     pub total_minor: i64,
+    pub refunds_minor: i64,
+    /// `total_minor - refunds_minor`.
+    pub net_minor: i64,
     pub transaction_count: i64,
 }
 
@@ -208,12 +333,29 @@ pub fn get_sales_over_time(
         })?
         .collect::<Result<_, _>>()?;
 
+    let mut refund_stmt = conn.prepare(
+        "SELECT substr(created_at, 1, 10) AS day, COALESCE(SUM(total_refund_amount_minor), 0)
+           FROM refunds
+          WHERE created_at >= ?1 AND created_at <= ?2
+          GROUP BY day",
+    )?;
+    let refunds_by_day: HashMap<String, i64> = refund_stmt
+        .query_map(params![start_ts, end_ts], |row| Ok((row.get::<_, String>(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+
     let mut result = Vec::new();
     let mut day = start;
     while day <= end {
         let key = day.format("%Y-%m-%d").to_string();
         let (total_minor, transaction_count) = by_day.get(&key).copied().unwrap_or((0, 0));
-        result.push(DailySales { date: key, total_minor, transaction_count });
+        let refunds_minor = refunds_by_day.get(&key).copied().unwrap_or(0);
+        result.push(DailySales {
+            date: key,
+            total_minor,
+            refunds_minor,
+            net_minor: total_minor - refunds_minor,
+            transaction_count,
+        });
         day = day.succ_opt().expect("date overflow within a bounded range");
     }
 
@@ -378,5 +520,144 @@ mod tests {
         let series_count: i64 = series.iter().map(|d| d.transaction_count).sum();
         assert_eq!(series_total, summary.total_sales_minor);
         assert_eq!(series_count, summary.transaction_count);
+    }
+
+    /// Rings up a fresh Cola sale today, for tests that need a refund to
+    /// hang off something real without depending on which seeded sale IDs
+    /// exist.
+    fn seed_sale_today(conn: &mut Connection) -> (i64, i64) {
+        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        let tx = conn.transaction().unwrap();
+        let cola: i64 =
+            tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+        let sale = create_sale(
+            &tx,
+            CreateSaleInput {
+                items: vec![CartLine { item_id: cola, qty: 2, notes: None }],
+                discount_minor: 0,
+                tax_minor: 0,
+                payment_method: "cash".into(),
+                cashier_id: None,
+                table_id: None,
+                shift_id: None,
+            },
+        )
+        .unwrap();
+        let sale_item_id: i64 = tx
+            .query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale.id], |row| row.get(0))
+            .unwrap();
+        tx.commit().unwrap();
+        (sale.id, sale_item_id)
+    }
+
+    #[test]
+    fn a_refund_today_reduces_net_sales_but_not_gross() {
+        use crate::db::refunds::{create_refund, CreateRefundInput, RefundLineInput};
+        let mut conn = test_conn();
+        let (sale_id, sale_item_id) = seed_sale_today(&mut conn);
+
+        let before = get_sales_summary(&conn, &days_ago(0), &days_ago(0)).unwrap();
+
+        {
+            let tx = conn.transaction().unwrap();
+            create_refund(
+                &tx,
+                CreateRefundInput {
+                    sale_id,
+                    items: vec![RefundLineInput { sale_item_id, qty: 1, amount_minor: 8000 }],
+                    reason: None,
+                    refunded_by: None,
+                },
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let after = get_sales_summary(&conn, &days_ago(0), &days_ago(0)).unwrap();
+        assert_eq!(after.total_sales_minor, before.total_sales_minor, "gross is untouched by a refund");
+        assert_eq!(after.refunds_minor, before.refunds_minor + 8000);
+        assert_eq!(after.net_sales_minor, after.total_sales_minor - 8000);
+    }
+
+    #[test]
+    fn a_refund_appears_on_the_day_it_was_recorded_not_the_original_sale_day() {
+        use crate::db::refunds::{create_refund, CreateRefundInput, RefundLineInput};
+        let mut conn = test_conn();
+        // Seed data has a sale 12 days ago; refund it "today" instead.
+        let sale_id: i64 = conn
+            .query_row(
+                "SELECT id FROM sales WHERE substr(created_at,1,10) = ?1 LIMIT 1",
+                params![days_ago(12)],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let sale_item_id: i64 = conn
+            .query_row("SELECT id FROM sale_items WHERE sale_id = ?1 LIMIT 1", params![sale_id], |row| row.get(0))
+            .unwrap();
+        let price: i64 = conn
+            .query_row("SELECT price_at_sale_minor FROM sale_items WHERE id = ?1", params![sale_item_id], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        {
+            let tx = conn.transaction().unwrap();
+            create_refund(
+                &tx,
+                CreateRefundInput {
+                    sale_id,
+                    items: vec![RefundLineInput { sale_item_id, qty: 1, amount_minor: price }],
+                    reason: None,
+                    refunded_by: None,
+                },
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let today = get_sales_summary(&conn, &days_ago(0), &days_ago(0)).unwrap();
+        let twelve_days_ago = get_sales_summary(&conn, &days_ago(12), &days_ago(12)).unwrap();
+        assert_eq!(today.refunds_minor, price, "the refund lands on today's report");
+        assert_eq!(twelve_days_ago.refunds_minor, 0, "not on the original sale's day");
+    }
+
+    #[test]
+    fn category_sales_groups_by_category_with_correct_subtotals_and_grand_total() {
+        let conn = test_conn();
+        let report = get_category_sales(&conn, &days_ago(30), &days_ago(0)).unwrap();
+
+        assert!(!report.groups.is_empty(), "seed data has sales across categories");
+        for group in &report.groups {
+            let sum: i64 = group.items.iter().map(|i| i.revenue_minor).sum();
+            assert_eq!(sum, group.subtotal_minor, "{}'s subtotal must equal its own item sum", group.category_name);
+        }
+        let expected_grand_total: i64 = report.groups.iter().map(|g| g.subtotal_minor).sum();
+        assert_eq!(report.grand_total_minor, expected_grand_total);
+
+        // Same underlying revenue as get_top_items over the same range.
+        let top_items_total: i64 = get_top_items(&conn, &days_ago(30), &days_ago(0), 1000, TopItemSort::Revenue)
+            .unwrap()
+            .iter()
+            .map(|i| i.revenue_minor)
+            .sum();
+        assert_eq!(report.grand_total_minor, top_items_total);
+    }
+
+    #[test]
+    fn category_sales_groups_are_sorted_by_revenue_descending() {
+        let conn = test_conn();
+        let report = get_category_sales(&conn, &days_ago(30), &days_ago(0)).unwrap();
+        for pair in report.groups.windows(2) {
+            assert!(pair[0].subtotal_minor >= pair[1].subtotal_minor);
+        }
+    }
+
+    #[test]
+    fn category_sales_is_empty_for_a_range_with_no_sales() {
+        let conn = test_conn();
+        let far_future = (chrono::Local::now() + Duration::days(365)).format("%Y-%m-%d").to_string();
+        let report = get_category_sales(&conn, &far_future, &far_future).unwrap();
+        assert!(report.groups.is_empty());
+        assert_eq!(report.grand_total_minor, 0);
     }
 }

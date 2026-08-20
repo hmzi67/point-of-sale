@@ -9,5 +9,6 @@ export { OnboardingPage } from "./OnboardingPage";
 export { ReportsPage } from "./ReportsPage";
 export { SalaryPage } from "./SalaryPage";
 export { SettingsPage } from "./SettingsPage";
+export { ShiftsPage } from "./ShiftsPage";
 export { TablesPage } from "./TablesPage";
 export { UserManagementPage } from "./UserManagementPage";

@@ -1,4 +1,4 @@
-import type { CreateSaleInput, Item, Sale } from "../types";
+import type { CreateSaleInput, Item, Sale, SaleListItem } from "../types";
 import { call } from "./tauriClient";
 
 /** Active items matching `query` by name or barcode, exact-barcode-first. */
@@ -15,8 +15,14 @@ export function getSale(id: number): Promise<Sale> {
   return call<Sale>("billing_get_sale", { id });
 }
 
-/** Always rejects today (no thermal printer wired up) — callers should catch
- * and fall back to the PDF receipt. */
+/** Auto-detects a USB thermal printer and prints to it; rejects if none is
+ * found/reachable — callers should catch and fall back to the PDF receipt. */
 export function printReceiptThermal(saleId: number): Promise<void> {
   return call<void>("billing_print_receipt_thermal", { saleId });
+}
+
+/** The most recent sales, newest first — the refund flow's "pick the
+ * original sale" list. */
+export function listRecentSales(limit: number): Promise<SaleListItem[]> {
+  return call<SaleListItem[]>("billing_list_recent_sales", { limit });
 }

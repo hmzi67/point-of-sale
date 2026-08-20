@@ -17,12 +17,15 @@ use crate::db::expenses::{CategoryTotal, Expense};
 use crate::db::salary::SalaryCalculation;
 use crate::db::items::{Category, DeleteOutcome, Item, ItemInput, ItemQuery};
 use crate::db::modules::{ModuleState, Platform};
-use crate::db::reports::{DailySales, SalesSummary, TopItem, TopItemSort};
-use crate::db::sales::{CreateSaleInput, Sale};
+use crate::db::refunds::{CreateRefundInput, Refund, RefundLineInput, RefundableSale};
+use crate::db::reports::{CategorySalesReport, DailySales, SalesSummary, TopItem, TopItemSort};
+use crate::db::sales::{CreateSaleInput, Sale, SaleListItem};
+use crate::db::shifts::{Shift, ShiftSummary};
 use crate::db::tables::{ParkedCartLine, ParkedOrder, TableSummary};
 use crate::db::users::{ManagedUser, Role, User};
 use crate::db::{
-    attendance, config, csv_import, dashboard, expenses, items, modules, reports, salary, sales, tables, users, Db,
+    attendance, config, csv_import, dashboard, expenses, items, modules, refunds, reports, salary, sales, shifts,
+    tables, users, Db,
 };
 use crate::images;
 use crate::session::{require_role, Session};
@@ -441,6 +444,187 @@ pub fn billing_print_receipt_thermal(db: State<'_, Db>, sale_id: i64) -> Result<
     crate::printer::escpos::print_receipt(&sale, &app_config).map_err(|e| e.to_string())
 }
 
+/// The most recent sales — the refund flow's "pick the original sale" list.
+/// Owner/Admin only, same as the refund commands below it.
+#[tauri::command]
+pub fn billing_list_recent_sales(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    limit: i64,
+) -> Result<Vec<SaleListItem>, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| sales::list_recent(conn, limit)).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Refunds — Owner/Admin only (see PROJECT_GOALS.md's role matrix note in
+// permissions.ts): refunds move cash back out and put stock back in, the
+// same financial-sensitivity tier as Expenses/Salary, so every command here
+// checks the session the same way those do.
+// ---------------------------------------------------------------------------
+
+/// The original sale plus, per line, how much of it is still refundable —
+/// what the refund UI shows before anything is submitted.
+#[tauri::command]
+pub fn refund_get_sale(db: State<'_, Db>, session: State<'_, Session>, sale_id: i64) -> Result<RefundableSale, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(refunds::get_sale_for_refund(conn, sale_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Creates a refund: re-validates every line against the live sale/prior
+/// refunds, writes `refunds` + `refund_items`, and puts the refunded
+/// quantity back onto `items.stock_qty` — all inside one transaction (see
+/// `db::refunds::create_refund`). `refundedBy` is deliberately not a
+/// parameter here — it's always the signed-in caller, the same
+/// "never trust a client-claimed identity" rule `session.rs`'s module doc
+/// explains for role checks.
+#[tauri::command]
+pub fn refund_create(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    sale_id: i64,
+    items: Vec<RefundLineInput>,
+    reason: Option<String>,
+) -> Result<Refund, String> {
+    let caller = require_role(&session, STAFF_ROLES)?;
+    db.with_transaction(|tx| {
+        Ok(refunds::create_refund(
+            tx,
+            CreateRefundInput { sale_id, items, reason, refunded_by: Some(caller.id) },
+        ))
+    })
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Re-fetches a previously created refund — used to reprint its receipt.
+#[tauri::command]
+pub fn refund_get(db: State<'_, Db>, session: State<'_, Session>, refund_id: i64) -> Result<Refund, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(refunds::get_refund(conn, refund_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Prints the "Refund Details" receipt on a USB thermal printer — same
+/// auto-detect/fall-back-to-PDF contract as `billing_print_receipt_thermal`.
+#[tauri::command]
+pub fn refund_print_thermal(db: State<'_, Db>, session: State<'_, Session>, refund_id: i64) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    let refund = db
+        .with_conn(|conn| Ok(refunds::get_refund(conn, refund_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_refund(&refund, &app_config).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Shifts (only meaningful when the `shifts` module is enabled; the frontend
+// hides the shift-history page and skips the open-shift prompt otherwise).
+// Opening/closing a shift is *not* Owner/Admin-gated the way the rest of
+// this file's writes are — it's a Cashier's own cash drawer, the same way
+// Billing itself is Cashier-reachable — but every command here derives the
+// acting cashier from the session, never from a client-supplied id, so one
+// cashier can never open or close a shift in another's name.
+// ---------------------------------------------------------------------------
+
+fn require_signed_in(session: &Session) -> Result<User, String> {
+    require_role(session, &[Role::Owner, Role::Admin, Role::Cashier])
+}
+
+/// The signed-in cashier's currently-open shift, if any — lets the billing
+/// screen decide whether to show "Open Shift" or "Close Shift".
+#[tauri::command]
+pub fn shift_get_open(db: State<'_, Db>, session: State<'_, Session>) -> Result<Option<Shift>, String> {
+    let caller = require_signed_in(&session)?;
+    db.with_conn(|conn| Ok(shifts::get_open_shift_for_cashier(conn, caller.id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Opens a new shift for the signed-in cashier. Refuses if they already
+/// have one open.
+#[tauri::command]
+pub fn shift_open(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    opening_balance_minor: i64,
+) -> Result<Shift, String> {
+    let caller = require_signed_in(&session)?;
+    db.with_conn(|conn| Ok(shifts::open_shift(conn, caller.id, opening_balance_minor)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Reconciliation breakdown for `shiftId`. `declaredCashAmountMinor` lets
+/// the caller preview "if I declared this much, what would Short/Over be"
+/// before confirming a close (see `db::shifts::get_shift_summary`) — pass
+/// `None` to read what's actually stored (still-open: nothing declared yet;
+/// closed: what was recorded at close time, for reprinting a past shift).
+/// Any signed-in user may read this — the close-shift confirmation step
+/// needs it before the cashier has actually closed anything yet.
+#[tauri::command]
+pub fn shift_get_summary(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    shift_id: i64,
+    declared_cash_amount_minor: Option<i64>,
+) -> Result<ShiftSummary, String> {
+    require_signed_in(&session)?;
+    db.with_conn(|conn| Ok(shifts::get_shift_summary(conn, shift_id, declared_cash_amount_minor)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Closes `shiftId` with the cashier's declared cash count. The shift's own
+/// cashier may close it, or an Owner/Admin may close it on their behalf
+/// (e.g. the cashier already left) — anyone else is refused.
+#[tauri::command]
+pub fn shift_close(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    shift_id: i64,
+    declared_cash_amount_minor: i64,
+) -> Result<ShiftSummary, String> {
+    let caller = require_signed_in(&session)?;
+    let shift = db
+        .with_conn(|conn| Ok(shifts::get_shift_summary(conn, shift_id, None)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?
+        .shift;
+    let is_owner_of_shift = shift.cashier_id == Some(caller.id);
+    if !is_owner_of_shift && !STAFF_ROLES.contains(&caller.role) {
+        return Err("You don't have permission to close this shift".to_string());
+    }
+
+    db.with_transaction(|tx| Ok(shifts::close_shift(tx, shift_id, declared_cash_amount_minor)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Shift history for the Shifts page — Owner/Admin only, the standalone
+/// page's tier (see MODULE_CATALOGUE's doc comment on the `shifts` module).
+#[tauri::command]
+pub fn shift_list_recent(db: State<'_, Db>, session: State<'_, Session>, limit: i64) -> Result<Vec<Shift>, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| shifts::list_shifts(conn, limit)).map_err(|e| e.to_string())
+}
+
+/// Prints a shift's close-out reconciliation receipt.
+#[tauri::command]
+pub fn shift_print_summary(db: State<'_, Db>, session: State<'_, Session>, shift_id: i64) -> Result<(), String> {
+    require_signed_in(&session)?;
+    let summary = db
+        .with_conn(|conn| Ok(shifts::get_shift_summary(conn, shift_id, None)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_shift_summary(&summary, &app_config).map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Reports
 // ---------------------------------------------------------------------------
@@ -494,6 +678,38 @@ pub fn reports_get_sales_over_time(
     db.with_conn(|conn| Ok(reports::get_sales_over_time(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+/// The Category Wise Sale report: every item sold in the range, grouped by
+/// category with a subtotal per category and a grand total.
+#[tauri::command]
+pub fn reports_get_category_sales(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+) -> Result<CategorySalesReport, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(reports::get_category_sales(conn, &start_date, &end_date)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Prints the Category Wise Sale report on a USB thermal printer.
+#[tauri::command]
+pub fn reports_print_category_sales(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    let report = db
+        .with_conn(|conn| Ok(reports::get_category_sales(conn, &start_date, &end_date)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_category_sales(&report, &app_config).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------

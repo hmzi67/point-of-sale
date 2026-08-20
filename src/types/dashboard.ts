@@ -5,6 +5,9 @@ export interface DashboardSummary {
   endDate: string;
 
   totalSalesMinor: number;
+  /** Refunds recorded in the range — always counted, unlike the
+   * module-gated fields below (refunds aren't a toggleable module). */
+  refundsMinor: number;
   transactionCount: number;
 
   /** `null` when the `expenses` module is disabled for this installation —

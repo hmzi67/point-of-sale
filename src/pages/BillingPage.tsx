@@ -14,7 +14,7 @@ import { useModules } from "../hooks/useModules";
 import { createSale } from "../services/billingService";
 import { getCategories, getItems } from "../services/inventoryService";
 import { useAppConfig } from "../hooks/useAppConfig";
-import { useAuthStore, useBillingStore } from "../store";
+import { useAuthStore, useBillingStore, useShiftStore } from "../store";
 import { computeCartTotals } from "../utils/billingTotals";
 import { formatMinor } from "../utils/format";
 import type { Category, Item, Sale } from "../types";
@@ -24,6 +24,13 @@ export function BillingPage() {
   const cashierId = useAuthStore((state) => state.user?.id ?? null);
   const { modules } = useModules();
   const tablesEnabled = modules.some((m) => m.key === "tables" && m.enabled);
+  const shiftsEnabled = modules.some((m) => m.key === "shifts" && m.enabled);
+  const openShiftId = useShiftStore((state) => state.openShift?.id ?? null);
+  const loadShift = useShiftStore((state) => state.load);
+
+  useEffect(() => {
+    if (shiftsEnabled) void loadShift();
+  }, [shiftsEnabled, loadShift]);
 
   // --- Item browsing (grid + category pills) --------------------------------
   const [items, setItems] = useState<Item[]>([]);
@@ -98,6 +105,7 @@ export function BillingPage() {
         paymentMethod,
         cashierId,
         tableId,
+        shiftId: shiftsEnabled ? openShiftId : null,
       });
       setCompletedSale(sale);
       clearCart();
@@ -113,7 +121,7 @@ export function BillingPage() {
     <div className="flex h-full flex-col gap-4 lg:flex-row lg:gap-6">
       {/* Browsing column */}
       <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <BillingHeader />
+        <BillingHeader onRefunded={loadCatalog} />
         <CategoryPills
           categories={categories}
           items={items}

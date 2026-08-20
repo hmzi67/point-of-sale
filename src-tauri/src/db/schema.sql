@@ -28,6 +28,19 @@
 --     (ON DELETE RESTRICT) — retire an item with `items.is_active = 0` instead.
 --     `sales.cashier_id` -> users (who rang it up).
 --
+--   Refunds (against any sale, whether or not a shift is in use)
+--     sales 1──* refunds 1──* refund_items *──1 sale_items
+--     A refund always references the original sale; refund_items is
+--     line-level so a partial refund (some items/quantities, not the whole
+--     sale) is representable, and each refunded qty puts stock back via
+--     `items.stock_qty` — the mirror of what `create_sale` decremented.
+--
+--   Cashier shifts (only when the shifts module is enabled)
+--     shifts 1──* sales (sales.shift_id, nullable — a sale rung up with no
+--     shift open, or before this feature existed, has none). Closing a
+--     shift reconciles its declared cash count against cash sales minus
+--     refunds recorded during the shift — see `db::shifts`.
+--
 --   Restaurant flow (only when the tables module is enabled)
 --     tables 1──* table_orders *──1 sales
 --     A table is opened, an order row links it to a draft sale, and the sale
@@ -172,6 +185,32 @@ CREATE TABLE IF NOT EXISTS tables (
 CREATE INDEX IF NOT EXISTS idx_tables_status ON tables (status);
 
 -- ---------------------------------------------------------------------------
+-- Cashier shifts (only meaningful when the `shifts` module is enabled —
+-- opening/closing one is optional per client, see MODULE_CATALOGUE). A shift
+-- is opened with a declared opening cash float and closed with a declared
+-- cash count; `db::shifts::build_summary` is what turns the sales/refunds
+-- that happened in between into the Short/Over reconciliation figure.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS shifts (
+    id                         INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Kept even if the cashier's account is later removed, same rationale
+    -- as sales.cashier_id below.
+    cashier_id                 INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    opened_at                  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    -- NULL while the shift is still open; set once by close_shift.
+    closed_at                  TEXT,
+    opening_balance_minor      INTEGER NOT NULL DEFAULT 0 CHECK (opening_balance_minor >= 0),
+    -- NULL until close_shift records what the cashier actually counted.
+    declared_cash_amount_minor INTEGER CHECK (declared_cash_amount_minor >= 0),
+    notes                      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_shifts_cashier ON shifts (cashier_id);
+-- "does this cashier already have an open shift" is a lookup on exactly
+-- these two columns together.
+CREATE INDEX IF NOT EXISTS idx_shifts_cashier_open ON shifts (cashier_id, closed_at);
+
+-- ---------------------------------------------------------------------------
 -- Sales
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sales (
@@ -187,6 +226,12 @@ CREATE TABLE IF NOT EXISTS sales (
     cashier_id     INTEGER REFERENCES users (id) ON DELETE SET NULL,
     -- NULL for ordinary counter sales; set only in restaurant mode.
     table_id       INTEGER REFERENCES tables (id) ON DELETE SET NULL,
+    -- NULL for a sale rung up with no shift open (the `shifts` module is
+    -- itself optional — see MODULE_CATALOGUE) or once its shift's cashier
+    -- account is removed. Present on a fresh install directly; an existing
+    -- install gets it via ADDED_COLUMNS in schema.rs, since a table that
+    -- already exists never sees a column added to this CREATE TABLE.
+    shift_id       INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -194,6 +239,9 @@ CREATE TABLE IF NOT EXISTS sales (
 CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales (created_at);
 CREATE INDEX IF NOT EXISTS idx_sales_cashier    ON sales (cashier_id);
 CREATE INDEX IF NOT EXISTS idx_sales_table      ON sales (table_id);
+-- idx_sales_shift is NOT declared here — see schema.rs's comment on
+-- `ADDED_COLUMN_INDEXES` for why an index on an ADDED_COLUMNS column can't
+-- live in this file.
 
 CREATE TABLE IF NOT EXISTS sale_items (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -212,6 +260,47 @@ CREATE TABLE IF NOT EXISTS sale_items (
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items (sale_id);
 -- "Top selling items" joins the other way.
 CREATE INDEX IF NOT EXISTS idx_sale_items_item ON sale_items (item_id);
+
+-- ---------------------------------------------------------------------------
+-- Refunds — a refund always references the original sale it came from,
+-- never a bare adjustment; refund_items is line-level so a refund can cover
+-- some items/quantities from a sale without needing to void the whole
+-- thing. Both original_sale_id and sale_item_id are ON DELETE RESTRICT for
+-- the same "historic data is immutable" reason sale_items.item_id is: this
+-- product has no "delete a sale" command today, but if one is ever added, a
+-- sale a refund references must not be able to vanish out from under that
+-- refund's history.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS refunds (
+    id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_sale_id          INTEGER NOT NULL REFERENCES sales (id) ON DELETE RESTRICT,
+    -- Kept even if the account is later removed — same rationale as
+    -- sales.cashier_id.
+    refunded_by               INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    reason                    TEXT,
+    -- Sum of refund_items.amount_refunded_minor, computed and stored at
+    -- creation time (never trusted from the client) so a receipt reprint
+    -- never has to re-derive it from the line items.
+    total_refund_amount_minor INTEGER NOT NULL CHECK (total_refund_amount_minor >= 0),
+    created_at                TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_refunds_sale       ON refunds (original_sale_id);
+-- Reports/shift reconciliation scan refunds by date, same as sales.
+CREATE INDEX IF NOT EXISTS idx_refunds_created_at ON refunds (created_at);
+
+CREATE TABLE IF NOT EXISTS refund_items (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    refund_id              INTEGER NOT NULL REFERENCES refunds (id) ON DELETE CASCADE,
+    sale_item_id           INTEGER NOT NULL REFERENCES sale_items (id) ON DELETE RESTRICT,
+    qty_refunded           INTEGER NOT NULL CHECK (qty_refunded > 0),
+    amount_refunded_minor  INTEGER NOT NULL CHECK (amount_refunded_minor >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_refund_items_refund     ON refund_items (refund_id);
+-- "how much of this sale_item has already been refunded" (partial-refund
+-- guard) is a lookup on this column.
+CREATE INDEX IF NOT EXISTS idx_refund_items_sale_item  ON refund_items (sale_item_id);
 
 CREATE TABLE IF NOT EXISTS table_orders (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

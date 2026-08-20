@@ -1,4 +1,4 @@
-import { AlertTriangle, Receipt, TrendingUp, Wallet } from "lucide-react";
+import { AlertTriangle, Receipt, RotateCcw, TrendingUp, Wallet } from "lucide-react";
 import { formatMinor } from "../../utils/format";
 import type { DashboardSummary } from "../../types";
 
@@ -47,6 +47,9 @@ function Card({
 export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsProps) {
   const showExpenses = isLoading || summary?.totalExpensesMinor !== null;
   const showLowStock = !isLoading && summary !== null && summary.lowStockItemCount !== null && summary.lowStockItemCount > 0;
+  // Only shown when there actually were refunds today — same "don't clutter
+  // the snapshot with a card that's always zero" treatment as low stock.
+  const showRefunds = !isLoading && summary !== null && summary.refundsMinor > 0;
 
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -71,6 +74,15 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
         tone={!isLoading && summary && summary.netProfitMinor < 0 ? "negative" : "positive"}
         isLoading={isLoading}
       />
+      {showRefunds && (
+        <Card
+          icon={RotateCcw}
+          label="Refunds today"
+          value={formatMinor(summary?.refundsMinor ?? 0, currency)}
+          tone="negative"
+          isLoading={isLoading}
+        />
+      )}
       {showLowStock && (
         <Card
           icon={AlertTriangle}

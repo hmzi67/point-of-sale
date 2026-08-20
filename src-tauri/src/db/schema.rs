@@ -22,7 +22,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -38,6 +38,9 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "tables",
     "sales",
     "sale_items",
+    "refunds",
+    "refund_items",
+    "shifts",
     "table_orders",
     "employees",
     "attendance",
@@ -64,6 +67,14 @@ const MODULE_CATALOGUE: &[(&str, &str, bool, i64, bool)] = &[
     ("attendance", "Attendance", false, 6, false),
     ("expenses", "Expenses", false, 7, false),
     ("salary", "Salary", false, 8, false),
+    // Cash-drawer reconciliation is genuinely optional — a small
+    // single-cashier shop may never want the "declare your cash count"
+    // step, so this is toggleable like everything else non-core, not
+    // wired on unconditionally. Gates the standalone shift-history page
+    // (Owner/Admin, like Reports) — the inline Open/Close Shift controls in
+    // Billing check this same flag directly, the same way `tables` gates
+    // its inline billing-screen UI without needing its own role tier.
+    ("shifts", "Shifts", false, 9, false),
 ];
 
 /// User tables currently present, in name order (SQLite internals excluded).
@@ -148,6 +159,26 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("app_config", "onboarding_completed", "INTEGER NOT NULL DEFAULT 1"),
     ("items", "description", "TEXT"),
     ("sale_items", "notes", "TEXT"),
+    // Present directly in schema.sql's `sales` CREATE TABLE for a fresh
+    // install; an install upgrading from before shifts existed needs this
+    // ALTER instead. References `shifts`, which by this point always
+    // exists — `apply()` runs `execute_batch(SCHEMA_SQL)` (creating
+    // `shifts`) before calling this function.
+    ("sales", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
+];
+
+/// An index on a column that only exists after `add_missing_columns` runs
+/// (i.e. an `ADDED_COLUMNS` column) can't be declared as a plain `CREATE
+/// INDEX` in `schema.sql`: `execute_batch(SCHEMA_SQL)` runs *before*
+/// `add_missing_columns`, so on an install upgrading from before that
+/// column existed, the index statement would fail with "no such column" —
+/// on a fresh install the column is already there (it's in the literal
+/// `CREATE TABLE`), so this trap only bites upgrades, not new installs.
+/// Applied here, after `add_missing_columns`, so the column always exists
+/// by the time each of these runs, on both paths.
+const ADDED_COLUMN_INDEXES: &[(&str, &str, &str)] = &[
+    // (index name, table, column)
+    ("idx_sales_shift", "sales", "shift_id"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -167,6 +198,14 @@ fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
             ))?;
         }
     }
+
+    for (index_name, table, column) in ADDED_COLUMN_INDEXES {
+        conn.execute_batch(&format!(
+            "CREATE INDEX IF NOT EXISTS {} ON {} ({})",
+            index_name, table, column
+        ))?;
+    }
+
     Ok(())
 }
 
@@ -449,6 +488,70 @@ mod tests {
         assert_eq!(image_path, None);
 
         // Re-applying (the next app launch) must not error on an already-added column.
+        apply(&conn).unwrap();
+    }
+
+    /// Mirrors `adds_image_path_to_an_existing_items_table_without_losing_rows`
+    /// above, but for a column whose ALTER references a table (`shifts`)
+    /// that also has to be freshly created by this same `apply()` call —
+    /// the real-world case, since every existing install predates `shifts`.
+    #[test]
+    fn adds_shift_id_to_an_existing_sales_table_and_indexes_it() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        // A hand-built stand-in for a pre-shifts `sales` table — no
+        // `shift_id` column, and none of the tables it would reference.
+        conn.execute_batch(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+                 pin_hash TEXT NOT NULL, role TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')));
+             CREATE TABLE sales (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 total_minor INTEGER NOT NULL DEFAULT 0,
+                 discount_minor INTEGER NOT NULL DEFAULT 0,
+                 tax_minor INTEGER NOT NULL DEFAULT 0,
+                 payment_method TEXT NOT NULL DEFAULT 'cash',
+                 cashier_id INTEGER,
+                 table_id INTEGER,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );",
+        )
+        .unwrap();
+        conn.execute("INSERT INTO sales (id, total_minor) VALUES (1, 500)", [])
+            .unwrap();
+
+        apply(&conn).unwrap();
+
+        let has_column = conn
+            .prepare("PRAGMA table_info(sales)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .iter()
+            .any(|name| name == "shift_id");
+        assert!(has_column, "shift_id column should have been added");
+
+        let (total_minor, shift_id): (i64, Option<i64>) = conn
+            .query_row("SELECT total_minor, shift_id FROM sales WHERE id = 1", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(total_minor, 500, "pre-existing sale must survive the migration");
+        assert_eq!(shift_id, None);
+
+        let plan: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT id FROM sales WHERE shift_id = 1",
+                [],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("USING") && plan.contains("INDEX"), "shift_id must be indexed: {}", plan);
+
+        // Re-applying (the next app launch) must not error on an already-added column/index.
         apply(&conn).unwrap();
     }
 

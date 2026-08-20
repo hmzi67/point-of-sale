@@ -41,6 +41,13 @@ pub struct CreateSaleInput {
     /// Dine-in table this sale belongs to, if any. Only meaningful when the
     /// `tables` module is enabled — the frontend never sends it otherwise.
     pub table_id: Option<i64>,
+    /// The cashier's currently-open shift, if any. Only meaningful when the
+    /// `shifts` module is enabled; `None` either because that module is off
+    /// or because this cashier hasn't opened one. Attributing the sale here
+    /// (rather than back-filling it after the fact) is what lets
+    /// `shifts::get_shift_summary` scope "sales during this shift" with a
+    /// plain `WHERE shift_id = ?` instead of a time-window join.
+    pub shift_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +76,7 @@ pub struct Sale {
     pub cashier_name: Option<String>,
     pub table_id: Option<i64>,
     pub table_name: Option<String>,
+    pub shift_id: Option<i64>,
     pub created_at: String,
     pub items: Vec<SaleLine>,
 }
@@ -195,15 +203,16 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
     let total_minor = subtotal_minor - input.discount_minor + input.tax_minor;
 
     tx.execute(
-        "INSERT INTO sales (total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO sales (total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id, shift_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             total_minor,
             input.discount_minor,
             input.tax_minor,
             input.payment_method,
             input.cashier_id,
-            input.table_id
+            input.table_id,
+            input.shift_id
         ],
     )?;
     let sale_id = tx.last_insert_rowid();
@@ -247,7 +256,8 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
     let sale = conn
         .query_row(
             "SELECT s.id, s.discount_minor, s.tax_minor, s.total_minor, s.payment_method,
-                    s.cashier_id, u.name AS cashier_name, s.table_id, t.name AS table_name, s.created_at
+                    s.cashier_id, u.name AS cashier_name, s.table_id, t.name AS table_name,
+                    s.shift_id, s.created_at
                FROM sales s
                LEFT JOIN users u ON u.id = s.cashier_id
                LEFT JOIN tables t ON t.id = s.table_id
@@ -270,7 +280,8 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                     cashier_name: row.get(6)?,
                     table_id: row.get(7)?,
                     table_name: row.get(8)?,
-                    created_at: row.get(9)?,
+                    shift_id: row.get(9)?,
+                    created_at: row.get(10)?,
                     items: Vec::new(),
                 })
             },
@@ -309,6 +320,40 @@ pub fn get_sale(conn: &Connection, id: i64) -> Result<Sale, SaleError> {
     load_sale(conn, id)?.ok_or(SaleError::NotFound)
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleListItem {
+    pub id: i64,
+    pub total_minor: i64,
+    pub payment_method: String,
+    pub cashier_name: Option<String>,
+    pub created_at: String,
+}
+
+/// The most recent sales, newest first — the refund flow's "pick the
+/// original sale" list, for a cashier searching by memory/receipt number
+/// rather than typing an exact id.
+pub fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<SaleListItem>, rusqlite::Error> {
+    let limit = limit.clamp(1, 200);
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.total_minor, s.payment_method, u.name, s.created_at
+           FROM sales s
+           LEFT JOIN users u ON u.id = s.cashier_id
+          ORDER BY s.id DESC
+          LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit], |row| {
+        Ok(SaleListItem {
+            id: row.get(0)?,
+            total_minor: row.get(1)?,
+            payment_method: row.get(2)?,
+            cashier_name: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    rows.collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +381,7 @@ mod tests {
             payment_method: "cash".into(),
             cashier_id: None,
             table_id: None,
+            shift_id: None,
         }
     }
 
@@ -475,6 +521,7 @@ mod tests {
                 payment_method: "cash".into(),
                 cashier_id: None,
                 table_id: None,
+                shift_id: None,
             };
             let err = create_sale(&tx, input).unwrap_err();
             assert!(matches!(err, SaleError::InsufficientStock { .. }));
@@ -587,6 +634,7 @@ mod tests {
             payment_method: "cash".into(),
             cashier_id: None,
             table_id: None,
+            shift_id: None,
         };
         assert!(matches!(create_sale(&tx, input), Err(SaleError::ItemInactive(_))));
     }
@@ -606,6 +654,7 @@ mod tests {
             payment_method: "cash".into(),
             cashier_id: None,
             table_id: None,
+            shift_id: None,
         };
         let sale = create_sale(&tx, input).unwrap();
         tx.commit().unwrap();
@@ -619,6 +668,20 @@ mod tests {
     fn get_sale_reports_not_found_for_an_unknown_id() {
         let conn = test_conn();
         assert!(matches!(get_sale(&conn, 999_999), Err(SaleError::NotFound)));
+    }
+
+    #[test]
+    fn list_recent_returns_sales_newest_first_and_respects_the_limit() {
+        let conn = test_conn();
+        let all = list_recent(&conn, 200).unwrap();
+        assert_eq!(all.len(), 12, "seed data has 12 sales");
+        for pair in all.windows(2) {
+            assert!(pair[0].id > pair[1].id, "must be newest first");
+        }
+
+        let limited = list_recent(&conn, 3).unwrap();
+        assert_eq!(limited.len(), 3);
+        assert_eq!(limited, all[..3]);
     }
 
     // Table-linked sales (closing the parked order, freeing the table) are

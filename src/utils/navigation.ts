@@ -1,6 +1,7 @@
 import {
   Boxes,
   CalendarCheck,
+  Clock,
   LayoutDashboard,
   Receipt,
   Settings,
@@ -33,6 +34,7 @@ export const MODULE_NAV: Record<ModuleKey, NavItem> = {
   attendance: { key: "attendance", path: "/attendance", icon: CalendarCheck },
   expenses: { key: "expenses", path: "/expenses", icon: Receipt },
   salary: { key: "salary", path: "/salary", icon: Wallet },
+  shifts: { key: "shifts", path: "/shifts", icon: Clock },
 };
 
 /** Settings is not a module — it is the screen that configures them. */

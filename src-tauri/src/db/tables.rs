@@ -527,6 +527,7 @@ mod tests {
                 payment_method: "cash".into(),
                 cashier_id: None,
                 table_id: Some(t2),
+                shift_id: None,
             },
         )
         .unwrap();
@@ -559,6 +560,7 @@ mod tests {
             payment_method: "cash".into(),
             cashier_id: None,
             table_id: Some(t1),
+            shift_id: None,
         };
         let sale = sales::create_sale(&tx, input).unwrap();
         tx.commit().unwrap();

@@ -17,6 +17,7 @@ import {
   ReportsPage,
   SalaryPage,
   SettingsPage,
+  ShiftsPage,
   TablesPage,
   UserManagementPage,
 } from "./pages";
@@ -118,6 +119,14 @@ export function App() {
                 element={
                   <ModuleRoute moduleKey="salary">
                     <SalaryPage />
+                  </ModuleRoute>
+                }
+              />
+              <Route
+                path="shifts"
+                element={
+                  <ModuleRoute moduleKey="shifts">
+                    <ShiftsPage />
                   </ModuleRoute>
                 }
               />

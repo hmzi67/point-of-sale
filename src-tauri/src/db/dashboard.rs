@@ -53,7 +53,12 @@ pub struct DashboardSummary {
     pub start_date: String,
     pub end_date: String,
 
+    /// Gross — see `reports::SalesSummary::total_sales_minor`.
     pub total_sales_minor: i64,
+    /// Refunds recorded in the range — always counted (refunds aren't a
+    /// module, unlike expenses/salary/inventory below), so this is never
+    /// `None`, only possibly `0`.
+    pub refunds_minor: i64,
     pub transaction_count: i64,
 
     /// `None` when the `expenses` module is disabled for this
@@ -61,7 +66,9 @@ pub struct DashboardSummary {
     pub total_expenses_minor: Option<i64>,
     /// `None` when the `salary` module is disabled — same treatment.
     pub total_salary_paid_minor: Option<i64>,
-    /// `sales - (expenses if tracked) - (salary paid if tracked)`.
+    /// `(sales - refunds) - (expenses if tracked) - (salary paid if
+    /// tracked)` — refunds are never optional-module-gated the way
+    /// expenses/salary are, so they always reduce this.
     pub net_profit_minor: i64,
 
     /// `None` when the `inventory` module is disabled.
@@ -131,12 +138,13 @@ pub fn get_summary(
     };
 
     let net_profit_minor =
-        sales.total_sales_minor - total_expenses_minor.unwrap_or(0) - total_salary_paid_minor.unwrap_or(0);
+        sales.net_sales_minor - total_expenses_minor.unwrap_or(0) - total_salary_paid_minor.unwrap_or(0);
 
     Ok(DashboardSummary {
         start_date: start_date.to_string(),
         end_date: end_date.to_string(),
         total_sales_minor: sales.total_sales_minor,
+        refunds_minor: sales.refunds_minor,
         transaction_count: sales.transaction_count,
         total_expenses_minor,
         total_salary_paid_minor,
@@ -243,5 +251,67 @@ mod tests {
             get_summary(&conn, "2026-02-01", "2026-01-01", Platform::Desktop),
             Err(DashboardError::Report(_))
         ));
+    }
+
+    /// The whole point of wiring refunds into reports: a refund must not be
+    /// an isolated ledger entry nobody else's totals notice.
+    #[test]
+    fn a_refund_reduces_net_profit_by_exactly_its_amount() {
+        use crate::db::refunds::{create_refund, CreateRefundInput, RefundLineInput};
+        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        use chrono::Local;
+
+        let mut conn = test_conn();
+        let today = Local::now().format("%Y-%m-%d").to_string();
+
+        let (sale_id, sale_item_id) = {
+            let tx = conn.transaction().unwrap();
+            let cola: i64 =
+                tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+            let sale = create_sale(
+                &tx,
+                CreateSaleInput {
+                    items: vec![CartLine { item_id: cola, qty: 1, notes: None }],
+                    discount_minor: 0,
+                    tax_minor: 0,
+                    payment_method: "cash".into(),
+                    cashier_id: None,
+                    table_id: None,
+                    shift_id: None,
+                },
+            )
+            .unwrap();
+            let sale_item_id: i64 = tx
+                .query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale.id], |row| row.get(0))
+                .unwrap();
+            tx.commit().unwrap();
+            (sale.id, sale_item_id)
+        };
+
+        let before = get_summary(&conn, &today, &today, Platform::Desktop).unwrap();
+
+        {
+            let tx = conn.transaction().unwrap();
+            create_refund(
+                &tx,
+                CreateRefundInput {
+                    sale_id,
+                    items: vec![RefundLineInput { sale_item_id, qty: 1, amount_minor: 8000 }],
+                    reason: None,
+                    refunded_by: None,
+                },
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let after = get_summary(&conn, &today, &today, Platform::Desktop).unwrap();
+        assert_eq!(after.total_sales_minor, before.total_sales_minor, "gross sales unaffected");
+        assert_eq!(after.refunds_minor, before.refunds_minor + 8000);
+        assert_eq!(
+            after.net_profit_minor,
+            before.net_profit_minor - 8000,
+            "net profit must drop by exactly the refunded amount"
+        );
     }
 }

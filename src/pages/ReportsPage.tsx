@@ -15,6 +15,8 @@ export function ReportsPage() {
   const summary = useReportsStore((state) => state.summary);
   const topItems = useReportsStore((state) => state.topItems);
   const series = useReportsStore((state) => state.series);
+  const startDate = useReportsStore((state) => state.startDate);
+  const endDate = useReportsStore((state) => state.endDate);
   const isLoading = useReportsStore((state) => state.isLoading);
   const error = useReportsStore((state) => state.error);
   const load = useReportsStore((state) => state.load);
@@ -32,7 +34,14 @@ export function ReportsPage() {
           <h2 className="text-lg font-semibold text-slate-900">Reports</h2>
           <p className="text-sm text-slate-500">Daily sales summary and top-selling items.</p>
         </div>
-        <ExportButtons summary={summary} topItems={topItems} series={series} config={config} />
+        <ExportButtons
+          summary={summary}
+          topItems={topItems}
+          series={series}
+          config={config}
+          startDate={startDate}
+          endDate={endDate}
+        />
       </div>
 
       <DateRangePicker />

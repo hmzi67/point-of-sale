@@ -16,6 +16,8 @@ export interface CreateSaleInput {
   paymentMethod: PaymentMethod;
   cashierId: number | null;
   tableId: number | null;
+  /** The cashier's currently-open shift, if any — see `types/shifts.ts`. */
+  shiftId: number | null;
 }
 
 export interface SaleLine {
@@ -39,8 +41,18 @@ export interface Sale {
   cashierName: string | null;
   tableId: number | null;
   tableName: string | null;
+  shiftId: number | null;
   createdAt: string;
   items: SaleLine[];
+}
+
+/** One row of the "recent sales" list the refund flow searches. */
+export interface SaleListItem {
+  id: number;
+  totalMinor: number;
+  paymentMethod: PaymentMethod;
+  cashierName: string | null;
+  createdAt: string;
 }
 
 // TableSummary / ParkedCartLine / ParkedOrder now live in ./tables — this

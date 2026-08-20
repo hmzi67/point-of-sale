@@ -10,11 +10,13 @@ pub mod dashboard;
 pub mod expenses;
 pub mod items;
 pub mod modules;
+pub mod refunds;
 pub mod reports;
 pub mod sales;
 pub mod salary;
 pub mod schema;
 pub mod seed;
+pub mod shifts;
 pub mod tables;
 pub mod users;
 

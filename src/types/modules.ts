@@ -14,7 +14,8 @@ export type ModuleKey =
   | "tables"
   | "attendance"
   | "expenses"
-  | "salary";
+  | "salary"
+  | "shifts";
 
 export type Platform = "desktop" | "android";
 
