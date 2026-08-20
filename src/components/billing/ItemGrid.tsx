@@ -14,7 +14,7 @@ export function ItemGrid({ items, currency, isLoading, onOpenItem }: ItemGridPro
     return (
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-48 animate-pulse rounded-2xl bg-white shadow-soft" />
+          <div key={i} className="h-52 animate-pulse rounded-2xl bg-white shadow-soft" />
         ))}
       </div>
     );

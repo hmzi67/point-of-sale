@@ -22,24 +22,35 @@ export function ItemCard({ item, currency, onOpen }: ItemCardProps) {
       onClick={() => onOpen(item)}
       disabled={outOfStock}
       className={[
-        "flex flex-col overflow-hidden rounded-2xl bg-white text-left shadow-soft transition-transform",
-        outOfStock ? "cursor-not-allowed opacity-50" : "hover:-translate-y-0.5 hover:shadow-soft-lg",
+        "flex flex-col overflow-hidden rounded-2xl bg-white text-left shadow-soft ring-1 ring-slate-900/[0.03] transition-all duration-200 ease-out",
+        outOfStock ? "cursor-not-allowed opacity-50" : "hover:-translate-y-1 hover:shadow-soft-lg hover:ring-brand-200",
       ].join(" ")}
     >
-      <ItemImage imagePath={item.imagePath} alt={item.name} className="h-28 w-full" />
-      <div className="flex flex-1 flex-col gap-1 p-3">
-        <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
-        <div className="flex items-center justify-between gap-2">
-          {item.categoryName ? (
-            <span className={`truncate rounded-full px-2 py-0.5 text-[11px] font-medium ${color.bg} ${color.text}`}>
-              {item.categoryName}
-            </span>
-          ) : (
-            <span />
-          )}
-          <span className="shrink-0 text-sm font-bold text-slate-900">{formatMinor(item.priceMinor, currency)}</span>
+      {/* Padded, tinted mount for the photo instead of an edge-to-edge crop —
+       * reads as a framed thumbnail rather than a raw cropped image. */}
+      <div className="p-2.5 pb-0">
+        <div className="overflow-hidden rounded-xl bg-slate-50">
+          <ItemImage imagePath={item.imagePath} alt={item.name} className="h-28 w-full" />
         </div>
-        {outOfStock && <span className="text-[11px] font-medium text-red-500">Out of stock</span>}
+      </div>
+
+      {/* image → name → category → price as one tight vertical rhythm,
+       * rather than a name row plus a separate category/price row. */}
+      <div className="flex flex-1 flex-col gap-1 px-3 pb-3 pt-2.5">
+        <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
+        {item.categoryName && (
+          <span
+            className={`w-fit truncate rounded-full px-2 py-0.5 text-[10.5px] font-medium ${color.bg} ${color.text}`}
+          >
+            {item.categoryName}
+          </span>
+        )}
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <span className="text-base font-extrabold tracking-tight text-slate-900">
+            {formatMinor(item.priceMinor, currency)}
+          </span>
+          {outOfStock && <span className="text-[11px] font-medium text-red-500">Out of stock</span>}
+        </div>
       </div>
     </button>
   );

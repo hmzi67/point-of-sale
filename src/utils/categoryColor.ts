@@ -9,14 +9,14 @@
  */
 
 const PALETTE: { bg: string; text: string; dot: string }[] = [
-  { bg: "bg-orange-50", text: "text-orange-600", dot: "bg-orange-400" },
-  { bg: "bg-emerald-50", text: "text-emerald-600", dot: "bg-emerald-400" },
-  { bg: "bg-sky-50", text: "text-sky-600", dot: "bg-sky-400" },
-  { bg: "bg-pink-50", text: "text-pink-600", dot: "bg-pink-400" },
-  { bg: "bg-violet-50", text: "text-violet-600", dot: "bg-violet-400" },
-  { bg: "bg-amber-50", text: "text-amber-600", dot: "bg-amber-400" },
-  { bg: "bg-teal-50", text: "text-teal-600", dot: "bg-teal-400" },
-  { bg: "bg-rose-50", text: "text-rose-600", dot: "bg-rose-400" },
+  { bg: "bg-orange-100", text: "text-orange-600", dot: "bg-orange-400" },
+  { bg: "bg-emerald-100", text: "text-emerald-600", dot: "bg-emerald-400" },
+  { bg: "bg-sky-100", text: "text-sky-600", dot: "bg-sky-400" },
+  { bg: "bg-pink-100", text: "text-pink-600", dot: "bg-pink-400" },
+  { bg: "bg-violet-100", text: "text-violet-600", dot: "bg-violet-400" },
+  { bg: "bg-amber-100", text: "text-amber-600", dot: "bg-amber-400" },
+  { bg: "bg-teal-100", text: "text-teal-600", dot: "bg-teal-400" },
+  { bg: "bg-rose-100", text: "text-rose-600", dot: "bg-rose-400" },
 ];
 
 /** `null`/`undefined` (no category) gets a neutral slate tag rather than a
