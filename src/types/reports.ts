@@ -52,6 +52,22 @@ export interface CategorySalesReport {
   grandTotalMinor: number;
 }
 
+export interface TableSalesRow {
+  /** `null` for the "Counter / Takeaway" row. */
+  tableId: number | null;
+  label: string;
+  totalMinor: number;
+  transactionCount: number;
+}
+
+export interface TableSalesSummary {
+  startDate: string;
+  endDate: string;
+  /** Highest-total first. */
+  rows: TableSalesRow[];
+  grandTotalMinor: number;
+}
+
 export type DateRangePreset = "today" | "thisWeek" | "thisMonth" | "custom";
 
 export interface DateRange {

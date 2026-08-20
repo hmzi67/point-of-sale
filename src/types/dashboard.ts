@@ -19,4 +19,14 @@ export interface DashboardSummary {
 
   /** `null` when the `inventory` module is disabled. */
   lowStockItemCount: number | null;
+
+  /** `null` when the `tables` module is disabled, or when it's enabled but
+   * no table-attributed sale happened in the range. */
+  topTableBySales: TopTable | null;
+}
+
+export interface TopTable {
+  tableId: number;
+  name: string;
+  totalMinor: number;
 }

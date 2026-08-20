@@ -293,6 +293,79 @@ pub fn get_category_sales(
 }
 
 // ---------------------------------------------------------------------------
+// Table-wise sale — one row per table plus a "Counter / Takeaway" row for
+// sales with no table (`sales.table_id IS NULL`), so the rows always sum to
+// the same total `get_sales_summary` reports for the same range — nothing
+// falls between the two. Only meaningful when the `tables` module is in
+// use; like every other report in this file, that's a frontend/route
+// concern (see `ModuleRoute`), not something this query itself checks.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableSalesRow {
+    /// `None` for the "Counter / Takeaway" row.
+    pub table_id: Option<i64>,
+    pub label: String,
+    pub total_minor: i64,
+    pub transaction_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableSalesSummary {
+    pub start_date: String,
+    pub end_date: String,
+    /// Highest-total first, "Counter / Takeaway" sorted in among the tables
+    /// like any other row rather than pinned to the top or bottom.
+    pub rows: Vec<TableSalesRow>,
+    pub grand_total_minor: i64,
+}
+
+/// The label for sales with no table — deliberately not just "Counter" or
+/// just "Takeaway", since a retail client's non-table sales cover both and
+/// there's no `order_type` column to distinguish them: the billing UI's
+/// "Takeaway" is derived purely from `table_id` being unset, never stored
+/// as its own value (see `OrderTypeAndTable.tsx`'s doc comment).
+const NO_TABLE_LABEL: &str = "Counter / Takeaway";
+
+pub fn get_table_sales_summary(
+    conn: &Connection,
+    start_date: &str,
+    end_date: &str,
+) -> Result<TableSalesSummary, ReportError> {
+    let (start_ts, end_ts) = validate_range(start_date, end_date)?;
+
+    let mut stmt = conn.prepare(
+        "SELECT s.table_id, t.name, SUM(s.total_minor), COUNT(*)
+           FROM sales s
+           LEFT JOIN tables t ON t.id = s.table_id
+          WHERE s.created_at >= ?1 AND s.created_at <= ?2
+          GROUP BY s.table_id",
+    )?;
+    let mut rows: Vec<TableSalesRow> = stmt
+        .query_map(params![start_ts, end_ts], |row| {
+            let table_id: Option<i64> = row.get(0)?;
+            let name: Option<String> = row.get(1)?;
+            Ok(TableSalesRow {
+                table_id,
+                label: name.unwrap_or_else(|| NO_TABLE_LABEL.to_string()),
+                total_minor: row.get(2)?,
+                transaction_count: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Highest sales first — same "what actually drove revenue" ordering
+    // get_category_sales uses.
+    rows.sort_by(|a, b| b.total_minor.cmp(&a.total_minor));
+
+    let grand_total_minor = rows.iter().map(|r| r.total_minor).sum();
+
+    Ok(TableSalesSummary { start_date: start_date.to_string(), end_date: end_date.to_string(), rows, grand_total_minor })
+}
+
+// ---------------------------------------------------------------------------
 // Sales over time
 // ---------------------------------------------------------------------------
 
@@ -659,5 +732,89 @@ mod tests {
         let report = get_category_sales(&conn, &far_future, &far_future).unwrap();
         assert!(report.groups.is_empty());
         assert_eq!(report.grand_total_minor, 0);
+    }
+
+    /// Rings up one dine-in sale against a real table, alongside the seed
+    /// data's counter sales — a clean way to exercise a genuine table row,
+    /// since none of the seeded sales are table-linked.
+    fn seed_one_table_sale(conn: &mut Connection) {
+        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        use crate::db::tables::start_table_order;
+
+        let tx = conn.transaction().unwrap();
+        let table_id: i64 =
+            tx.query_row("SELECT id FROM tables LIMIT 1", [], |row| row.get(0)).unwrap();
+        start_table_order(&tx, table_id).unwrap();
+        let cola: i64 =
+            tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+        create_sale(
+            &tx,
+            CreateSaleInput {
+                items: vec![CartLine { item_id: cola, qty: 1, notes: None }],
+                discount_minor: 0,
+                tax_minor: 0,
+                payment_method: "cash".into(),
+                cashier_id: None,
+                table_id: Some(table_id),
+                shift_id: None,
+            },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    /// The exact reconciliation the product spec calls for: every table row
+    /// plus the "Counter / Takeaway" row must sum to precisely what
+    /// `get_sales_summary` reports as the gross total for the same range —
+    /// nothing double-counted, nothing dropped.
+    #[test]
+    fn table_sales_rows_reconcile_with_the_overall_summary_for_the_same_range() {
+        let mut conn = test_conn();
+        seed_one_table_sale(&mut conn);
+
+        let range = (days_ago(30), days_ago(0));
+        let summary = get_sales_summary(&conn, &range.0, &range.1).unwrap();
+        let table_sales = get_table_sales_summary(&conn, &range.0, &range.1).unwrap();
+
+        assert_eq!(
+            table_sales.grand_total_minor, summary.total_sales_minor,
+            "table-wise rows must sum to the same gross total the overall summary reports"
+        );
+        let rows_sum: i64 = table_sales.rows.iter().map(|r| r.total_minor).sum();
+        assert_eq!(rows_sum, table_sales.grand_total_minor);
+
+        let counter_row = table_sales.rows.iter().find(|r| r.table_id.is_none());
+        assert!(counter_row.is_some(), "seed data's non-table sales must appear as a Counter/Takeaway row");
+        let table_row = table_sales.rows.iter().find(|r| r.table_id.is_some());
+        assert!(table_row.is_some(), "the one dine-in sale must appear as its own table row");
+    }
+
+    #[test]
+    fn table_sales_rows_are_sorted_by_amount_descending() {
+        let mut conn = test_conn();
+        seed_one_table_sale(&mut conn);
+
+        let table_sales = get_table_sales_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
+        for pair in table_sales.rows.windows(2) {
+            assert!(pair[0].total_minor >= pair[1].total_minor);
+        }
+    }
+
+    #[test]
+    fn table_sales_uses_the_counter_takeaway_label_for_untabled_sales() {
+        let conn = test_conn(); // seed data is all non-table sales
+        let table_sales = get_table_sales_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
+        assert_eq!(table_sales.rows.len(), 1, "only the Counter/Takeaway row, no real tables were sold to");
+        assert_eq!(table_sales.rows[0].label, "Counter / Takeaway");
+        assert_eq!(table_sales.rows[0].table_id, None);
+    }
+
+    #[test]
+    fn table_sales_is_empty_for_a_range_with_no_sales() {
+        let conn = test_conn();
+        let far_future = (Local::now() + Duration::days(365)).format("%Y-%m-%d").to_string();
+        let table_sales = get_table_sales_summary(&conn, &far_future, &far_future).unwrap();
+        assert!(table_sales.rows.is_empty());
+        assert_eq!(table_sales.grand_total_minor, 0);
     }
 }

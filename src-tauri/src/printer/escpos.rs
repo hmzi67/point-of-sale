@@ -22,7 +22,7 @@
 //! database by the time printing is attempted.
 
 use crate::db::config::AppConfig;
-use crate::db::reports::CategorySalesReport;
+use crate::db::reports::{CategorySalesReport, TableSalesSummary};
 use crate::db::refunds::Refund;
 use crate::db::sales::Sale;
 use crate::db::shifts::ShiftSummary;
@@ -319,6 +319,52 @@ pub fn build_category_sales_bytes(report: &CategorySalesReport, config: &AppConf
     out
 }
 
+/// The Table Wise Sales report: one row per table (plus "Counter /
+/// Takeaway"), grand total at the end — the same flat list-with-grand-total
+/// shape as the reference receipt, built from `TableSalesSummary` (see
+/// `db::reports::get_table_sales_summary`).
+pub fn build_table_sales_bytes(report: &TableSalesSummary, config: &AppConfig) -> Vec<u8> {
+    let mut out = Vec::new();
+    let currency = &config.currency;
+
+    let subtitle =
+        vec!["Table Wise Sales".to_string(), format!("{} to {}", report.start_date, report.end_date)];
+    header_block(&mut out, &config.business_name, &subtitle);
+
+    out.extend(bold(true));
+    out.extend(row(&[("Table / Counter", 28, false), ("Txns", 6, true), ("Amount", 14, true)]).as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(divider().as_bytes());
+    out.push(b'\n');
+    for line in &report.rows {
+        out.extend(
+            row(&[
+                (line.label.as_str(), 28, false),
+                (&line.transaction_count.to_string(), 6, true),
+                (&format_minor(line.total_minor), 14, true),
+            ])
+            .as_bytes(),
+        );
+        out.push(b'\n');
+    }
+    out.extend(divider().as_bytes());
+    out.push(b'\n');
+
+    out.extend(double_divider().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(
+        two_col("GRAND TOTAL", &format!("{} {}", currency, format_minor(report.grand_total_minor))).as_bytes(),
+    );
+    out.push(b'\n');
+    out.extend(bold(false));
+
+    footer_block(&mut out, &config.receipt_footer);
+    out.extend(feed_and_cut());
+    out
+}
+
 #[derive(Debug)]
 pub enum PrinterError {
     /// No USB device exposing a Printer-class interface was found (or a
@@ -442,6 +488,12 @@ pub fn print_category_sales(report: &CategorySalesReport, config: &AppConfig) ->
     send_to_printer(&bytes)
 }
 
+/// Builds and prints the Table Wise Sales report.
+pub fn print_table_sales(report: &TableSalesSummary, config: &AppConfig) -> Result<(), PrinterError> {
+    let bytes = build_table_sales_bytes(report, config);
+    send_to_printer(&bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,6 +602,30 @@ mod tests {
             }],
             grand_total_minor: 80_000,
         }
+    }
+
+    fn sample_table_sales() -> TableSalesSummary {
+        use crate::db::reports::TableSalesRow;
+        TableSalesSummary {
+            start_date: "2026-01-01".into(),
+            end_date: "2026-01-31".into(),
+            rows: vec![
+                TableSalesRow { table_id: Some(1), label: "Table 1".into(), total_minor: 50_000, transaction_count: 4 },
+                TableSalesRow { table_id: None, label: "Counter / Takeaway".into(), total_minor: 30_000, transaction_count: 6 },
+            ],
+            grand_total_minor: 80_000,
+        }
+    }
+
+    #[test]
+    fn build_table_sales_bytes_lists_every_row_and_a_grand_total() {
+        let bytes = build_table_sales_bytes(&sample_table_sales(), &sample_config());
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("Table Wise Sales"));
+        assert!(text.contains("Table 1"));
+        assert!(text.contains("Counter / Takeaway"));
+        assert!(text.contains("GRAND TOTAL"));
+        assert!(text.contains("PKR 800.00"));
     }
 
     #[test]

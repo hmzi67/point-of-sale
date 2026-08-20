@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Lock } from "lucide-react";
+import { StoreIdentitySection } from "../components/settings/StoreIdentitySection";
 import { ToggleSwitch } from "../components/ui/ToggleSwitch";
 import { useModuleStore } from "../store";
 import { useAppConfig } from "../hooks/useAppConfig";
@@ -29,13 +30,11 @@ export function SettingsPage() {
 
   return (
     <section className="mx-auto max-w-3xl space-y-6">
+      <StoreIdentitySection config={config} />
+
       <div className="rounded-lg border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">Business</h2>
         <dl className="mt-4 grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <dt className="text-slate-500">Name</dt>
-            <dd className="text-slate-900">{config.businessName}</dd>
-          </div>
           <div>
             <dt className="text-slate-500">Type</dt>
             <dd className="capitalize text-slate-900">{config.businessType}</dd>

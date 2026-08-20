@@ -1,4 +1,4 @@
-import type { CategorySalesReport, DailySales, SalesSummary, TopItem, TopItemSort } from "../types";
+import type { CategorySalesReport, DailySales, SalesSummary, TableSalesSummary, TopItem, TopItemSort } from "../types";
 import { call } from "./tauriClient";
 
 /** `startDate`/`endDate` are `YYYY-MM-DD`, inclusive. */
@@ -30,4 +30,18 @@ export function getCategorySales(startDate: string, endDate: string): Promise<Ca
  * auto-detect/fall-back-to-PDF contract as the billing receipt. */
 export function printCategorySalesThermal(startDate: string, endDate: string): Promise<void> {
   return call<void>("reports_print_category_sales", { startDate, endDate });
+}
+
+/** One row per table plus a "Counter / Takeaway" row, summing to the same
+ * gross total `getSalesSummary` reports for the same range — the Table
+ * Wise Sales report. Only meaningful when the `tables` module is enabled;
+ * the caller is responsible for not offering this view otherwise. */
+export function getTableSalesSummary(startDate: string, endDate: string): Promise<TableSalesSummary> {
+  return call<TableSalesSummary>("reports_get_table_sales_summary", { startDate, endDate });
+}
+
+/** Prints the Table Wise Sales report on a USB thermal printer — same
+ * auto-detect/fall-back-to-PDF contract as the other print buttons. */
+export function printTableSalesThermal(startDate: string, endDate: string): Promise<void> {
+  return call<void>("reports_print_table_sales_summary", { startDate, endDate });
 }

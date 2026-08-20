@@ -1,17 +1,26 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { DateRangePicker } from "../components/reports/DateRangePicker";
 import { ExportButtons } from "../components/reports/ExportButtons";
 import { SummaryCards } from "../components/reports/SummaryCards";
+import { TableWiseSalesTable } from "../components/reports/TableWiseSalesTable";
 import { TopItemsTable } from "../components/reports/TopItemsTable";
 import { useAppConfig } from "../hooks/useAppConfig";
+import { useModules } from "../hooks/useModules";
+import { getTableSalesSummary } from "../services/reportsService";
 import { useReportsStore } from "../store";
+import type { TableSalesSummary } from "../types";
 
 // Recharts is large and only ever used here — deferred so it never loads on
 // the (much more frequently visited) Billing/Dashboard/Inventory screens.
 const SalesChart = lazy(() => import("../components/reports/SalesChart"));
 
+type View = "overview" | "tables";
+
 export function ReportsPage() {
   const { config } = useAppConfig();
+  const { modules } = useModules();
+  const tablesEnabled = modules.some((m) => m.key === "tables" && m.enabled);
+
   const summary = useReportsStore((state) => state.summary);
   const topItems = useReportsStore((state) => state.topItems);
   const series = useReportsStore((state) => state.series);
@@ -21,11 +30,36 @@ export function ReportsPage() {
   const error = useReportsStore((state) => state.error);
   const load = useReportsStore((state) => state.load);
 
+  const [view, setView] = useState<View>("overview");
+
+  // Table Wise Sales is its own, separate query — not folded into
+  // useReportsStore's load(), since only the "tables" view ever needs it
+  // and the Overview screen shouldn't wait on (or refetch for) data it
+  // never shows. Falls back to "overview" if a client's Tables module gets
+  // disabled while this tab happens to be selected.
+  const [tableSales, setTableSales] = useState<TableSalesSummary | null>(null);
+  const [isLoadingTableSales, setIsLoadingTableSales] = useState(false);
+  const [tableSalesError, setTableSalesError] = useState<string | null>(null);
+
   useEffect(() => {
     // Runs once on mount — subsequent loads are triggered by the store's own
     // setters (setPreset/setCustomRange/setTopItemsSort), not by re-running this.
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!tablesEnabled && view === "tables") setView("overview");
+  }, [tablesEnabled, view]);
+
+  useEffect(() => {
+    if (view !== "tables" || !tablesEnabled) return;
+    setIsLoadingTableSales(true);
+    setTableSalesError(null);
+    getTableSalesSummary(startDate, endDate)
+      .then(setTableSales)
+      .catch((e: Error) => setTableSalesError(e.message))
+      .finally(() => setIsLoadingTableSales(false));
+  }, [view, tablesEnabled, startDate, endDate]);
 
   return (
     <section className="space-y-4">
@@ -41,20 +75,52 @@ export function ReportsPage() {
           config={config}
           startDate={startDate}
           endDate={endDate}
+          tablesEnabled={tablesEnabled}
         />
       </div>
 
-      <DateRangePicker />
+      <div className="flex items-center justify-between gap-3">
+        <DateRangePicker />
+
+        {tablesEnabled && (
+          <div className="flex shrink-0 rounded-md border border-slate-300 p-0.5">
+            {(["overview", "tables"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                className={[
+                  "rounded px-3 py-1.5 text-sm font-medium transition-colors",
+                  view === v ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100",
+                ].join(" ")}
+              >
+                {v === "overview" ? "Overview" : "Table Wise Sales"}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-      <SummaryCards summary={summary} currency={config.currency} isLoading={isLoading} />
+      {view === "overview" ? (
+        <>
+          <SummaryCards summary={summary} currency={config.currency} isLoading={isLoading} />
 
-      <Suspense fallback={<div className="h-[21rem] animate-pulse rounded-lg border border-slate-200 bg-slate-50" />}>
-        <SalesChart series={series} currency={config.currency} isLoading={isLoading} />
-      </Suspense>
+          <Suspense fallback={<div className="h-[21rem] animate-pulse rounded-lg border border-slate-200 bg-slate-50" />}>
+            <SalesChart series={series} currency={config.currency} isLoading={isLoading} />
+          </Suspense>
 
-      <TopItemsTable items={topItems} currency={config.currency} isLoading={isLoading} />
+          <TopItemsTable items={topItems} currency={config.currency} isLoading={isLoading} />
+        </>
+      ) : (
+        <>
+          {tableSalesError && (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{tableSalesError}</p>
+          )}
+          <TableWiseSalesTable data={tableSales} currency={config.currency} isLoading={isLoadingTableSales} />
+        </>
+      )}
     </section>
   );
 }

@@ -73,6 +73,20 @@ pub struct DashboardSummary {
 
     /// `None` when the `inventory` module is disabled.
     pub low_stock_item_count: Option<i64>,
+
+    /// `None` when the `tables` module is disabled, *or* when it's enabled
+    /// but no table-attributed sale happened in the range — "no table sold
+    /// anything" has nothing meaningful to show either way, same spirit as
+    /// `low_stock_item_count` only rendering client-side when non-zero.
+    pub top_table_by_sales: Option<TopTable>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopTable {
+    pub table_id: i64,
+    pub name: String,
+    pub total_minor: i64,
 }
 
 fn module_enabled(conn: &Connection, platform: Platform, key: &str) -> Result<bool, rusqlite::Error> {
@@ -107,6 +121,19 @@ fn low_stock_count(conn: &Connection) -> Result<i64, rusqlite::Error> {
     )
 }
 
+/// The single highest-selling real table in the range, if any — reuses
+/// `reports::get_table_sales_summary` (already sorted highest-first, already
+/// reconciled against the overall total) rather than a parallel query, and
+/// just takes its first row that actually has a `table_id` (skipping the
+/// "Counter / Takeaway" row, which isn't a table).
+fn top_table_by_sales(conn: &Connection, start_date: &str, end_date: &str) -> Result<Option<TopTable>, DashboardError> {
+    let table_sales = reports::get_table_sales_summary(conn, start_date, end_date)?;
+    Ok(table_sales
+        .rows
+        .into_iter()
+        .find_map(|row| row.table_id.map(|table_id| TopTable { table_id, name: row.label, total_minor: row.total_minor })))
+}
+
 /// Aggregates sales, expenses and salary payouts for `start_date`..`end_date`
 /// (inclusive), scoped to whichever optional modules `platform` currently has
 /// enabled. Billing is core and always contributes; Expenses, Salary and
@@ -136,6 +163,11 @@ pub fn get_summary(
     } else {
         None
     };
+    let top_table_by_sales = if module_enabled(conn, platform, "tables")? {
+        top_table_by_sales(conn, start_date, end_date)?
+    } else {
+        None
+    };
 
     let net_profit_minor =
         sales.net_sales_minor - total_expenses_minor.unwrap_or(0) - total_salary_paid_minor.unwrap_or(0);
@@ -150,6 +182,7 @@ pub fn get_summary(
         total_salary_paid_minor,
         net_profit_minor,
         low_stock_item_count,
+        top_table_by_sales,
     })
 }
 
@@ -313,5 +346,64 @@ mod tests {
             before.net_profit_minor - 8000,
             "net profit must drop by exactly the refunded amount"
         );
+    }
+
+    #[test]
+    fn top_table_is_none_when_tables_module_is_disabled() {
+        let conn = test_conn();
+        conn.execute(
+            "UPDATE enabled_modules SET desktop_enabled = 0
+              WHERE module_id = (SELECT id FROM modules WHERE key = 'tables')",
+            [],
+        )
+        .unwrap();
+
+        let (start, end) = wide_range();
+        let summary = get_summary(&conn, &start, &end, Platform::Desktop).unwrap();
+        assert!(summary.top_table_by_sales.is_none());
+    }
+
+    #[test]
+    fn top_table_is_none_when_enabled_but_nothing_was_sold_to_a_table() {
+        let conn = test_conn(); // seed data has no table-linked sales
+        let (start, end) = wide_range();
+        let summary = get_summary(&conn, &start, &end, Platform::Desktop).unwrap();
+        assert!(summary.top_table_by_sales.is_none(), "no table sold anything — nothing to highlight");
+    }
+
+    #[test]
+    fn top_table_reflects_the_highest_selling_real_table() {
+        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        use crate::db::tables::start_table_order;
+
+        let mut conn = test_conn();
+        let tx = conn.transaction().unwrap();
+        let table_id: i64 = tx.query_row("SELECT id FROM tables LIMIT 1", [], |row| row.get(0)).unwrap();
+        let table_name: String =
+            tx.query_row("SELECT name FROM tables WHERE id = ?1", params![table_id], |row| row.get(0)).unwrap();
+        start_table_order(&tx, table_id).unwrap();
+        let cola: i64 =
+            tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+        create_sale(
+            &tx,
+            CreateSaleInput {
+                items: vec![CartLine { item_id: cola, qty: 3, notes: None }],
+                discount_minor: 0,
+                tax_minor: 0,
+                payment_method: "cash".into(),
+                cashier_id: None,
+                table_id: Some(table_id),
+                shift_id: None,
+            },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let (start, end) = wide_range();
+        let summary = get_summary(&conn, &start, &end, Platform::Desktop).unwrap();
+        let top = summary.top_table_by_sales.expect("a table was sold to");
+        assert_eq!(top.table_id, table_id);
+        assert_eq!(top.name, table_name);
+        assert_eq!(top.total_minor, 3 * 8000);
     }
 }

@@ -1,4 +1,4 @@
-import { AlertTriangle, Receipt, RotateCcw, TrendingUp, Wallet } from "lucide-react";
+import { AlertTriangle, Receipt, RotateCcw, Table2, TrendingUp, Wallet } from "lucide-react";
 import { formatMinor } from "../../utils/format";
 import type { DashboardSummary } from "../../types";
 
@@ -50,6 +50,11 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
   // Only shown when there actually were refunds today — same "don't clutter
   // the snapshot with a card that's always zero" treatment as low stock.
   const showRefunds = !isLoading && summary !== null && summary.refundsMinor > 0;
+  // `topTableBySales` is already `null` when the `tables` module is
+  // disabled *or* when it's enabled but nothing was sold to a table today —
+  // see `dashboard.rs` — so this card simply mirrors whatever it says,
+  // same pattern as every other optional card here.
+  const showTopTable = isLoading || summary?.topTableBySales != null;
 
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -80,6 +85,18 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
           label="Refunds today"
           value={formatMinor(summary?.refundsMinor ?? 0, currency)}
           tone="negative"
+          isLoading={isLoading}
+        />
+      )}
+      {showTopTable && (
+        <Card
+          icon={Table2}
+          label="Top table by sales"
+          value={
+            summary?.topTableBySales
+              ? `${summary.topTableBySales.name} · ${formatMinor(summary.topTableBySales.totalMinor, currency)}`
+              : "—"
+          }
           isLoading={isLoading}
         />
       )}

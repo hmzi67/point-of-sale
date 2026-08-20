@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { LogOut, Menu } from "lucide-react";
+import { useLogoDataUrl } from "../../hooks/useLogoDataUrl";
 import { useSecretTapTrigger } from "../../hooks/useSecretTapTrigger";
 import { useAppStore, useAuthStore } from "../../store";
 
@@ -21,6 +22,8 @@ interface TopBarProps {
 
 export function TopBar({ onOpenNav }: TopBarProps) {
   const businessName = useAppStore((state) => state.config.businessName);
+  const logoPath = useAppStore((state) => state.config.logoPath);
+  const logoDataUrl = useLogoDataUrl(logoPath);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
 
@@ -38,6 +41,7 @@ export function TopBar({ onOpenNav }: TopBarProps) {
         >
           <Menu className="h-5 w-5" />
         </button>
+        {logoDataUrl && <img src={logoDataUrl} alt="" className="h-7 w-7 rounded object-contain" />}
         <h1 className="text-base font-semibold text-slate-900" onClick={onSecretTap}>
           {businessName}
         </h1>

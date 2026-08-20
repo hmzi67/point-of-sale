@@ -18,7 +18,7 @@ use crate::db::salary::SalaryCalculation;
 use crate::db::items::{Category, DeleteOutcome, Item, ItemInput, ItemQuery};
 use crate::db::modules::{ModuleState, Platform};
 use crate::db::refunds::{CreateRefundInput, Refund, RefundLineInput, RefundableSale};
-use crate::db::reports::{CategorySalesReport, DailySales, SalesSummary, TopItem, TopItemSort};
+use crate::db::reports::{CategorySalesReport, DailySales, SalesSummary, TableSalesSummary, TopItem, TopItemSort};
 use crate::db::sales::{CreateSaleInput, Sale, SaleListItem};
 use crate::db::shifts::{Shift, ShiftSummary};
 use crate::db::tables::{ParkedCartLine, ParkedOrder, TableSummary};
@@ -81,6 +81,48 @@ pub fn update_app_config(
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| config::update(conn, patch))
         .map_err(|e| e.to_string())
+}
+
+/// Saves an uploaded logo to disk (in its own directory, distinct from
+/// product photos — see `images::logo_dir`) and points `app_config.logo_path`
+/// at the generated filename, replacing whatever was there before. The
+/// previous logo file — if any — is deleted from disk only after the
+/// database write succeeds, so a failed upload never orphans the old logo
+/// and a successful one never leaves it behind; same ordering
+/// `inventory_update_item` uses for product photos, for the same reason.
+#[tauri::command]
+pub fn config_upload_logo(
+    app: AppHandle,
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    data_base64: String,
+    extension: String,
+) -> Result<AppConfig, String> {
+    require_role(&session, STAFF_ROLES)?;
+    let previous_logo = db.with_conn(config::get).map_err(|e| e.to_string())?.logo_path;
+
+    let file_name = images::save_logo(&logo_dir(&app)?, &data_base64, &extension).map_err(|e| e.to_string())?;
+
+    let updated = db
+        .with_conn(|conn| {
+            config::update(conn, AppConfigUpdate { logo_path: Some(file_name.clone()), ..Default::default() })
+        })
+        .map_err(|e| e.to_string())?;
+
+    if let Some(old) = previous_logo {
+        if old != file_name {
+            images::delete_image(&logo_dir(&app)?, &old);
+        }
+    }
+
+    Ok(updated)
+}
+
+/// Reads the current logo back as a `data:` URL for direct use as an
+/// `<img src>` — same shape as `inventory_get_image`.
+#[tauri::command]
+pub fn config_get_logo(app: AppHandle, file_name: String) -> Result<String, String> {
+    images::read_image_data_url(&logo_dir(&app)?, &file_name).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +260,11 @@ pub fn inventory_delete_item(
 fn images_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(images::images_dir(&data_dir))
+}
+
+fn logo_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(images::logo_dir(&data_dir))
 }
 
 /// Validates, saves and returns the filename to store as `Item.imagePath`.
@@ -711,6 +758,44 @@ pub fn reports_print_category_sales(
         .map_err(|e| e.to_string())?;
     let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
     crate::printer::escpos::print_category_sales(&report, &app_config).map_err(|e| e.to_string())
+}
+
+/// The Table Wise Sales report: one row per table plus a "Counter /
+/// Takeaway" row for sales with no table, sorted by amount and summing to
+/// the same gross total `reports_get_sales_summary` reports for the same
+/// range. Reachable regardless of whether the `tables` module happens to be
+/// enabled — same as every other report command in this file, module
+/// visibility is a route/UI concern (`ModuleRoute`), not something each
+/// query re-checks — the Reports screen simply doesn't offer this view
+/// unless `tables` is on.
+#[tauri::command]
+pub fn reports_get_table_sales_summary(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+) -> Result<TableSalesSummary, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(reports::get_table_sales_summary(conn, &start_date, &end_date)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Prints the Table Wise Sales report on a USB thermal printer.
+#[tauri::command]
+pub fn reports_print_table_sales_summary(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    let report = db
+        .with_conn(|conn| Ok(reports::get_table_sales_summary(conn, &start_date, &end_date)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_table_sales(&report, &app_config).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
