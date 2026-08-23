@@ -29,6 +29,8 @@ base64 = "0.22"
 csv = "1"
 tauri-plugin-os = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 
 # Desktop printer transport: USB. Platform-gated out of the Android build
 # entirely (not just cfg'd off at the call site) — raw libusb was never

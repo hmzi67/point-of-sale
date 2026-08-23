@@ -45,7 +45,7 @@ export function SalesChart({ series, currency, isLoading }: SalesChartProps) {
   const hasAnySales = series.some((point) => point.totalMinor > 0);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-soft">
       <h3 className="text-sm font-semibold text-slate-900">Sales by day</h3>
 
       {isLoading ? (

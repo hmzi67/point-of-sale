@@ -60,6 +60,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
+        // Native "Save As" flow for exports (CSV/PDF reports) — the dialog
+        // plugin shows the OS save picker (Storage Access Framework on
+        // Android, the native panel on desktop) and returns a path; the fs
+        // plugin then writes bytes to it. Replaces the old `<a download>`
+        // blob trick, which desktop browsers handle but Android's WebView
+        // does not (see `src/services/fileExportService.ts`).
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(move |app| {
             let dir = app.path().app_data_dir()?;
             let db = Db::open(dir)?;
@@ -132,6 +140,8 @@ pub fn run() {
             commands::reports_print_category_sales,
             commands::reports_get_table_sales_summary,
             commands::reports_print_table_sales_summary,
+            commands::reports_get_full_report,
+            commands::reports_print_full_report,
             commands::reports_get_product_sales_summary,
             commands::tables_get_tables,
             commands::tables_add_table,

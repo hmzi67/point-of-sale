@@ -1,5 +1,6 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
+import { downloadPdf } from "./pdfExport";
 import { drawFooter, drawHeader, drawSectionHeader, drawTable, newReceiptDoc } from "./printLayout";
 import type { AppConfig, ProductSalesSummaryReport } from "../types";
 
@@ -44,6 +45,6 @@ export function buildProductSalesPdf(report: ProductSalesSummaryReport, config: 
   return doc;
 }
 
-export function downloadProductSalesPdf(report: ProductSalesSummaryReport, config: AppConfig): void {
-  buildProductSalesPdf(report, config).save(`product-wise-sales-${report.startDate}-to-${report.endDate}.pdf`);
+export function downloadProductSalesPdf(report: ProductSalesSummaryReport, config: AppConfig): Promise<boolean> {
+  return downloadPdf(buildProductSalesPdf(report, config), `product-wise-sales-${report.startDate}-to-${report.endDate}.pdf`);
 }

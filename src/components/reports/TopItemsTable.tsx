@@ -18,7 +18,7 @@ export function TopItemsTable({ items, currency, isLoading }: TopItemsTableProps
   const setTopItemsSort = useReportsStore((state) => state.setTopItemsSort);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-soft">
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <h3 className="text-sm font-semibold text-slate-900">Top-selling items</h3>
         <div className="flex rounded-md border border-slate-300 p-0.5">

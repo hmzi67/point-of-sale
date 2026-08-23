@@ -13,7 +13,7 @@ import { PaymentMethodSelector } from "../components/billing/PaymentMethodSelect
 import { ReceiptModal } from "../components/billing/ReceiptModal";
 import { useBestSellerIds } from "../hooks/useBestSellerIds";
 import { useModules } from "../hooks/useModules";
-import { createSale } from "../services/billingService";
+import { createSale, printReceiptThermal } from "../services/billingService";
 import { getCategories, getItems } from "../services/inventoryService";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useAuthStore, useBillingStore, useShiftStore } from "../store";
@@ -103,6 +103,34 @@ export function BillingPage() {
   const cartLines = cartOrder.map((id) => cart[id]);
   const totals = computeCartTotals(cartLines, discountMode, discountValue, config.taxPercent);
 
+  // Fires automatically the instant a sale completes — no cashier click
+  // required. `billing_print_receipt_thermal` already sends *two* copies
+  // back to back (customer, then a "MERCHANT COPY"-labeled one; see
+  // `printer::escpos::print_receipt`), so a successful thermal print here
+  // needs nothing further. Only when that fails — no printer configured or
+  // reachable — does this fall back to the PDF twin (also two copies, one
+  // per page; see `receiptPdf.ts`), auto-saved via the native "Save As"
+  // flow rather than requiring a button first. Either way this never
+  // blocks or fails the sale itself, which is already committed by the
+  // time this runs.
+  const printReceiptAutomatically = async (sale: Sale) => {
+    try {
+      await printReceiptThermal(sale.id);
+    } catch {
+      try {
+        const { downloadReceiptPdf } = await import("../utils/receiptPdf");
+        const saved = await downloadReceiptPdf(sale, config, tablesEnabled);
+        if (saved) {
+          setNotice("No thermal printer found — receipt saved as a PDF instead.");
+          window.setTimeout(() => setNotice(null), 5000);
+        }
+      } catch {
+        // Swallow — a failed/cancelled receipt copy is never a reason to
+        // interrupt the cashier after the sale has already gone through.
+      }
+    }
+  };
+
   const completeSale = async () => {
     if (cartOrder.length === 0) return;
     setIsSubmitting(true);
@@ -121,6 +149,7 @@ export function BillingPage() {
       clearCart();
       loadCatalog(); // stock just changed — the grid should reflect it
       reloadBestSellers(); // this sale may have moved the best-sellers ranking
+      void printReceiptAutomatically(sale);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -206,13 +235,9 @@ export function BillingPage() {
           </div>
         </dl>
 
-        <div className="flex gap-2">
-          <div className="flex-[1.3]">
-            <DiscountControl />
-          </div>
-          <div className="flex-1">
-            <PaymentMethodSelector />
-          </div>
+        <div className="flex flex-col gap-2">
+          <DiscountControl />
+          <PaymentMethodSelector />
         </div>
 
         {error && <p className="rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -240,12 +265,7 @@ export function BillingPage() {
       )}
 
       {completedSale && (
-        <ReceiptModal
-          sale={completedSale}
-          config={config}
-          tablesEnabled={tablesEnabled}
-          onClose={() => setCompletedSale(null)}
-        />
+        <ReceiptModal sale={completedSale} config={config} onClose={() => setCompletedSale(null)} />
       )}
     </div>
   );

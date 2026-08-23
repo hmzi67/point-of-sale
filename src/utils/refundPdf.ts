@@ -1,5 +1,6 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
+import { downloadPdf } from "./pdfExport";
 import { drawFooter, drawHeader, drawTable, drawTotalsBlock, newReceiptDoc } from "./printLayout";
 import type { AppConfig, Refund } from "../types";
 
@@ -37,6 +38,6 @@ export function buildRefundPdf(refund: Refund, config: AppConfig): jsPDF {
   return doc;
 }
 
-export function downloadRefundPdf(refund: Refund, config: AppConfig): void {
-  buildRefundPdf(refund, config).save(`refund-${refund.id}.pdf`);
+export function downloadRefundPdf(refund: Refund, config: AppConfig): Promise<boolean> {
+  return downloadPdf(buildRefundPdf(refund, config), `refund-${refund.id}.pdf`);
 }

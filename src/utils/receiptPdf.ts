@@ -1,5 +1,6 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
+import { downloadPdf } from "./pdfExport";
 import {
   drawFooter,
   drawHeader,
@@ -9,6 +10,7 @@ import {
   drawTotalsBlock,
   loadImageDimensions,
   LOGO_MAX_HEIGHT_MM,
+  MARGIN_MM,
   newReceiptDoc,
   PAGE_WIDTH_MM,
 } from "./printLayout";
@@ -32,27 +34,42 @@ async function resolveLogo(logoPath: string | null): Promise<{ dataUrl: string; 
   }
 }
 
+/** A bold, boxed "MERCHANT COPY" banner right under the logo — the PDF
+ * equivalent of `printer::escpos::copy_label_banner`'s ASCII double-rule
+ * banner. A PDF has real typography/box-drawing available, so this uses
+ * an actual bordered rectangle rather than trying to imitate `====` text
+ * rules — "use your judgment on what's cleanest for a PDF context"
+ * covers exactly this. Returns the y position to continue drawing from. */
+function drawCopyLabelBanner(doc: jsPDF, y: number, label: string): number {
+  const boxHeight = 8;
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(0.5);
+  doc.rect(MARGIN_MM, y, PAGE_WIDTH_MM - MARGIN_MM * 2, boxHeight);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(label, PAGE_WIDTH_MM / 2, y + boxHeight / 2 + 1.5, { align: "center" });
+  doc.setFont("helvetica", "normal");
+  return y + boxHeight + 4;
+}
+
 /**
- * Builds a compact 80mm-wide receipt PDF — the default/fallback receipt path,
- * since it works identically with or without a thermal printer attached.
- * Returns the `jsPDF` document; call `.save(name)` to trigger a download or
- * `.output(...)` for other uses (e.g. a preview).
- *
- * `tablesEnabled` decides the label shown when `sale.tableName` is unset:
- * "Takeaway" if the shop uses tables at all (this sale just wasn't linked to
- * one), "Counter Sale" if the `tables` module isn't in use for this
- * installation — mirrors the same fallback on the ESC/POS side.
+ * Draws one receipt's full content (logo, optional copy-label banner,
+ * header, items, totals, footer) onto whatever page `doc` is currently on
+ * — the one place that content is actually laid out, so
+ * `buildReceiptPdf`/`buildReceiptPdfWithMerchantCopy` below can never
+ * drift apart in what they show, mirroring
+ * `printer::escpos::build_receipt_bytes_for_copy` on the ESC/POS side.
  */
-export async function buildReceiptPdf(sale: Sale, config: AppConfig, tablesEnabled: boolean): Promise<jsPDF> {
-  const logo = await resolveLogo(config.logoPath);
-
-  // Rough content height so the page isn't needlessly long or clipped:
-  // logo + header block + info rows + one row per item + totals block + footer.
-  const estimatedHeightMm =
-    44 + (logo ? LOGO_MAX_HEIGHT_MM + 3 : 0) + 10 + sale.items.length * 6 + 36 + (config.receiptFooter.trim() ? 10 : 0);
-  const doc = newReceiptDoc(estimatedHeightMm);
-
+async function drawReceiptContent(
+  doc: jsPDF,
+  sale: Sale,
+  config: AppConfig,
+  tablesEnabled: boolean,
+  logo: { dataUrl: string; width: number; height: number } | null,
+  copyLabel?: string,
+): Promise<void> {
   let y = logo ? drawLogo(doc, logo.dataUrl, logo.width, logo.height) : 6;
+  if (copyLabel) y = drawCopyLabelBanner(doc, y, copyLabel);
   y = drawHeader(doc, config.businessName, [`Sale #${sale.id}`, sale.createdAt], y);
 
   // Cashier / table-or-order-type — a clean label/value row block, same
@@ -92,11 +109,64 @@ export async function buildReceiptPdf(sale: Sale, config: AppConfig, tablesEnabl
   y += 6;
 
   drawFooter(doc, y, config.receiptFooter);
+}
+
+function estimatedHeightMm(sale: Sale, config: AppConfig, hasLogo: boolean, hasCopyLabel: boolean): number {
+  // logo + optional banner + header block + info rows + one row per item +
+  // totals block + footer.
+  return (
+    44 +
+    (hasLogo ? LOGO_MAX_HEIGHT_MM + 3 : 0) +
+    (hasCopyLabel ? 12 : 0) +
+    10 +
+    sale.items.length * 6 +
+    36 +
+    (config.receiptFooter.trim() ? 10 : 0)
+  );
+}
+
+/**
+ * Builds a compact 80mm-wide receipt PDF — the customer copy only, one
+ * page. Returns the `jsPDF` document; call `.save(name)` to trigger a
+ * download or `.output(...)` for other uses (e.g. a preview).
+ *
+ * `tablesEnabled` decides the label shown when `sale.tableName` is unset:
+ * "Takeaway" if the shop uses tables at all (this sale just wasn't linked to
+ * one), "Counter Sale" if the `tables` module isn't in use for this
+ * installation — mirrors the same fallback on the ESC/POS side.
+ */
+export async function buildReceiptPdf(sale: Sale, config: AppConfig, tablesEnabled: boolean): Promise<jsPDF> {
+  const logo = await resolveLogo(config.logoPath);
+  const doc = newReceiptDoc(estimatedHeightMm(sale, config, logo !== null, false));
+  await drawReceiptContent(doc, sale, config, tablesEnabled, logo);
   return doc;
 }
 
-/** Builds and immediately downloads the receipt PDF. */
-export async function downloadReceiptPdf(sale: Sale, config: AppConfig, tablesEnabled: boolean): Promise<void> {
-  const doc = await buildReceiptPdf(sale, config, tablesEnabled);
-  doc.save(`receipt-${sale.id}.pdf`);
+/**
+ * The PDF fallback used when no thermal printer is reachable: the same
+ * customer receipt as `buildReceiptPdf`, plus a second page carrying the
+ * "MERCHANT COPY" banner — a PDF's equivalent of the thermal path's two
+ * back-to-back printed copies (`printer::escpos::print_receipt`). Both
+ * pages are drawn by the exact same `drawReceiptContent`, so there is no
+ * second, divergent receipt template here either.
+ */
+export async function buildReceiptPdfWithMerchantCopy(sale: Sale, config: AppConfig, tablesEnabled: boolean): Promise<jsPDF> {
+  const logo = await resolveLogo(config.logoPath);
+  const pageHeight = estimatedHeightMm(sale, config, logo !== null, true);
+
+  const doc = newReceiptDoc(pageHeight);
+  await drawReceiptContent(doc, sale, config, tablesEnabled, logo);
+
+  doc.addPage([PAGE_WIDTH_MM, pageHeight]);
+  await drawReceiptContent(doc, sale, config, tablesEnabled, logo, "MERCHANT COPY");
+
+  return doc;
+}
+
+/** Builds and saves the two-page (customer + merchant copy) receipt PDF —
+ * the automatic fallback when thermal printing fails or no printer is
+ * configured; see `BillingPage.tsx`'s `completeSale`. */
+export async function downloadReceiptPdf(sale: Sale, config: AppConfig, tablesEnabled: boolean): Promise<boolean> {
+  const doc = await buildReceiptPdfWithMerchantCopy(sale, config, tablesEnabled);
+  return downloadPdf(doc, `receipt-${sale.id}.pdf`);
 }

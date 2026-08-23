@@ -61,6 +61,33 @@ pub fn row(cols: &[(&str, usize, bool)]) -> String {
     cols.iter().map(|(text, width, right_align)| pad(text, *width, *right_align)).collect()
 }
 
+/// One row of an ASCII-bordered table: `|` before the first column and
+/// after every column, e.g. `|Cola x2   |  8000|`. Thermal paper has no
+/// concept of a CSS border, so a "grid line" has to be drawn as literal
+/// `|`/`-`/`+` characters that print like any other text — this is the
+/// column-divider half of that, [`bordered_line`] the row-divider half.
+/// Same `(text, width, right_align)` contract as [`row`].
+pub fn bordered_row(cols: &[(&str, usize, bool)]) -> String {
+    let mut out = String::from("|");
+    for (text, width, right_align) in cols {
+        out.push_str(&pad(text, *width, *right_align));
+        out.push('|');
+    }
+    out
+}
+
+/// A `+----+----+` horizontal rule matching [`bordered_row`]'s column
+/// widths — call it above the header row, below the header row, and below
+/// the last data row to close the grid on every side.
+pub fn bordered_line(widths: &[usize]) -> String {
+    let mut out = String::from("+");
+    for w in widths {
+        out.push_str(&"-".repeat(*w));
+        out.push('+');
+    }
+    out
+}
+
 /// Minor units -> a plain "12.34" string, without a currency symbol (every
 /// template prints the symbol once per section, not per line).
 pub fn format_minor(minor: i64) -> String {
@@ -85,6 +112,23 @@ mod tests {
         assert_eq!(line.chars().count(), 48);
         assert!(line.starts_with("Cola"));
         assert!(line.ends_with("8000"));
+    }
+
+    #[test]
+    fn bordered_row_wraps_every_column_in_pipes() {
+        let line = bordered_row(&[("Cola", 10, false), ("x2", 4, true), ("8000", 8, true)]);
+        assert_eq!(line, "|Cola      |  x2|    8000|");
+        assert!(line.starts_with('|'));
+        assert!(line.ends_with('|'));
+    }
+
+    #[test]
+    fn bordered_line_matches_bordered_row_width() {
+        let widths = [10usize, 4, 8];
+        let border = bordered_line(&widths);
+        let row = bordered_row(&[("Cola", 10, false), ("x2", 4, true), ("8000", 8, true)]);
+        assert_eq!(border.chars().count(), row.chars().count());
+        assert_eq!(border, "+----------+----+--------+");
     }
 
     #[test]

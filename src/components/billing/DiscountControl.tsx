@@ -10,7 +10,7 @@ export function DiscountControl() {
   const setDiscountValue = useBillingStore((state) => state.setDiscountValue);
 
   return (
-    <div className="flex items-center gap-2 rounded-full bg-slate-50 py-1 pl-4 pr-1.5">
+    <div className="flex items-center gap-2 rounded-full bg-slate-50 py-2 pl-4 pr-1.5">
       <input
         type="number"
         min={0}
@@ -19,7 +19,11 @@ export function DiscountControl() {
         value={discountValue || ""}
         onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
         placeholder="Add Discount"
-        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+        // [appearance:textfield] + the two -webkit-* rules drop the native
+        // spin-button arrows — at this pill's width they only ever crowded
+        // the digits/placeholder against the Amt/% toggle, never gave a
+        // usable click target.
+        className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
       />
       <div className="flex shrink-0 rounded-full bg-white p-0.5 shadow-soft">
         {(["flat", "percent"] as const).map((mode) => (

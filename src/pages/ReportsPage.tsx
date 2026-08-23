@@ -7,16 +7,20 @@ import { TableWiseSalesTable } from "../components/reports/TableWiseSalesTable";
 import { TopItemsTable } from "../components/reports/TopItemsTable";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useModules } from "../hooks/useModules";
+import { getDashboardSummary } from "../services/dashboardService";
 import { getCategories } from "../services/inventoryService";
 import { getProductSalesSummary, getTableSalesSummary } from "../services/reportsService";
 import { useReportsStore } from "../store";
-import type { Category, ProductSalesSummaryReport, TableSalesSummary, TopItemSort } from "../types";
+import type { Category, DashboardSummary, ProductSalesSummaryReport, TableSalesSummary, TopItemSort } from "../types";
 
 // Recharts is large and only ever used here — deferred so it never loads on
 // the (much more frequently visited) Billing/Dashboard/Inventory screens.
 const SalesChart = lazy(() => import("../components/reports/SalesChart"));
+const TopEntriesChart = lazy(() => import("../components/reports/TopEntriesChart"));
 
 type View = "overview" | "tables" | "products";
+
+const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />;
 
 export function ReportsPage() {
   const { config } = useAppConfig();
@@ -33,6 +37,19 @@ export function ReportsPage() {
   const load = useReportsStore((state) => state.load);
 
   const [view, setView] = useState<View>("overview");
+
+  // Reuses the Dashboard's own net-profit math (`dashboard_get_summary`)
+  // for whatever range Reports currently has selected, rather than this
+  // screen recomputing profit a second way — see `SummaryCards`'s doc
+  // comment. Its own query (not folded into `useReportsStore`) since only
+  // the Overview card row ever needs it.
+  const [profit, setProfit] = useState<DashboardSummary | null | undefined>(undefined);
+  useEffect(() => {
+    setProfit(undefined);
+    getDashboardSummary(startDate, endDate)
+      .then(setProfit)
+      .catch(() => setProfit(null));
+  }, [startDate, endDate]);
 
   // Table Wise Sales is its own, separate query — not folded into
   // useReportsStore's load(), since only the "tables" view ever needs it
@@ -90,13 +107,14 @@ export function ReportsPage() {
   }, [view, startDate, endDate, productCategoryId, productSort]);
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Reports</h2>
           <p className="text-sm text-slate-500">Daily sales summary and top-selling items.</p>
         </div>
         <ExportButtons
+          view={view}
           summary={summary}
           topItems={topItems}
           series={series}
@@ -109,18 +127,18 @@ export function ReportsPage() {
         />
       </div>
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-2 shadow-soft">
         <DateRangePicker />
 
-        <div className="flex shrink-0 rounded-md border border-slate-300 p-0.5">
+        <div className="flex shrink-0 rounded-xl bg-slate-100 p-1">
           {(["overview", "products", ...(tablesEnabled ? (["tables"] as const) : [])] as const).map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => setView(v)}
               className={[
-                "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-                view === v ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100",
+                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                view === v ? "bg-brand-600 text-white shadow-soft" : "text-slate-600 hover:bg-white",
               ].join(" ")}
             >
               {v === "overview" ? "Overview" : v === "products" ? "Product Wise Sales" : "Table Wise Sales"}
@@ -133,9 +151,9 @@ export function ReportsPage() {
 
       {view === "overview" ? (
         <>
-          <SummaryCards summary={summary} currency={config.currency} isLoading={isLoading} />
+          <SummaryCards summary={summary} currency={config.currency} isLoading={isLoading} profit={profit} />
 
-          <Suspense fallback={<div className="h-[21rem] animate-pulse rounded-lg border border-slate-200 bg-slate-50" />}>
+          <Suspense fallback={chartFallback}>
             <SalesChart series={series} currency={config.currency} isLoading={isLoading} />
           </Suspense>
 
@@ -146,6 +164,14 @@ export function ReportsPage() {
           {productSalesError && (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{productSalesError}</p>
           )}
+          <Suspense fallback={chartFallback}>
+            <TopEntriesChart
+              title="Top products by revenue"
+              entries={(productSales?.rows ?? []).map((row) => ({ label: row.itemName, valueMinor: row.revenueMinor }))}
+              currency={config.currency}
+              isLoading={isLoadingProductSales}
+            />
+          </Suspense>
           <ProductWiseSalesTable
             data={productSales}
             categories={categories}
@@ -162,6 +188,14 @@ export function ReportsPage() {
           {tableSalesError && (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{tableSalesError}</p>
           )}
+          <Suspense fallback={chartFallback}>
+            <TopEntriesChart
+              title="Top tables by sales"
+              entries={(tableSales?.rows ?? []).map((row) => ({ label: row.label, valueMinor: row.totalMinor }))}
+              currency={config.currency}
+              isLoading={isLoadingTableSales}
+            />
+          </Suspense>
           <TableWiseSalesTable data={tableSales} currency={config.currency} isLoading={isLoadingTableSales} />
         </>
       )}

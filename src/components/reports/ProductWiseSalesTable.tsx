@@ -103,7 +103,7 @@ export function ProductWiseSalesTable({
         </div>
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white">
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-soft">
         <div className="border-b border-slate-200 px-4 py-3">
           <h3 className="text-sm font-semibold text-slate-900">Product Wise Sales</h3>
           <p className="mt-0.5 text-xs text-slate-500">Every item sold in the range, ranked by {sortBy}.</p>
@@ -147,7 +147,7 @@ export function ProductWiseSalesTable({
       </div>
 
       {!isLoading && noSalesItems.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white">
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-soft">
           <button
             type="button"
             onClick={() => setShowNoSales((s) => !s)}

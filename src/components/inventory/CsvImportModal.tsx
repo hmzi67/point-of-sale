@@ -24,7 +24,7 @@ export function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
   const downloadTemplate = async () => {
     try {
       const template = await getCsvTemplate();
-      downloadTextFile(template, "inventory-import-template.csv", "text/csv");
+      await downloadTextFile(template, "inventory-import-template.csv");
     } catch (e) {
       setError((e as Error).message);
     }

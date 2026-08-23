@@ -1,34 +1,113 @@
 import { useState } from "react";
-import { Download, FileText, Printer } from "lucide-react";
+import { Download, FileText, Layers, Printer } from "lucide-react";
 import {
   getCategorySales,
+  getFullReport,
   getProductSalesSummary,
   getTableSalesSummary,
   printCategorySalesThermal,
+  printFullReportThermal,
   printTableSalesThermal,
 } from "../../services/reportsService";
-import { downloadReportCsv, downloadTableSalesCsv } from "../../utils/reportCsv";
-import { downloadProductSalesCsv } from "../../utils/productSalesCsv";
+import { downloadReportCsv } from "../../utils/reportCsv";
 import type { AppConfig, DailySales, SalesSummary, TopItem, TopItemSort } from "../../types";
 
+type View = "overview" | "products" | "tables";
+
 interface ExportButtonsProps {
+  view: View;
   summary: SalesSummary | null;
   topItems: TopItem[];
   series: DailySales[];
   config: AppConfig;
   startDate: string;
   endDate: string;
-  /** Hides the Table Wise Sales export buttons entirely when the `tables`
+  /** Hides the Table Wise Sales action group entirely when the `tables`
    * module isn't enabled — same "not just empty data, not offered at all"
    * treatment the report view itself gets. */
   tablesEnabled: boolean;
-  /** The Product Wise Sales view's current category filter/sort — exported
-   * files match whatever the on-screen table is currently showing. */
+  /** The Product Wise Sales view's current category filter/sort — its
+   * export matches whatever the on-screen table is currently showing. */
   productCategoryId: number | null;
   productSort: TopItemSort;
 }
 
+/** One "Download" + (optionally) "Print" pair, grouped and labeled under a
+ * single card — the redesign's answer to what used to be five flat,
+ * same-looking buttons of mixed purpose. `accent` marks the standalone
+ * "Generate Full Report" card so it reads as the distinct, comprehensive
+ * option rather than one more per-report action. */
+function ActionCard({
+  title,
+  icon: Icon,
+  onDownload,
+  isDownloading,
+  onPrint,
+  isPrinting,
+  accent,
+}: {
+  title: string;
+  icon: typeof FileText;
+  onDownload: () => void;
+  isDownloading: boolean;
+  onPrint?: () => void;
+  isPrinting?: boolean;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={[
+        "flex items-center gap-3 rounded-2xl border p-2.5 shadow-soft",
+        accent ? "border-brand-200 bg-brand-50" : "border-slate-200 bg-white",
+      ].join(" ")}
+    >
+      <div
+        className={[
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+          accent ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-500",
+        ].join(" ")}
+      >
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <p className={["text-xs font-semibold uppercase tracking-wide", accent ? "text-brand-700" : "text-slate-500"].join(" ")}>
+          {title}
+        </p>
+        <div className="mt-1 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={isDownloading}
+            className={[
+              "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+              accent ? "bg-brand-600 text-white hover:bg-brand-700" : "text-slate-600 hover:bg-slate-100",
+            ].join(" ")}
+          >
+            <Download className="h-3.5 w-3.5" />
+            {isDownloading ? "Preparing…" : "Download"}
+          </button>
+          {onPrint && (
+            <button
+              type="button"
+              onClick={onPrint}
+              disabled={isPrinting}
+              className={[
+                "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                accent ? "text-brand-700 hover:bg-brand-100" : "text-slate-600 hover:bg-slate-100",
+              ].join(" ")}
+            >
+              <Printer className="h-3.5 w-3.5" />
+              {isPrinting ? "Printing…" : "Print"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ExportButtons({
+  view,
   summary,
   topItems,
   series,
@@ -39,63 +118,68 @@ export function ExportButtons({
   productCategoryId,
   productSort,
 }: ExportButtonsProps) {
-  const [isPreparingPdf, setIsPreparingPdf] = useState(false);
-  const [isPreparingCategoryPdf, setIsPreparingCategoryPdf] = useState(false);
+  const [isDownloadingCurrent, setIsDownloadingCurrent] = useState(false);
+  const [isDownloadingCategory, setIsDownloadingCategory] = useState(false);
   const [isPrintingCategory, setIsPrintingCategory] = useState(false);
-  const [isPreparingTablePdf, setIsPreparingTablePdf] = useState(false);
-  const [isPreparingTableCsv, setIsPreparingTableCsv] = useState(false);
-  const [isPrintingTable, setIsPrintingTable] = useState(false);
-  const [isPreparingProductPdf, setIsPreparingProductPdf] = useState(false);
-  const [isPreparingProductCsv, setIsPreparingProductCsv] = useState(false);
+  const [isDownloadingFull, setIsDownloadingFull] = useState(false);
+  const [isPrintingFull, setIsPrintingFull] = useState(false);
+  const [isPrintingTables, setIsPrintingTables] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const disabled = !summary;
 
-  const exportPdf = async () => {
-    if (!summary) return;
-    setIsPreparingPdf(true);
+  // --- The active tab's own Download (+ Print, where one exists) --------
+  const downloadCurrentView = async () => {
+    setIsDownloadingCurrent(true);
     setError(null);
     try {
-      // jsPDF + autoTable is a large chunk with no reason to load until a
-      // report is actually exported — deferred the same way the receipt is.
-      const { downloadReportPdf } = await import("../../utils/reportPdf");
-      downloadReportPdf({ summary, topItems, series, config });
+      if (view === "overview") {
+        if (!summary) return;
+        await downloadReportCsv({ summary, topItems, series, config });
+      } else if (view === "products") {
+        const report = await getProductSalesSummary(startDate, endDate, productCategoryId, productSort);
+        const { downloadProductSalesPdf } = await import("../../utils/productSalesPdf");
+        await downloadProductSalesPdf(report, config);
+      } else {
+        const report = await getTableSalesSummary(startDate, endDate);
+        const { downloadTableSalesPdf } = await import("../../utils/tableSalesPdf");
+        await downloadTableSalesPdf(report, config);
+      }
     } catch (e) {
-      // Previously uncaught — a build failure was a silent unhandled
-      // rejection with the button just going back to normal and no
-      // indication anything went wrong (Phase 13 error-handling review).
-      setError(`Could not prepare the PDF: ${(e as Error).message}`);
+      setError(`Could not prepare the download: ${(e as Error).message}`);
     } finally {
-      setIsPreparingPdf(false);
+      setIsDownloadingCurrent(false);
     }
   };
 
-  const exportCsv = () => {
-    if (!summary) return;
+  const printCurrentView = async () => {
+    setIsPrintingTables(true);
     setError(null);
     try {
-      downloadReportCsv({ summary, topItems, series, config });
+      await printTableSalesThermal(startDate, endDate);
     } catch (e) {
-      setError(`Could not prepare the CSV: ${(e as Error).message}`);
+      setError((e as Error).message);
+    } finally {
+      setIsPrintingTables(false);
     }
   };
 
-  const exportCategoryPdf = async () => {
-    setIsPreparingCategoryPdf(true);
+  // --- Category Wise Sale — no dedicated on-screen tab, so it's always
+  // offered as its own card rather than folded into the tab-aware one. ---
+  const downloadCategorySales = async () => {
+    setIsDownloadingCategory(true);
     setError(null);
     try {
       const report = await getCategorySales(startDate, endDate);
-      // jsPDF + autoTable is a large chunk with no reason to load until a
-      // report is actually exported — same deferral as the summary PDF.
       const { downloadCategorySalesPdf } = await import("../../utils/categorySalesPdf");
-      downloadCategorySalesPdf(report, config);
+      await downloadCategorySalesPdf(report, config);
     } catch (e) {
-      setError(`Could not prepare the Category Wise Sale PDF: ${(e as Error).message}`);
+      setError(`Could not prepare the Category Wise Sale download: ${(e as Error).message}`);
     } finally {
-      setIsPreparingCategoryPdf(false);
+      setIsDownloadingCategory(false);
     }
   };
 
-  const printCategoryThermal = async () => {
+  const printCategorySales = async () => {
     setIsPrintingCategory(true);
     setError(null);
     try {
@@ -107,160 +191,66 @@ export function ExportButtons({
     }
   };
 
-  const exportTableSalesPdf = async () => {
-    setIsPreparingTablePdf(true);
+  // --- Generate Full Report — one consolidated document, distinct from
+  // every per-report action above. ---------------------------------------
+  const downloadFullReport = async () => {
+    setIsDownloadingFull(true);
     setError(null);
     try {
-      const report = await getTableSalesSummary(startDate, endDate);
-      const { downloadTableSalesPdf } = await import("../../utils/tableSalesPdf");
-      downloadTableSalesPdf(report, config);
+      const report = await getFullReport(startDate, endDate);
+      const { downloadFullReportPdf } = await import("../../utils/fullReportPdf");
+      await downloadFullReportPdf(report, config);
     } catch (e) {
-      setError(`Could not prepare the Table Wise Sales PDF: ${(e as Error).message}`);
+      setError(`Could not prepare the Full Report: ${(e as Error).message}`);
     } finally {
-      setIsPreparingTablePdf(false);
+      setIsDownloadingFull(false);
     }
   };
 
-  const exportTableSalesCsv = async () => {
-    setIsPreparingTableCsv(true);
+  const printFullReport = async () => {
+    setIsPrintingFull(true);
     setError(null);
     try {
-      const report = await getTableSalesSummary(startDate, endDate);
-      downloadTableSalesCsv(report);
-    } catch (e) {
-      setError(`Could not prepare the Table Wise Sales CSV: ${(e as Error).message}`);
-    } finally {
-      setIsPreparingTableCsv(false);
-    }
-  };
-
-  const exportProductSalesPdf = async () => {
-    setIsPreparingProductPdf(true);
-    setError(null);
-    try {
-      const report = await getProductSalesSummary(startDate, endDate, productCategoryId, productSort);
-      const { downloadProductSalesPdf } = await import("../../utils/productSalesPdf");
-      downloadProductSalesPdf(report, config);
-    } catch (e) {
-      setError(`Could not prepare the Product Wise Sales PDF: ${(e as Error).message}`);
-    } finally {
-      setIsPreparingProductPdf(false);
-    }
-  };
-
-  const exportProductSalesCsv = async () => {
-    setIsPreparingProductCsv(true);
-    setError(null);
-    try {
-      const report = await getProductSalesSummary(startDate, endDate, productCategoryId, productSort);
-      downloadProductSalesCsv(report);
-    } catch (e) {
-      setError(`Could not prepare the Product Wise Sales CSV: ${(e as Error).message}`);
-    } finally {
-      setIsPreparingProductCsv(false);
-    }
-  };
-
-  const printTableSalesThermalHandler = async () => {
-    setIsPrintingTable(true);
-    setError(null);
-    try {
-      await printTableSalesThermal(startDate, endDate);
+      await printFullReportThermal(startDate, endDate);
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setIsPrintingTable(false);
+      setIsPrintingFull(false);
     }
   };
+
+  const currentViewTitle = view === "overview" ? "Overview (CSV)" : view === "products" ? "Product Wise Sales" : "Table Wise Sales";
 
   return (
     <div className="flex flex-col items-end gap-1.5">
       <div className="flex flex-wrap justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => void exportPdf()}
-          disabled={disabled || isPreparingPdf}
-          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <FileText className="h-4 w-4" />
-          {isPreparingPdf ? "Preparing…" : "Export PDF"}
-        </button>
-        <button
-          type="button"
-          onClick={exportCsv}
-          disabled={disabled}
-          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Download className="h-4 w-4" />
-          Export CSV
-        </button>
-        <button
-          type="button"
-          onClick={() => void exportCategoryPdf()}
-          disabled={disabled || isPreparingCategoryPdf}
-          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <FileText className="h-4 w-4" />
-          {isPreparingCategoryPdf ? "Preparing…" : "Category Wise Sale (PDF)"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void printCategoryThermal()}
-          disabled={disabled || isPrintingCategory}
-          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Printer className="h-4 w-4" />
-          {isPrintingCategory ? "Printing…" : "Print Category Wise Sale"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void exportProductSalesPdf()}
-          disabled={disabled || isPreparingProductPdf}
-          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <FileText className="h-4 w-4" />
-          {isPreparingProductPdf ? "Preparing…" : "Product Wise Sales (PDF)"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void exportProductSalesCsv()}
-          disabled={disabled || isPreparingProductCsv}
-          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Download className="h-4 w-4" />
-          {isPreparingProductCsv ? "Preparing…" : "Product Wise Sales (CSV)"}
-        </button>
-        {tablesEnabled && (
-          <>
-            <button
-              type="button"
-              onClick={() => void exportTableSalesPdf()}
-              disabled={disabled || isPreparingTablePdf}
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <FileText className="h-4 w-4" />
-              {isPreparingTablePdf ? "Preparing…" : "Table Wise Sales (PDF)"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void exportTableSalesCsv()}
-              disabled={disabled || isPreparingTableCsv}
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" />
-              {isPreparingTableCsv ? "Preparing…" : "Table Wise Sales (CSV)"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void printTableSalesThermalHandler()}
-              disabled={disabled || isPrintingTable}
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Printer className="h-4 w-4" />
-              {isPrintingTable ? "Printing…" : "Print Table Wise Sales"}
-            </button>
-          </>
-        )}
+        <ActionCard
+          title={currentViewTitle}
+          icon={view === "overview" ? Download : FileText}
+          onDownload={() => void downloadCurrentView()}
+          isDownloading={disabled || isDownloadingCurrent}
+          onPrint={view === "tables" && tablesEnabled ? () => void printCurrentView() : undefined}
+          isPrinting={isPrintingTables}
+        />
+
+        <ActionCard
+          title="Category Wise Sale"
+          icon={FileText}
+          onDownload={() => void downloadCategorySales()}
+          isDownloading={disabled || isDownloadingCategory}
+          onPrint={() => void printCategorySales()}
+          isPrinting={isPrintingCategory}
+        />
+
+        <ActionCard
+          title="Generate Full Report"
+          icon={Layers}
+          onDownload={() => void downloadFullReport()}
+          isDownloading={disabled || isDownloadingFull}
+          onPrint={() => void printFullReport()}
+          isPrinting={isPrintingFull}
+          accent
+        />
       </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>

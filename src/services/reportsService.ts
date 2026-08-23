@@ -1,12 +1,14 @@
 import type {
   CategorySalesReport,
   DailySales,
+  FullReport,
   ProductSalesSummaryReport,
   SalesSummary,
   TableSalesSummary,
   TopItem,
   TopItemSort,
 } from "../types";
+import { PLATFORM } from "../types";
 import { call } from "./tauriClient";
 
 /** `startDate`/`endDate` are `YYYY-MM-DD`, inclusive. */
@@ -69,4 +71,17 @@ export function getProductSalesSummary(
     categoryId: categoryId ?? undefined,
     sortBy,
   });
+}
+
+/** The "Generate Full Report" consolidated document: Overview (incl. net
+ * profit), Category Wise Sale, Product Wise Sales, and Table Wise Sales
+ * (only when `tables` is enabled) for one date range, all in one payload —
+ * source for both the combined PDF download and the thermal print below. */
+export function getFullReport(startDate: string, endDate: string): Promise<FullReport> {
+  return call<FullReport>("reports_get_full_report", { startDate, endDate, platform: PLATFORM });
+}
+
+/** Prints the same consolidated Full Report on a USB thermal printer. */
+export function printFullReportThermal(startDate: string, endDate: string): Promise<void> {
+  return call<void>("reports_print_full_report", { startDate, endDate, platform: PLATFORM });
 }

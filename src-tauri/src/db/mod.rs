@@ -8,6 +8,7 @@ pub mod connection;
 pub mod csv_import;
 pub mod dashboard;
 pub mod expenses;
+pub mod full_report;
 pub mod items;
 pub mod modules;
 pub mod product_owner;

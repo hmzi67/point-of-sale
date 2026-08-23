@@ -35,11 +35,13 @@
 //! database by the time printing is attempted.
 
 use crate::db::config::AppConfig;
-use crate::db::reports::{CategorySalesReport, TableSalesSummary};
+use crate::db::dashboard::DashboardSummary;
+use crate::db::full_report::FullReport;
+use crate::db::reports::{CategorySalesReport, ProductSalesSummaryReport, TableSalesSummary};
 use crate::db::refunds::Refund;
 use crate::db::sales::Sale;
 use crate::db::shifts::ShiftSummary;
-use crate::printer::layout::{divider, double_divider, format_minor, row, two_col, LINE_WIDTH};
+use crate::printer::layout::{bordered_line, bordered_row, divider, double_divider, format_minor, row, two_col};
 #[cfg(not(target_os = "android"))]
 use rusb::{Direction, TransferType};
 #[cfg(not(target_os = "android"))]
@@ -49,6 +51,24 @@ use std::time::Duration;
 // https://reference.epson-biz.com/modules/ref_escpos/index.php
 const ESC: u8 = 0x1B;
 const GS: u8 = 0x1D;
+
+/// A handful of leading NUL bytes, sent before every real command below.
+/// Several USB thermal printers swallow the very first byte written after
+/// the bulk connection is opened while they finish waking from idle — for
+/// most of a receipt's byte stream that's invisible (whatever got dropped
+/// was mid-command), but when it's the very first byte overall it eats the
+/// `ESC` of [`init`], and the printer treats the next byte — `init`'s `'@'`
+/// (or `align_center`'s `'a'`, before `init` was added here at all) — as a
+/// literal printable character instead of the second half of a command.
+/// That's the root cause of the stray "@"/"a" seen at the very top of a
+/// printed receipt, right where the logo/header begins: not a bug in the
+/// logo raster encoding itself, but in what byte the printer was actually
+/// awake to receive first. A NUL is silent if dropped the same way, so
+/// sacrificing a few of them absorbs the swallowed byte instead of a real
+/// command's.
+fn wake_padding() -> [u8; 8] {
+    [0; 8]
+}
 
 fn init() -> [u8; 2] {
     [ESC, b'@'] // reset the printer to its power-on state
@@ -66,9 +86,24 @@ fn align_left() -> [u8; 3] {
     [ESC, b'a', 0]
 }
 
-fn feed_and_cut() -> [u8; 5] {
-    // Feed a few lines so the cut doesn't clip the last line, then partial cut.
-    [b'\n', b'\n', b'\n', GS, b'V']
+/// Lines to feed (via the cut command's own built-in feed, not manual
+/// `\n`s) before the blade fires — enough that the last printed line is
+/// well clear of the cut point rather than sitting right on it.
+const CUT_FEED_LINES: u8 = 6;
+
+fn feed_and_cut() -> [u8; 4] {
+    // GS V m n — Function B: feed n lines, then cut, as one command. m=66
+    // ('B') selects a partial cut (a small tab left uncut so the ticket
+    // doesn't fall loose) with the pre-cut feed built in, so the printer
+    // times the cut off its own feed instead of us guessing how many
+    // manual '\n's are "enough". The previous version here —
+    // `[b'\n', b'\n', b'\n', GS, b'V']` — both under-fed (3 lines is
+    // borderline on some printers' feed-to-cut-blade distance) and, worse,
+    // sent an incomplete `GS V` command with no `m` parameter at all: not
+    // a valid ESC/POS command, so the cut point was left to whatever a
+    // given printer's firmware happened to default an unterminated `GS V`
+    // to, rather than one we actually chose.
+    [GS, b'V', 66, CUT_FEED_LINES]
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +191,22 @@ fn item_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
     row(&[(desc, ITEM_COLS[0], false), (qty, ITEM_COLS[1], true), (rate, ITEM_COLS[2], true), (amount, ITEM_COLS[3], true)])
 }
 
+/// Content-only column widths for the customer receipt's bordered item
+/// table (below): Item(20) / Qty(4) / Rate(8) / Amount(11) = 43, plus the
+/// 5 `|` separators [`bordered_row`]/[`bordered_line`] add = 48 =
+/// `LINE_WIDTH` — same total budget as [`ITEM_COLS`] above, just split
+/// differently to leave room for the border characters.
+const ITEM_TABLE_COLS: [usize; 4] = [20, 4, 8, 11];
+
+fn item_table_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
+    bordered_row(&[
+        (desc, ITEM_TABLE_COLS[0], false),
+        (qty, ITEM_TABLE_COLS[1], true),
+        (rate, ITEM_TABLE_COLS[2], true),
+        (amount, ITEM_TABLE_COLS[3], true),
+    ])
+}
+
 /// The header block every template shares: business name (bold, centered),
 /// then `subtitle_lines` centered underneath it, then a blank line.
 fn header_block(out: &mut Vec<u8>, business_name: &str, subtitle_lines: &[String]) {
@@ -181,6 +232,51 @@ fn footer_block(out: &mut Vec<u8>, footer: &str) {
     }
 }
 
+/// Content-only column widths for a generic 3-column bordered table —
+/// "label / count / amount" — shared by the Category Wise Sale (Item / Qty
+/// / Revenue) and Table Wise Sales (Table / Txns / Amount) reports: 26 + 6
+/// + 12 = 44, plus the 4 `|` separators = 48 = `LINE_WIDTH`.
+const THREE_COL_TABLE: [usize; 3] = [26, 6, 12];
+
+fn three_col_row(a: &str, b: &str, c: &str) -> String {
+    bordered_row(&[(a, THREE_COL_TABLE[0], false), (b, THREE_COL_TABLE[1], true), (c, THREE_COL_TABLE[2], true)])
+}
+
+fn three_col_border() -> String {
+    bordered_line(&THREE_COL_TABLE)
+}
+
+/// Every template's closer: footer text (if any), then two blank lines of
+/// margin *on top of* the cut command's own built-in feed
+/// ([`CUT_FEED_LINES`]) — belt-and-suspenders so even a printer with a
+/// shorter physical feed-to-blade distance than expected doesn't clip the
+/// last printed line (the "Thank you"/footer, or the last totals row when
+/// there's no footer configured), then the feed-and-cut command itself.
+fn close_out(out: &mut Vec<u8>, footer: &str) {
+    footer_block(out, footer);
+    out.push(b'\n');
+    out.push(b'\n');
+    out.extend(feed_and_cut());
+}
+
+/// A prominent bold banner between double rules — "MERCHANT COPY" printed
+/// right after the logo, before the business name, so the merchant's copy
+/// is never mistaken for the customer's at a glance. Same ASCII
+/// double-rule convention `double_divider` already uses elsewhere (above
+/// the grand total) — no new visual language introduced just for this.
+fn copy_label_banner(out: &mut Vec<u8>, label: &str) {
+    out.extend(align_center());
+    out.extend(double_divider().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(label.as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(double_divider().as_bytes());
+    out.push(b'\n');
+    out.extend(align_left());
+}
+
 /// Builds the full ESC/POS byte stream for one customer receipt. Pure and
 /// hardware-independent (the logo, if any, arrives pre-decoded as a
 /// [`LogoRaster`] — see that type's doc comment), so it is covered by tests
@@ -196,11 +292,37 @@ pub fn build_receipt_bytes(
     logo: Option<&LogoRaster>,
     tables_module_enabled: bool,
 ) -> Vec<u8> {
+    build_receipt_bytes_for_copy(sale, config, logo, tables_module_enabled, None)
+}
+
+/// Same receipt as [`build_receipt_bytes`] — same items, totals, business
+/// info, logo, table borders, cut margin, all of it — with one addition:
+/// when `copy_label` is `Some`, a bold banner (see [`copy_label_banner`])
+/// appears right after the logo. This is the *only* receipt template;
+/// [`print_receipt`] calls it twice (`None`, then `Some("MERCHANT COPY")`)
+/// rather than a second template existing anywhere, which is what
+/// guarantees the merchant copy can never drift from the customer copy in
+/// content or in any of the print-quality fixes (borders, wake padding,
+/// cut feed) applied here.
+fn build_receipt_bytes_for_copy(
+    sale: &Sale,
+    config: &AppConfig,
+    logo: Option<&LogoRaster>,
+    tables_module_enabled: bool,
+    copy_label: Option<&str>,
+) -> Vec<u8> {
     let mut out = Vec::new();
     let currency = &config.currency;
 
+    out.extend(wake_padding());
+    out.extend(init());
+
     if let Some(logo) = logo {
         print_logo(&mut out, logo);
+    }
+
+    if let Some(label) = copy_label {
+        copy_label_banner(&mut out, label);
     }
 
     let subtitle = vec![format!("Sale #{}", sale.id), sale.created_at.clone()];
@@ -219,15 +341,17 @@ pub fn build_receipt_bytes(
     out.push(b'\n');
     out.push(b'\n');
 
+    out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
+    out.push(b'\n');
     out.extend(bold(true));
-    out.extend(item_row("Item", "Qty", "Rate", "Amount").as_bytes());
+    out.extend(item_table_row("Item", "Qty", "Rate", "Amount").as_bytes());
     out.push(b'\n');
     out.extend(bold(false));
-    out.extend(divider().as_bytes());
+    out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
     out.push(b'\n');
     for item in &sale.items {
         out.extend(
-            item_row(
+            item_table_row(
                 &item.item_name,
                 &item.qty.to_string(),
                 &format_minor(item.price_at_sale_minor),
@@ -237,7 +361,7 @@ pub fn build_receipt_bytes(
         );
         out.push(b'\n');
     }
-    out.extend(divider().as_bytes());
+    out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
     out.push(b'\n');
 
     out.extend(two_col("Subtotal", &format!("{} {}", currency, format_minor(sale.subtotal_minor))).as_bytes());
@@ -260,8 +384,7 @@ pub fn build_receipt_bytes(
     out.extend(bold(false));
     out.extend(format!("Paid by: {}\n", sale.payment_method).as_bytes());
 
-    footer_block(&mut out, &config.receipt_footer);
-    out.extend(feed_and_cut());
+    close_out(&mut out, &config.receipt_footer);
     out
 }
 
@@ -272,6 +395,9 @@ pub fn build_receipt_bytes(
 pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
     let mut out = Vec::new();
     let currency = &config.currency;
+
+    out.extend(wake_padding());
+    out.extend(init());
 
     let mut subtitle = vec![
         "REFUND".to_string(),
@@ -319,8 +445,7 @@ pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
     out.push(b'\n');
     out.extend(bold(false));
 
-    footer_block(&mut out, &config.receipt_footer);
-    out.extend(feed_and_cut());
+    close_out(&mut out, &config.receipt_footer);
     out
 }
 
@@ -331,6 +456,9 @@ pub fn build_shift_summary_bytes(summary: &ShiftSummary, config: &AppConfig) -> 
     let mut out = Vec::new();
     let currency = &config.currency;
     let money = |m: i64| format!("{} {}", currency, format_minor(m));
+
+    out.extend(wake_padding());
+    out.extend(init());
 
     let mut subtitle = vec![
         format!("Counter-{} Sale Details", summary.shift.id),
@@ -381,8 +509,7 @@ pub fn build_shift_summary_bytes(summary: &ShiftSummary, config: &AppConfig) -> 
         out.extend(bold(false));
     }
 
-    footer_block(&mut out, &config.receipt_footer);
-    out.extend(feed_and_cut());
+    close_out(&mut out, &config.receipt_footer);
     out
 }
 
@@ -390,31 +517,50 @@ pub fn build_shift_summary_bytes(summary: &ShiftSummary, config: &AppConfig) -> 
 /// item rows, subtotal), grand total at the end.
 pub fn build_category_sales_bytes(report: &CategorySalesReport, config: &AppConfig) -> Vec<u8> {
     let mut out = Vec::new();
-    let currency = &config.currency;
+
+    out.extend(wake_padding());
+    out.extend(init());
 
     let subtitle =
         vec!["Category Wise Sale".to_string(), format!("{} to {}", report.start_date, report.end_date)];
     header_block(&mut out, &config.business_name, &subtitle);
 
+    write_category_sales_section(&mut out, report, &config.currency);
+
+    close_out(&mut out, &config.receipt_footer);
+    out
+}
+
+/// One category-per-group bordered breakdown (bold category name, a
+/// `three_col_row` table of its items, a subtotal) followed by the grand
+/// total rule — the body [`build_category_sales_bytes`] wraps in its own
+/// header/footer, and [`build_full_report_bytes`] reuses verbatim under its
+/// own "CATEGORY WISE SALE" section heading so the two never drift apart.
+fn write_category_sales_section(out: &mut Vec<u8>, report: &CategorySalesReport, currency: &str) {
     for group in &report.groups {
         out.extend(bold(true));
         out.extend(group.category_name.as_bytes());
         out.push(b'\n');
         out.extend(bold(false));
-        out.extend("-".repeat(group.category_name.chars().count().min(LINE_WIDTH)).as_bytes());
-        out.push(b'\n');
 
+        out.extend(three_col_border().as_bytes());
+        out.push(b'\n');
+        out.extend(bold(true));
+        out.extend(three_col_row("Item", "Qty", "Revenue").as_bytes());
+        out.push(b'\n');
+        out.extend(bold(false));
+        out.extend(three_col_border().as_bytes());
+        out.push(b'\n');
         for item in &group.items {
             out.extend(
-                row(&[
-                    (item.item_name.as_str(), 28, false),
-                    (&item.qty_sold.to_string(), 6, true),
-                    (&format_minor(item.revenue_minor), 14, true),
-                ])
-                .as_bytes(),
+                three_col_row(&item.item_name, &item.qty_sold.to_string(), &format_minor(item.revenue_minor))
+                    .as_bytes(),
             );
             out.push(b'\n');
         }
+        out.extend(three_col_border().as_bytes());
+        out.push(b'\n');
+
         out.extend(two_col("Subtotal", &format!("{} {}", currency, format_minor(group.subtotal_minor))).as_bytes());
         out.push(b'\n');
         out.push(b'\n');
@@ -428,10 +574,6 @@ pub fn build_category_sales_bytes(report: &CategorySalesReport, config: &AppConf
     );
     out.push(b'\n');
     out.extend(bold(false));
-
-    footer_block(&mut out, &config.receipt_footer);
-    out.extend(feed_and_cut());
-    out
 }
 
 /// The Table Wise Sales report: one row per table (plus "Counter /
@@ -440,30 +582,40 @@ pub fn build_category_sales_bytes(report: &CategorySalesReport, config: &AppConf
 /// `db::reports::get_table_sales_summary`).
 pub fn build_table_sales_bytes(report: &TableSalesSummary, config: &AppConfig) -> Vec<u8> {
     let mut out = Vec::new();
-    let currency = &config.currency;
+
+    out.extend(wake_padding());
+    out.extend(init());
 
     let subtitle =
         vec!["Table Wise Sales".to_string(), format!("{} to {}", report.start_date, report.end_date)];
     header_block(&mut out, &config.business_name, &subtitle);
 
+    write_table_sales_section(&mut out, report, &config.currency);
+
+    close_out(&mut out, &config.receipt_footer);
+    out
+}
+
+/// The bordered Table/Txns/Amount grid plus grand-total rule — reused by
+/// both [`build_table_sales_bytes`] and [`build_full_report_bytes`], same
+/// reasoning as [`write_category_sales_section`].
+fn write_table_sales_section(out: &mut Vec<u8>, report: &TableSalesSummary, currency: &str) {
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
     out.extend(bold(true));
-    out.extend(row(&[("Table / Counter", 28, false), ("Txns", 6, true), ("Amount", 14, true)]).as_bytes());
+    out.extend(three_col_row("Table / Counter", "Txns", "Amount").as_bytes());
     out.push(b'\n');
     out.extend(bold(false));
-    out.extend(divider().as_bytes());
+    out.extend(three_col_border().as_bytes());
     out.push(b'\n');
     for line in &report.rows {
         out.extend(
-            row(&[
-                (line.label.as_str(), 28, false),
-                (&line.transaction_count.to_string(), 6, true),
-                (&format_minor(line.total_minor), 14, true),
-            ])
-            .as_bytes(),
+            three_col_row(&line.label, &line.transaction_count.to_string(), &format_minor(line.total_minor))
+                .as_bytes(),
         );
         out.push(b'\n');
     }
-    out.extend(divider().as_bytes());
+    out.extend(three_col_border().as_bytes());
     out.push(b'\n');
 
     out.extend(double_divider().as_bytes());
@@ -474,9 +626,118 @@ pub fn build_table_sales_bytes(report: &TableSalesSummary, config: &AppConfig) -
     );
     out.push(b'\n');
     out.extend(bold(false));
+}
 
-    footer_block(&mut out, &config.receipt_footer);
-    out.extend(feed_and_cut());
+/// The Product Wise Sales bordered grid — rank-prefixed item name / qty /
+/// revenue, same 3-column border style as the other two sections. Only
+/// used inside [`build_full_report_bytes`] — Product Wise Sales has no
+/// standalone thermal-print button of its own (PDF/CSV only), same as it
+/// is on-screen.
+fn write_product_sales_section(out: &mut Vec<u8>, report: &ProductSalesSummaryReport) {
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(three_col_row("Item", "Qty", "Revenue").as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
+    for item in &report.rows {
+        let label = format!("{}. {}", item.rank, item.item_name);
+        out.extend(three_col_row(&label, &item.qty_sold.to_string(), &format_minor(item.revenue_minor)).as_bytes());
+        out.push(b'\n');
+    }
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
+}
+
+/// The Overview section: total sales, refunds, transactions, average sale,
+/// then expenses/salary paid (only the ones tracked for this platform —
+/// same `Option` convention `DashboardSummary` uses), then net profit
+/// under a double rule — the same figures and the same math the Dashboard
+/// screen shows, via [`DashboardSummary`], not recomputed here.
+fn write_overview_section(out: &mut Vec<u8>, overview: &DashboardSummary, average_sale_minor: i64, currency: &str) {
+    let money = |m: i64| format!("{} {}", currency, format_minor(m));
+
+    out.extend(two_col("Total Sales", &money(overview.total_sales_minor)).as_bytes());
+    out.push(b'\n');
+    out.extend(two_col("Refunds", &money(overview.refunds_minor)).as_bytes());
+    out.push(b'\n');
+    out.extend(two_col("Transactions", &overview.transaction_count.to_string()).as_bytes());
+    out.push(b'\n');
+    out.extend(two_col("Average Sale", &money(average_sale_minor)).as_bytes());
+    out.push(b'\n');
+    if let Some(expenses) = overview.total_expenses_minor {
+        out.extend(two_col("Expenses", &money(expenses)).as_bytes());
+        out.push(b'\n');
+    }
+    if let Some(salary) = overview.total_salary_paid_minor {
+        out.extend(two_col("Salary Paid", &money(salary)).as_bytes());
+        out.push(b'\n');
+    }
+
+    out.extend(double_divider().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(two_col("NET PROFIT", &money(overview.net_profit_minor)).as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+}
+
+/// A bold, left-aligned section banner — "OVERVIEW", "CATEGORY WISE SALE",
+/// etc. — separating [`build_full_report_bytes`]'s sections from each other.
+fn section_banner(out: &mut Vec<u8>, title: &str) {
+    out.extend(bold(true));
+    out.extend(title.as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(divider().as_bytes());
+    out.push(b'\n');
+}
+
+/// Builds the "Generate Full Report" consolidated document: Overview
+/// (including net profit), Category Wise Sale, Product Wise Sales, and —
+/// when the `tables` module was enabled at the time this [`FullReport`]
+/// was assembled (see `db::full_report::get_full_report`) — Table Wise
+/// Sales, all for one date range in a single print job. Distinct from the
+/// individual per-report prints above: "everything for this period, one
+/// document," not a stand-in for them.
+pub fn build_full_report_bytes(report: &FullReport, config: &AppConfig) -> Vec<u8> {
+    let mut out = Vec::new();
+    let currency = &config.currency;
+
+    out.extend(wake_padding());
+    out.extend(init());
+
+    header_block(
+        &mut out,
+        &config.business_name,
+        &["Full Sales Report".to_string(), format!("{} to {}", report.start_date, report.end_date)],
+    );
+
+    section_banner(&mut out, "OVERVIEW");
+    write_overview_section(&mut out, &report.overview, report.average_sale_minor, currency);
+    out.push(b'\n');
+    out.push(b'\n');
+
+    section_banner(&mut out, "CATEGORY WISE SALE");
+    write_category_sales_section(&mut out, &report.category_sales, currency);
+    out.push(b'\n');
+    out.push(b'\n');
+
+    section_banner(&mut out, "PRODUCT WISE SALES");
+    write_product_sales_section(&mut out, &report.product_sales);
+    out.push(b'\n');
+    out.push(b'\n');
+
+    if let Some(table_sales) = &report.table_sales {
+        section_banner(&mut out, "TABLE WISE SALES");
+        write_table_sales_section(&mut out, table_sales, currency);
+        out.push(b'\n');
+        out.push(b'\n');
+    }
+
+    close_out(&mut out, &config.receipt_footer);
     out
 }
 
@@ -648,15 +909,25 @@ fn send_to_printer_usb(bytes: &[u8]) -> Result<(), PrinterError> {
     Err(PrinterError::NotConfigured)
 }
 
-/// Builds a receipt for `sale` and sends it via this installation's
-/// configured printer (see [`send_to_printer`]).
+/// Builds and sends **two** receipts for `sale`, back to back through the
+/// same printer in one write: the customer copy unchanged, immediately
+/// followed by a merchant copy carrying the "MERCHANT COPY" banner (see
+/// [`build_receipt_bytes_for_copy`]). Concatenating two complete,
+/// independently-cut byte streams — rather than printing twice via two
+/// separate calls — is what makes "back to back" literal: each copy still
+/// ends with its own full feed-and-cut command, so the cutter fires once
+/// per copy while the whole job goes out as a single transport write.
+/// Every fix applied to the shared builder (bordered item table, wake
+/// padding, pre-cut feed) automatically covers both copies, since both are
+/// built by the exact same function.
 pub fn print_receipt(
     sale: &Sale,
     config: &AppConfig,
     logo: Option<&LogoRaster>,
     tables_module_enabled: bool,
 ) -> Result<(), PrinterError> {
-    let bytes = build_receipt_bytes(sale, config, logo, tables_module_enabled);
+    let mut bytes = build_receipt_bytes_for_copy(sale, config, logo, tables_module_enabled, None);
+    bytes.extend(build_receipt_bytes_for_copy(sale, config, logo, tables_module_enabled, Some("MERCHANT COPY")));
     send_to_printer(&bytes, config)
 }
 
@@ -681,6 +952,12 @@ pub fn print_category_sales(report: &CategorySalesReport, config: &AppConfig) ->
 /// Builds and prints the Table Wise Sales report.
 pub fn print_table_sales(report: &TableSalesSummary, config: &AppConfig) -> Result<(), PrinterError> {
     let bytes = build_table_sales_bytes(report, config);
+    send_to_printer(&bytes, config)
+}
+
+/// Builds and prints the consolidated Full Report.
+pub fn print_full_report(report: &FullReport, config: &AppConfig) -> Result<(), PrinterError> {
+    let bytes = build_full_report_bytes(report, config);
     send_to_printer(&bytes, config)
 }
 
@@ -819,6 +1096,86 @@ mod tests {
         assert!(text.contains("Counter / Takeaway"));
         assert!(text.contains("GRAND TOTAL"));
         assert!(text.contains("PKR 800.00"));
+        // Same "not just floating text" bar as the receipt's item table —
+        // a real `+---+` grid, not bare dashes.
+        assert!(text.contains(three_col_border().as_str()), "expected a bordered grid: {text}");
+        assert!(text.contains("|Table 1"), "row must be pipe-bordered: {text}");
+    }
+
+    #[test]
+    fn build_receipt_bytes_ends_with_a_complete_feed_and_cut_command() {
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        // GS V m n — a complete Function B cut command, not the previous
+        // `[.., GS, b'V']` with no `m`/`n` at all, which left the printer
+        // to guess a cut point rather than us choosing one.
+        assert_eq!(
+            &bytes[bytes.len() - 4..],
+            &[GS, b'V', 66, CUT_FEED_LINES],
+            "receipt must end with a complete GS V feed-and-cut command"
+        );
+    }
+
+    #[test]
+    fn build_receipt_bytes_starts_with_wake_padding_then_a_real_init() {
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        // NULs absorb a printer swallowing the very first byte off the
+        // wire; ESC '@' (init) must still be intact right after them, not
+        // itself be the byte that gets eaten.
+        assert!(bytes.starts_with(&[0; 8]), "receipt must lead with NUL wake padding");
+        assert_eq!(&bytes[8..10], &[ESC, b'@'], "init must immediately follow the wake padding");
+    }
+
+    #[test]
+    fn build_receipt_bytes_never_shows_a_merchant_copy_banner() {
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("MERCHANT COPY"), "the plain customer-copy builder must stay unlabeled: {text}");
+    }
+
+    #[test]
+    fn build_receipt_bytes_for_copy_shows_the_merchant_copy_banner_when_labeled() {
+        let bytes = build_receipt_bytes_for_copy(&sample_sale(), &sample_config(), None, true, Some("MERCHANT COPY"));
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("MERCHANT COPY"), "expected the banner: {text}");
+        // Same content as the customer copy — same items, same total —
+        // this is one shared template, not a second one.
+        assert!(text.contains("Cola 500ml"));
+        assert!(text.contains("TOTAL"));
+    }
+
+    #[test]
+    fn print_receipt_prints_two_copies_back_to_back_each_with_their_own_cut() {
+        // Reproduces print_receipt's own byte assembly — print_receipt
+        // itself isn't unit-testable without a real printer attached
+        // (send_to_printer needs hardware) — to prove the *shape* of what
+        // it actually sends: two complete, independently bordered/cut
+        // receipts concatenated into one transport write, second one
+        // merchant-labeled.
+        let sale = sample_sale();
+        let config = sample_config();
+        let customer = build_receipt_bytes_for_copy(&sale, &config, None, true, None);
+        let merchant = build_receipt_bytes_for_copy(&sale, &config, None, true, Some("MERCHANT COPY"));
+        let mut combined = customer.clone();
+        combined.extend(merchant.clone());
+
+        // One feed-and-cut command per copy, not one for the whole job —
+        // this is what makes it two receipts, not one long one.
+        let cut = [GS, b'V', 66, CUT_FEED_LINES];
+        let cut_count = combined.windows(cut.len()).filter(|w| *w == cut).count();
+        assert_eq!(cut_count, 2, "each copy must end with its own feed-and-cut command");
+
+        assert!(!String::from_utf8_lossy(&customer).contains("MERCHANT COPY"), "first copy must be the plain customer copy");
+        assert!(String::from_utf8_lossy(&merchant).contains("MERCHANT COPY"), "second copy must carry the banner");
+
+        // Both copies keep the recent print-quality fixes — bordered item
+        // table and full item content — not just the first one.
+        let combined_text = String::from_utf8_lossy(&combined);
+        assert_eq!(combined_text.matches("Cola 500ml").count(), 2, "both copies must list every item");
+        assert_eq!(
+            combined_text.matches(bordered_line(&ITEM_TABLE_COLS).as_str()).count(),
+            6,
+            "both copies must draw the bordered item table (3 border lines each)"
+        );
     }
 
     #[test]
@@ -868,16 +1225,44 @@ mod tests {
 
     #[test]
     fn build_receipt_bytes_lines_up_the_item_table_columns() {
+        use crate::printer::layout::LINE_WIDTH;
         let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
         let text = String::from_utf8_lossy(&bytes);
         // Every item row (and the header) must be exactly LINE_WIDTH
-        // characters — that's what "columns line up" actually verifies,
-        // not just that the right substrings appear somewhere.
+        // characters, and bordered on both sides with `|` — that's what
+        // "columns line up" with visible grid lines actually verifies, not
+        // just that the right substrings appear somewhere.
         for line in text.lines() {
-            if line.contains("Cola 500ml") || line.starts_with("Item") {
-                assert_eq!(line.chars().count(), LINE_WIDTH, "misaligned row: {:?}", line);
+            if line.contains("Cola 500ml") || line.contains("|Item") {
+                // Strip any bold-toggle control bytes a formatting command
+                // may have left at the start of this line (no visible ink
+                // on the real printer, but real characters in this lossy
+                // string) — the pipe border is what should actually open
+                // and close the visible row.
+                let visible = &line[line.find('|').expect("row must be pipe-bordered")..];
+                assert_eq!(visible.chars().count(), LINE_WIDTH, "misaligned row: {:?}", visible);
+                assert!(visible.starts_with('|') && visible.ends_with('|'), "row must be pipe-bordered: {:?}", visible);
             }
         }
+    }
+
+    #[test]
+    fn build_receipt_bytes_draws_a_bordered_item_table() {
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        let text = String::from_utf8_lossy(&bytes);
+        // A real ASCII grid — `+---+` rules top/bottom of the header and
+        // bottom of the last item, `|` column dividers on every row in
+        // between — not just floating text, since this has to read as a
+        // table on thermal paper with no CSS to fall back on. Matched as a
+        // substring (not per-line) since a bold-toggle command's raw bytes
+        // can sit right before a border line with no `\n` between them —
+        // invisible ink-wise on the real printer, but it would break a
+        // naive `line.starts_with('+')` check.
+        let expected_border = bordered_line(&ITEM_TABLE_COLS);
+        let border_count = text.matches(expected_border.as_str()).count();
+        assert!(border_count >= 3, "expected top/header/bottom border rules, got: {text}");
+        assert!(text.contains("|Item"), "header row must be pipe-bordered: {text}");
+        assert!(text.contains("|Cola 500ml"), "item row must be pipe-bordered: {text}");
     }
 
     #[test]
@@ -926,6 +1311,83 @@ mod tests {
         assert!(text.contains("Subtotal"));
         assert!(text.contains("GRAND TOTAL"));
         assert!(text.contains("PKR 800.00"));
+        assert!(text.contains(three_col_border().as_str()), "expected a bordered grid: {text}");
+        assert!(text.contains("|Cola 500ml"), "row must be pipe-bordered: {text}");
+    }
+
+    fn sample_product_sales() -> ProductSalesSummaryReport {
+        use crate::db::reports::ProductSalesRow;
+        ProductSalesSummaryReport {
+            start_date: "2026-01-01".into(),
+            end_date: "2026-01-31".into(),
+            sort_by: crate::db::reports::TopItemSort::Revenue,
+            rows: vec![ProductSalesRow {
+                item_id: 1,
+                item_name: "Cola 500ml".into(),
+                category_id: Some(1),
+                category_name: "Beverages".into(),
+                qty_sold: 10,
+                revenue_minor: 80_000,
+                rank: 1,
+            }],
+            no_sales_items: vec![],
+        }
+    }
+
+    fn sample_full_report() -> FullReport {
+        use crate::db::dashboard::DashboardSummary;
+        FullReport {
+            start_date: "2026-01-01".into(),
+            end_date: "2026-01-31".into(),
+            overview: DashboardSummary {
+                start_date: "2026-01-01".into(),
+                end_date: "2026-01-31".into(),
+                total_sales_minor: 80_000,
+                refunds_minor: 0,
+                transaction_count: 10,
+                total_expenses_minor: Some(5_000),
+                total_salary_paid_minor: None,
+                net_profit_minor: 75_000,
+                low_stock_item_count: None,
+                top_table_by_sales: None,
+            },
+            average_sale_minor: 8_000,
+            category_sales: sample_category_report(),
+            product_sales: sample_product_sales(),
+            table_sales: Some(sample_table_sales()),
+        }
+    }
+
+    #[test]
+    fn build_full_report_bytes_includes_every_section() {
+        let bytes = build_full_report_bytes(&sample_full_report(), &sample_config());
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("Full Sales Report"));
+        assert!(text.contains("OVERVIEW"));
+        assert!(text.contains("NET PROFIT"));
+        assert!(text.contains("PKR 750.00"), "net profit must appear formatted: {text}");
+        assert!(text.contains("CATEGORY WISE SALE"));
+        assert!(text.contains("Beverages"));
+        assert!(text.contains("PRODUCT WISE SALES"));
+        assert!(text.contains("1. Cola 500ml"), "product row must be rank-prefixed: {text}");
+        assert!(text.contains("TABLE WISE SALES"));
+        assert!(text.contains("Table 1"));
+        assert!(text.contains(three_col_border().as_str()), "expected bordered grids: {text}");
+    }
+
+    #[test]
+    fn build_full_report_bytes_omits_table_wise_sales_when_tables_is_disabled() {
+        let mut report = sample_full_report();
+        report.table_sales = None;
+        let bytes = build_full_report_bytes(&report, &sample_config());
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("TABLE WISE SALES"), "must not show a table section with no data: {text}");
+    }
+
+    #[test]
+    fn build_full_report_bytes_ends_with_a_complete_feed_and_cut_command() {
+        let bytes = build_full_report_bytes(&sample_full_report(), &sample_config());
+        assert_eq!(&bytes[bytes.len() - 4..], &[GS, b'V', 66, CUT_FEED_LINES]);
     }
 
     #[test]

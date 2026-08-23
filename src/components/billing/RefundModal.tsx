@@ -103,7 +103,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
     if (!refund) return;
     try {
       const { downloadRefundPdf } = await import("../../utils/refundPdf");
-      downloadRefundPdf(refund, config);
+      await downloadRefundPdf(refund, config);
     } catch (e) {
       setPrintStatus(`Could not prepare the PDF: ${(e as Error).message}`);
     }

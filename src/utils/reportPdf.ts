@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatMinor } from "./format";
+import { downloadPdf } from "./pdfExport";
 import type { ReportData } from "./reportCsv";
 
 /** Builds an A4 report PDF: header, summary, then the top-items table via
@@ -68,6 +69,6 @@ export function buildReportPdf({ summary, topItems, config }: ReportData): jsPDF
   return doc;
 }
 
-export function downloadReportPdf(data: ReportData): void {
-  buildReportPdf(data).save(`sales-report-${data.summary.startDate}-to-${data.summary.endDate}.pdf`);
+export function downloadReportPdf(data: ReportData): Promise<boolean> {
+  return downloadPdf(buildReportPdf(data), `sales-report-${data.summary.startDate}-to-${data.summary.endDate}.pdf`);
 }

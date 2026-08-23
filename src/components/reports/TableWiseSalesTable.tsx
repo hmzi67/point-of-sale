@@ -12,7 +12,7 @@ interface TableWiseSalesTableProps {
  * matching the style of the other report totals in this screen. */
 export function TableWiseSalesTable({ data, currency, isLoading }: TableWiseSalesTableProps) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-soft">
       <div className="border-b border-slate-200 px-4 py-3">
         <h3 className="text-sm font-semibold text-slate-900">Table Wise Sales</h3>
         <p className="mt-0.5 text-xs text-slate-500">Sales grouped by table, plus counter/takeaway sales.</p>

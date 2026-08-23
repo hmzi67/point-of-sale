@@ -17,6 +17,7 @@ use crate::db::expenses::{CategoryTotal, Expense};
 use crate::db::salary::SalaryCalculation;
 use crate::db::items::{Category, DeleteOutcome, Item, ItemInput, ItemQuery};
 use crate::db::modules::{ModuleState, Platform};
+use crate::db::full_report::FullReport;
 use crate::db::refunds::{CreateRefundInput, Refund, RefundLineInput, RefundableSale};
 use crate::db::reports::{
     CategorySalesReport, DailySales, ProductSalesSummaryReport, SalesSummary, TableSalesSummary, TopItem, TopItemSort,
@@ -26,8 +27,8 @@ use crate::db::shifts::{Shift, ShiftSummary};
 use crate::db::tables::{ParkedCartLine, ParkedOrder, TableSummary};
 use crate::db::users::{ManagedUser, Role, User};
 use crate::db::{
-    attendance, config, csv_import, dashboard, expenses, items, modules, product_owner, refunds, reports, salary,
-    sales, shifts, tables, users, Db,
+    attendance, config, csv_import, dashboard, expenses, full_report, items, modules, product_owner, refunds,
+    reports, salary, sales, shifts, tables, users, Db,
 };
 use crate::images;
 use crate::product_owner_session::{require_product_owner, ProductOwnerSession};
@@ -1090,6 +1091,45 @@ pub fn reports_print_table_sales_summary(
         .map_err(|e| e.to_string())?;
     let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
     crate::printer::escpos::print_table_sales(&report, &app_config).map_err(|e| e.to_string())
+}
+
+/// The "Generate Full Report" consolidated document: Overview (incl. net
+/// profit, via `dashboard::get_summary`), Category Wise Sale, Product Wise
+/// Sales, and Table Wise Sales (only when `tables` is enabled) for one date
+/// range, assembled once so the PDF download and the thermal print below
+/// are guaranteed to show identical numbers.
+#[tauri::command]
+pub fn reports_get_full_report(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+    platform: String,
+) -> Result<FullReport, String> {
+    require_role(&session, STAFF_ROLES)?;
+    let platform = parse_platform(&platform)?;
+    db.with_conn(|conn| Ok(full_report::get_full_report(conn, &start_date, &end_date, platform)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Prints the same consolidated Full Report on a USB thermal printer.
+#[tauri::command]
+pub fn reports_print_full_report(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+    platform: String,
+) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    let platform = parse_platform(&platform)?;
+    let report = db
+        .with_conn(|conn| Ok(full_report::get_full_report(conn, &start_date, &end_date, platform)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_full_report(&report, &app_config).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------

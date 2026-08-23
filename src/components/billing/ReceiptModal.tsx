@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, Download, Printer, X } from "lucide-react";
+import { CheckCircle2, Printer, X } from "lucide-react";
 import { printReceiptThermal } from "../../services/billingService";
 import { formatMinor } from "../../utils/format";
 import type { AppConfig, Sale } from "../../types";
@@ -7,42 +7,21 @@ import type { AppConfig, Sale } from "../../types";
 interface ReceiptModalProps {
   sale: Sale;
   config: AppConfig;
-  /** Whether the `tables` module is enabled — decides the PDF/thermal
-   * receipt's "Takeaway" vs "Counter Sale" fallback label when this sale
-   * wasn't linked to a table (see `buildReceiptPdf`). */
-  tablesEnabled: boolean;
   onClose: () => void;
 }
 
-/** Shown right after a sale completes (and reusable for a reprint later).
- * PDF is the default/always-available path; thermal uses whatever printer
- * this installation has configured (USB auto-detected on desktop,
- * Bluetooth selected in Settings on Android) and fails gracefully — with a
- * message, PDF still right there as the alternative — if none is set up or
- * reachable. */
-export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptModalProps) {
+/** Shown right after a sale completes. Printing itself already happened
+ * automatically the moment the sale went through — see `BillingPage.tsx`'s
+ * `printReceiptAutomatically` — so this modal's button is a manual
+ * *reprint*, for a second physical copy or after fixing a printer that
+ * wasn't reachable the first time, not something the cashier has to click
+ * to get the first copy out. Thermal print uses whatever printer this
+ * installation has configured (USB auto-detected on desktop, Bluetooth
+ * selected in Settings on Android) and fails gracefully — with a message —
+ * if none is set up or reachable. */
+export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [isPreparingPdf, setIsPreparingPdf] = useState(false);
-
-  // jsPDF (and its transitive html2canvas dependency) is a large chunk that
-  // has no reason to load until a receipt is actually downloaded — deferring
-  // it keeps the billing screen's own bundle light and fast to first paint.
-  const downloadPdf = async () => {
-    setIsPreparingPdf(true);
-    setPrintStatus(null);
-    try {
-      const { downloadReceiptPdf } = await import("../../utils/receiptPdf");
-      await downloadReceiptPdf(sale, config, tablesEnabled);
-    } catch (e) {
-      // Without this, a failed PDF build (or a blocked download) was a
-      // silent unhandled rejection — the cashier just saw the button do
-      // nothing and no way to know why (Phase 13 error-handling review).
-      setPrintStatus(`Could not prepare the PDF: ${(e as Error).message}`);
-    } finally {
-      setIsPreparingPdf(false);
-    }
-  };
 
   const printThermal = async () => {
     setIsPrinting(true);
@@ -123,26 +102,15 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
 
         <div className="space-y-2 border-t border-slate-200 px-5 py-4">
           {printStatus && <p className="text-center text-xs text-slate-500">{printStatus}</p>}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void downloadPdf()}
-              disabled={isPreparingPdf}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" />
-              {isPreparingPdf ? "Preparing…" : "Download PDF"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void printThermal()}
-              disabled={isPrinting}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              <Printer className="h-4 w-4" />
-              {isPrinting ? "Printing…" : "Print (thermal)"}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => void printThermal()}
+            disabled={isPrinting}
+            className="flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            <Printer className="h-4 w-4" />
+            {isPrinting ? "Printing…" : "Reprint (thermal)"}
+          </button>
           <button
             type="button"
             onClick={onClose}

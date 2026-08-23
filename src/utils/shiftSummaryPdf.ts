@@ -1,5 +1,6 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
+import { downloadPdf } from "./pdfExport";
 import { drawFooter, drawHeader, drawTotalsBlock, newReceiptDoc, PAGE_WIDTH_MM } from "./printLayout";
 import type { AppConfig, ShiftSummary } from "../types";
 
@@ -54,6 +55,6 @@ export function buildShiftSummaryPdf(summary: ShiftSummary, config: AppConfig): 
   return doc;
 }
 
-export function downloadShiftSummaryPdf(summary: ShiftSummary, config: AppConfig): void {
-  buildShiftSummaryPdf(summary, config).save(`shift-${summary.shift.id}.pdf`);
+export function downloadShiftSummaryPdf(summary: ShiftSummary, config: AppConfig): Promise<boolean> {
+  return downloadPdf(buildShiftSummaryPdf(summary, config), `shift-${summary.shift.id}.pdf`);
 }

@@ -65,7 +65,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
     if (!closed) return;
     try {
       const { downloadShiftSummaryPdf } = await import("../../utils/shiftSummaryPdf");
-      downloadShiftSummaryPdf(closed, config);
+      await downloadShiftSummaryPdf(closed, config);
     } catch (e) {
       setPrintStatus(`Could not prepare the PDF: ${(e as Error).message}`);
     }

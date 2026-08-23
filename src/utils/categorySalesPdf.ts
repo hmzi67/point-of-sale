@@ -1,5 +1,6 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
+import { downloadPdf } from "./pdfExport";
 import { drawFooter, drawHeader, drawSectionHeader, drawTable, newReceiptDoc, PAGE_WIDTH_MM } from "./printLayout";
 import type { AppConfig, CategorySalesReport } from "../types";
 
@@ -50,6 +51,6 @@ export function buildCategorySalesPdf(report: CategorySalesReport, config: AppCo
   return doc;
 }
 
-export function downloadCategorySalesPdf(report: CategorySalesReport, config: AppConfig): void {
-  buildCategorySalesPdf(report, config).save(`category-wise-sale-${report.startDate}-to-${report.endDate}.pdf`);
+export function downloadCategorySalesPdf(report: CategorySalesReport, config: AppConfig): Promise<boolean> {
+  return downloadPdf(buildCategorySalesPdf(report, config), `category-wise-sale-${report.startDate}-to-${report.endDate}.pdf`);
 }

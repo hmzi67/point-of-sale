@@ -1,5 +1,7 @@
 /** Money fields cross IPC as integer minor units, matching the Rust side. */
 
+import type { DashboardSummary } from "./dashboard";
+
 export interface SalesSummary {
   startDate: string;
   endDate: string;
@@ -95,6 +97,20 @@ export interface ProductSalesSummaryReport {
   /** Active items with zero sales in the range — shown as their own
    * section so slow-moving stock stays visible, not hidden. */
   noSalesItems: ProductSalesNoSaleRow[];
+}
+
+/** The "Generate Full Report" consolidated document — see
+ * `src-tauri/src/db/full_report.rs`. `tableSales` is `null` when the
+ * `tables` module is disabled for this installation/platform, same
+ * "not tracked, not a zero" convention `DashboardSummary` uses. */
+export interface FullReport {
+  startDate: string;
+  endDate: string;
+  overview: DashboardSummary;
+  averageSaleMinor: number;
+  categorySales: CategorySalesReport;
+  productSales: ProductSalesSummaryReport;
+  tableSales: TableSalesSummary | null;
 }
 
 export type DateRangePreset = "today" | "thisWeek" | "thisMonth" | "custom";
