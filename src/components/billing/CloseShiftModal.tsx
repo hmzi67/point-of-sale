@@ -87,7 +87,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
           </button>
         </div>
 
-        <div className="max-h-[70vh] space-y-3 overflow-y-auto px-5 py-4">
+        <div className="max-h-[70dvh] space-y-3 overflow-y-auto px-5 py-4">
           {!closed && (
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-500">

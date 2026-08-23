@@ -88,17 +88,57 @@ in the address bar) must redirect away, not show a broken/empty screen.
       Confirm Reports, Expenses, Salary, Settings, and User Management are
       unreachable both from the sidebar and by typing their URL directly.
 
-## 3. No printer connected
+## 3. Printer failures — must never crash the app
 
-`printer::escpos::send_to_printer` always returns "not configured" until
-real hardware is wired up — this just confirms that failure path is graceful
-end to end, on a machine with no thermal printer attached (true for most dev
-machines, which makes this an easy one to actually run).
+`printer::escpos::send_to_printer` returns a proper `Result` for every
+failure mode on both platforms (see its module doc comment and
+`PrinterError`) — this section confirms that holds in practice, not just in
+`cargo test`. The historical bug this guards against: an earlier build
+called into raw USB (`rusb`/libusb) unconditionally on Android too, and
+libusb was never designed for Android's USB-permission model — the OS
+killed the whole app with a native fault, not a catchable Rust error. USB is
+now `cfg`'d out of Android builds entirely (see `Cargo.toml`), and Android's
+own transport (Bluetooth, `printer::android_bt`) is hand-written JNI, which
+carries its own version of this risk if a method signature is ever wrong —
+treat any change to `android_bt.rs` as needing this whole section re-run on
+a real device, not just a successful `cargo build`. Three specific pitfalls
+already hit and fixed once during that module's development, worth knowing
+about before touching it again:
+
+- Getting a `JavaVM`/`Context` without Tauri's cooperation is genuinely
+  hard on this platform — `ndk_context::android_context()` panics
+  ("android context was not initialized") because nothing in this Tauri
+  version's Android runtime actually calls
+  `ndk_context::initialize_android_context`, and `JNI_GetCreatedJavaVMs`
+  (fine on desktop JVMs) doesn't even link on Android — `UnsatisfiedLinkError:
+  dlopen failed: cannot locate symbol`, which fails the *entire app* to
+  load, every launch, not just this feature. What actually works: a
+  `#[no_mangle] extern "system" fn JNI_OnLoad` (any native library gets this
+  called automatically, with a live `JavaVM*`, per the JNI spec itself) —
+  see `android_bt.rs`'s module doc comment.
+- `ContextCompat.checkSelfPermission` (AndroidX) threw an opaque "Java
+  exception was thrown" in a *release* build specifically, because R8 had
+  stripped the class as apparently-unused — nothing in the Kotlin/Java side
+  references it, only JNI reflection does, invisible to R8's reachability
+  analysis. Fixed by calling the plain framework `Context.checkSelfPermission`
+  instead (present since API 23, this app's `minSdk`) — never stripped,
+  since it's not part of the app's own dex. Any future JNI call to an
+  AndroidX/support-library class (as opposed to a plain `android.*`
+  framework one) should be treated as suspect for the same reason and
+  tested against a *release* build, not just debug (R8 minification is
+  release-only).
+- Test on a **release** build (`tauri android build`, not `tauri android
+  dev`) specifically for anything touching this file — a debug build skips
+  R8 entirely, so it can't reproduce the class-stripping failure mode above.
+
+**Desktop, no USB printer attached** (true for most dev machines, which
+makes this an easy one to actually run):
 
 - [ ] Complete a sale. On the receipt screen, click "Print (thermal)".
   - [ ] A clear, human-readable error appears in the modal (not a frozen
-        button, not a console-only error) — should read something like "not
-        configured" rather than a raw Rust error or a blank failure.
+        button, not a console-only error) — should read something like "no
+        thermal printer was found" rather than a raw Rust error or a blank
+        failure.
   - [ ] The PDF download button on the same screen still works regardless —
         confirm the thermal failure didn't affect the receipt PDF path at
         all (they're independent).
@@ -106,6 +146,48 @@ machines, which makes this an easy one to actually run).
       printer failure — printing is a post-sale action, not part of the
       `billing_create_sale` transaction, so a failed print must never look
       like a failed sale.
+
+**Android, no printer selected yet** (the default state for every install
+until Settings' "Select printer" step has been used once):
+
+- [ ] Fresh install (or an install that's never had a printer selected).
+      Complete a sale, tap "Print (thermal)".
+  - [ ] The app does **not** crash or show the OS "app closed because of a
+        bug" dialog.
+  - [ ] A clear in-app message appears ("No printer is set up yet…") and the
+        PDF button still works.
+
+**Android, Bluetooth permission denied:**
+
+- [ ] Go to Settings → Printer. If `BLUETOOTH_CONNECT` is already granted
+      from a previous run, revoke it first (Android system Settings → Apps →
+      POS → Permissions → Nearby devices → Don't allow), then reopen
+      Settings → Printer in the app.
+  - [ ] The screen shows "Grant Bluetooth permission" rather than an empty
+        or broken device list.
+  - [ ] Tapping it shows the real OS permission dialog.
+  - [ ] Denying it leaves the app on a clear message, not stuck loading and
+        not crashed.
+- [ ] With permission still denied, complete a sale and tap "Print
+      (thermal)" directly (without visiting Settings first) — same
+      requirement: clear message, PDF fallback works, no crash.
+
+**Android, printer selected but unreachable** (paired once, then turned off
+or out of range — the "disconnected mid-print" case):
+
+- [ ] In Settings → Printer, select a paired Bluetooth device (any paired
+      device works for this test, even one that isn't actually a printer —
+      the point is exercising the connect-failure path, not a successful
+      print).
+- [ ] Turn that device off (or walk out of Bluetooth range).
+- [ ] Complete a sale, tap "Print (thermal)".
+  - [ ] The app does not crash.
+  - [ ] A clear message appears (e.g. "couldn't connect — check the printer
+        is on and in range") and the PDF button still works.
+- [ ] Repeat with a **real thermal printer**, paired and in range: confirm
+      an actual receipt prints, with the logo (if one is configured),
+      itemized lines, and totals all legible — this is the one case none of
+      the above can substitute for.
 
 ## 4. Date-range edge cases
 

@@ -9,6 +9,7 @@ import {
   AttendancePage,
   BillingPage,
   DashboardPage,
+  EmployeesPage,
   ExpensesPage,
   InventoryPage,
   LoginPage,
@@ -143,6 +144,14 @@ export function App() {
                 element={
                   <ModuleRoute adminOnly>
                     <UserManagementPage />
+                  </ModuleRoute>
+                }
+              />
+              <Route
+                path="employees"
+                element={
+                  <ModuleRoute adminOnly>
+                    <EmployeesPage />
                   </ModuleRoute>
                 }
               />

@@ -18,7 +18,7 @@ export function getRefund(refundId: number): Promise<Refund> {
   return call<Refund>("refund_get", { refundId });
 }
 
-/** Prints the "Refund Details" receipt on a USB thermal printer. */
+/** Prints the "Refund Details" receipt on this installation's configured thermal printer (see `billingService.printReceiptThermal`). */
 export function printRefundThermal(refundId: number): Promise<void> {
   return call<void>("refund_print_thermal", { refundId });
 }

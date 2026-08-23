@@ -10,7 +10,7 @@
 
 use tauri::{AppHandle, Manager, State};
 
-use crate::db::attendance::{AttendanceRecord, Employee, MonthlySummary};
+use crate::db::attendance::{AttendanceRecord, Employee, ManagedEmployee, MonthlySummary};
 use crate::db::config::{AppConfig, AppConfigUpdate};
 use crate::db::dashboard::DashboardSummary;
 use crate::db::expenses::{CategoryTotal, Expense};
@@ -18,7 +18,9 @@ use crate::db::salary::SalaryCalculation;
 use crate::db::items::{Category, DeleteOutcome, Item, ItemInput, ItemQuery};
 use crate::db::modules::{ModuleState, Platform};
 use crate::db::refunds::{CreateRefundInput, Refund, RefundLineInput, RefundableSale};
-use crate::db::reports::{CategorySalesReport, DailySales, SalesSummary, TableSalesSummary, TopItem, TopItemSort};
+use crate::db::reports::{
+    CategorySalesReport, DailySales, ProductSalesSummaryReport, SalesSummary, TableSalesSummary, TopItem, TopItemSort,
+};
 use crate::db::sales::{CreateSaleInput, Sale, SaleListItem};
 use crate::db::shifts::{Shift, ShiftSummary};
 use crate::db::tables::{ParkedCartLine, ParkedOrder, TableSummary};
@@ -38,6 +40,115 @@ use crate::session::{require_role, Session};
 /// Cashier is the only other role, and it never appears in this list.
 const STAFF_ROLES: &[Role] = &[Role::Owner, Role::Admin];
 
+/// Roles `caller_role` may assign when creating an account or changing an
+/// existing one's role — never Owner, for anyone: there is exactly one
+/// Owner account per installation (seeded at first run, see
+/// `db::schema::seed_owner`), so it is never a role this UI hands out.
+/// Mirrors `src/utils/permissions.ts`'s `assignableRoles`.
+fn assignable_roles(caller_role: Role) -> &'static [Role] {
+    match caller_role {
+        Role::Owner => &[Role::Admin, Role::Cashier],
+        Role::Admin => &[Role::Cashier],
+        Role::Cashier => &[],
+    }
+}
+
+/// Whether `caller_role` may edit or deactivate an account whose *current*
+/// role is `target_role` — assumes `target_role` is never Owner (that case
+/// is handled separately by each caller, since editing is allowed as a
+/// self-only exception while deactivating never is). Mirrors
+/// `src/utils/permissions.ts`'s `roleCanManageAccount`.
+fn caller_may_manage(caller_role: Role, target_role: Role) -> bool {
+    match caller_role {
+        Role::Owner => true,
+        Role::Admin => matches!(target_role, Role::Cashier),
+        Role::Cashier => false,
+    }
+}
+
+/// Pure authorization decision for `create_user`, factored out of the
+/// `#[tauri::command]` so the Owner/Admin hierarchy is testable without a
+/// live Tauri `State`/`Session` — see the `mod tests` block below for the
+/// scenarios this closes off (an Admin can never create another Admin or an
+/// Owner, even by calling this command directly).
+fn authorize_create_user(caller_role: Role, new_role: Role) -> Result<(), String> {
+    if matches!(new_role, Role::Owner) {
+        return Err("Only one Owner account is allowed on this installation".to_string());
+    }
+    if !assignable_roles(caller_role).contains(&new_role) {
+        return Err("You don't have permission to create an account with that role".to_string());
+    }
+    Ok(())
+}
+
+/// Pure authorization decision for `update_user`. `target_current_role` is
+/// the account's role *before* this edit; `new_role` is what the caller is
+/// asking to set it to.
+fn authorize_update_user(
+    caller: &User,
+    target_user_id: i64,
+    target_current_role: Role,
+    new_role: Role,
+) -> Result<(), String> {
+    if target_current_role == Role::Owner {
+        // The Owner account (there is only ever one) may only edit itself,
+        // and its role can never change — no second Owner is assignable,
+        // and self-demotion would silently lock the installation out of
+        // Owner-only actions.
+        if target_user_id != caller.id || caller.role != Role::Owner {
+            return Err("Only the Owner can edit their own account".to_string());
+        }
+        if new_role != Role::Owner {
+            return Err("The Owner account's role can't be changed".to_string());
+        }
+        return Ok(());
+    }
+
+    let is_self = target_user_id == caller.id;
+    if !is_self && !caller_may_manage(caller.role, target_current_role) {
+        return Err("You don't have permission to manage this account".to_string());
+    }
+    // A no-op role (editing your own name without touching role) is always
+    // fine even if that role wouldn't otherwise be assignable by you — e.g.
+    // an Admin renaming themselves without becoming a Cashier.
+    if new_role != target_current_role && !assignable_roles(caller.role).contains(&new_role) {
+        return Err("You don't have permission to assign that role".to_string());
+    }
+    Ok(())
+}
+
+/// Pure authorization decision for `set_user_active`.
+fn authorize_set_active(
+    caller: &User,
+    target_user_id: i64,
+    target_current_role: Role,
+    is_active: bool,
+) -> Result<(), String> {
+    if !is_active && target_user_id == caller.id {
+        return Err("You can't deactivate your own account".to_string());
+    }
+    if target_current_role == Role::Owner {
+        return Err("The Owner account can't be deactivated".to_string());
+    }
+    if target_user_id != caller.id && !caller_may_manage(caller.role, target_current_role) {
+        return Err("You don't have permission to manage this account".to_string());
+    }
+    Ok(())
+}
+
+/// Pure authorization decision for `set_user_pin`. Changing your own PIN is
+/// always allowed regardless of role; resetting someone else's follows the
+/// same hierarchy as editing.
+fn authorize_set_pin(caller: &User, target_user_id: i64, target_current_role: Role) -> Result<(), String> {
+    if target_user_id == caller.id {
+        return Ok(());
+    }
+    if target_current_role == Role::Owner || !caller_may_manage(caller.role, target_current_role) {
+        return Err("You don't have permission to manage this account".to_string());
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Health
 // ---------------------------------------------------------------------------
@@ -46,6 +157,27 @@ const STAFF_ROLES: &[Role] = &[Role::Owner, Role::Admin];
 #[tauri::command]
 pub fn app_ping() -> String {
     "pong".to_string()
+}
+
+/// Called by the splash window's own inline script (see
+/// `public/splashscreen.html`) once its content has actually painted — the
+/// real "ready" signal `reveal_main_window` waits on, rather than a guess at
+/// how long a freshly-created webview process takes to render its first
+/// frame (a cold WKWebView/WebView2 can lag "the window exists" by a
+/// meaningful fraction of a second, long enough to eat the whole splash
+/// floor if that guess is wrong). Waits out whatever remains of
+/// `MIN_SPLASH_MS` from process launch — almost always ~0, since painting
+/// itself already took a moment — then closes the splash and reveals
+/// `main`. A no-op if that already happened via `MAX_SPLASH_MS`'s ceiling
+/// firing first (see `lib.rs::run`).
+#[tauri::command]
+pub fn splashscreen_ready(app: AppHandle) {
+    let launched_at = app.state::<crate::LaunchedAt>().0;
+    let remaining = crate::MIN_SPLASH_MS.saturating_sub(launched_at.elapsed().as_millis() as u64);
+    if remaining > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(remaining));
+    }
+    crate::reveal_main_window(&app);
 }
 
 /// The user tables currently present. Used to verify a migration landed.
@@ -267,6 +399,19 @@ fn logo_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(images::logo_dir(&data_dir))
 }
 
+/// Runs `f`, converting a panic into a plain error message instead of
+/// letting it unwind out of a `#[tauri::command]`. Used around the
+/// Bluetooth-printer commands below, which call into hand-written JNI (see
+/// `printer::android_bt`'s module doc comment) — the same belt-and-braces
+/// reasoning as `printer::escpos::send_to_printer`'s own `catch_unwind`,
+/// applied here too since these three commands call `android_bt` directly
+/// rather than through that function.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))] // only reached from the Android printer commands below
+fn catch_panic<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+        .unwrap_or_else(|_| Err("Printer command hit an internal error".to_string()))
+}
+
 /// Validates, saves and returns the filename to store as `Item.imagePath`.
 /// The frontend reads the picked file with `FileReader`, so bytes arrive here
 /// already base64-encoded — no filesystem-access plugin/capability needed.
@@ -329,6 +474,24 @@ pub fn inventory_csv_template() -> &'static str {
     csv_import::TEMPLATE_CSV
 }
 
+/// Item ids currently qualifying as a "best seller" — ranked by quantity
+/// sold in the last `period_days`, capped at `limit`, floored at a minimum
+/// total quantity so a shop with little/no sales history gets no badges at
+/// all rather than an arbitrary one (see `reports::BEST_SELLER_MIN_QTY`).
+/// Recomputed fresh on every call — never cached or stored — so the
+/// Inventory/Billing "fire" badge can never go stale. Read-only, so this has
+/// no role check, same as `inventory_get_items`.
+#[tauri::command]
+pub fn inventory_get_best_selling_item_ids(
+    db: State<'_, Db>,
+    period_days: i64,
+    limit: i64,
+) -> Result<Vec<i64>, String> {
+    db.with_conn(|conn| Ok(reports::get_best_selling_item_ids(conn, period_days, limit)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
@@ -369,10 +532,12 @@ pub fn get_all_users(db: State<'_, Db>, session: State<'_, Session>) -> Result<V
     db.with_conn(users::list_all).map_err(|e| e.to_string())
 }
 
-/// Creates a staff account. Only an Owner may create another Owner account —
-/// an Admin creating a peer Owner would be a privilege escalation the UI
-/// alone can't be trusted to prevent, so it's checked here against the
-/// caller `require_role` actually returned, not a role the client claims.
+/// Creates a staff account. Owner is never an assignable role here — there
+/// is exactly one Owner account per installation, seeded at first run (see
+/// `db::schema::seed_owner`) — and an Admin may only create Cashier
+/// accounts, never a peer Admin. Checked against the caller `require_role`
+/// actually returned, not a role the client claims, so this holds even for
+/// a direct `invoke()` call that skips the UI entirely.
 #[tauri::command]
 pub fn create_user(
     db: State<'_, Db>,
@@ -382,16 +547,20 @@ pub fn create_user(
     role: Role,
 ) -> Result<User, String> {
     let caller = require_role(&session, STAFF_ROLES)?;
-    if matches!(role, Role::Owner) && !matches!(caller.role, Role::Owner) {
-        return Err("Only an Owner can create another Owner account".to_string());
-    }
-    db.with_conn(|conn| Ok(users::create(conn, &name, &pin, role)))
+    authorize_create_user(caller.role, role)?;
+    db.with_conn(move |conn| Ok(users::create(conn, &name, &pin, role)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
-/// Renames a staff account and/or changes their role. Same Owner-creating-
-/// Owner restriction as `create_user` applies to promotions.
+/// Renames a staff account and/or changes their role.
+///
+/// The Owner account (there is only ever one) may only edit *itself*, and
+/// its role can never change — no second Owner is ever assignable, and
+/// self-demotion would silently lock the installation out of Owner-only
+/// actions. Everyone else is gated by `caller_may_manage`: an Admin may
+/// touch Cashier accounts (and their own Admin account, unchanged role)
+/// but never another Admin or the Owner.
 #[tauri::command]
 pub fn update_user(
     db: State<'_, Db>,
@@ -401,18 +570,25 @@ pub fn update_user(
     role: Role,
 ) -> Result<User, String> {
     let caller = require_role(&session, STAFF_ROLES)?;
-    if matches!(role, Role::Owner) && !matches!(caller.role, Role::Owner) {
-        return Err("Only an Owner can promote someone to Owner".to_string());
-    }
-    db.with_conn(|conn| Ok(users::update(conn, user_id, &name, role)))
+    let current_role = db
+        .with_conn(move |conn| users::role_of(conn, user_id))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "That user no longer exists".to_string())?;
+
+    authorize_update_user(&caller, user_id, current_role, role)?;
+
+    db.with_conn(move |conn| Ok(users::update(conn, user_id, &name, role)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
-/// Deactivates or reactivates a staff account. Refuses to let the last
-/// active Owner deactivate themselves out of the system, and refuses to let
-/// anyone deactivate the account they're currently signed in as — both
-/// checked here, not left to the UI to remember to disable a button.
+/// Deactivates or reactivates a staff account.
+///
+/// The Owner account can never be deactivated, by anyone, including itself
+/// — there is exactly one per installation and nobody would be left who
+/// could create a new one. Nobody may deactivate the account they're
+/// currently signed in as. Otherwise gated by `caller_may_manage`: an Admin
+/// may only act on Cashier accounts, never a peer Admin.
 #[tauri::command]
 pub fn set_user_active(
     db: State<'_, Db>,
@@ -421,16 +597,24 @@ pub fn set_user_active(
     is_active: bool,
 ) -> Result<(), String> {
     let caller = require_role(&session, STAFF_ROLES)?;
-    if !is_active && user_id == caller.id {
-        return Err("You can't deactivate your own account".to_string());
-    }
-    db.with_conn(|conn| Ok(users::set_active(conn, user_id, is_active)))
+    let current_role = db
+        .with_conn(move |conn| users::role_of(conn, user_id))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "That user no longer exists".to_string())?;
+
+    authorize_set_active(&caller, user_id, current_role, is_active)?;
+
+    db.with_conn(move |conn| Ok(users::set_active(conn, user_id, is_active)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
 
-/// Resets a staff member's PIN. Owner/Admin only — this is the management
-/// screen's "reset PIN" action, not self-service.
+/// Resets a staff member's PIN — the management screen's "reset PIN"
+/// action, or self-service (changing your own). Gated the same as
+/// `update_user`: changing your own PIN is always allowed regardless of
+/// role, but resetting someone else's follows the same Owner/Admin
+/// hierarchy — an Admin may reset a Cashier's PIN, never the Owner's or
+/// another Admin's.
 #[tauri::command]
 pub fn set_user_pin(
     db: State<'_, Db>,
@@ -438,8 +622,15 @@ pub fn set_user_pin(
     user_id: i64,
     pin: String,
 ) -> Result<(), String> {
-    require_role(&session, STAFF_ROLES)?;
-    db.with_conn(|conn| Ok(users::set_pin(conn, user_id, &pin)))
+    let caller = require_role(&session, STAFF_ROLES)?;
+    if user_id != caller.id {
+        let current_role = db
+            .with_conn(move |conn| users::role_of(conn, user_id))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "That user no longer exists".to_string())?;
+        authorize_set_pin(&caller, user_id, current_role)?;
+    }
+    db.with_conn(move |conn| Ok(users::set_pin(conn, user_id, &pin)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
@@ -476,20 +667,104 @@ pub fn billing_get_sale(db: State<'_, Db>, id: i64) -> Result<Sale, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Attempts to print a receipt on a USB thermal printer (auto-detected —
-/// see `printer::escpos::send_to_printer`). Fails with a friendly message
-/// if none is found/reachable; the PDF receipt (built entirely in the
-/// frontend with jsPDF) is the reliable fallback either way, and serial/
-/// network printers aren't supported yet.
+/// Attempts to print a receipt on this installation's configured thermal
+/// printer (USB on desktop, Bluetooth on Android — see
+/// `printer::escpos::send_to_printer`). Fails with a friendly message if
+/// none is set up/reachable; the PDF receipt (built entirely in the
+/// frontend with jsPDF) is the reliable fallback either way.
+///
+/// Reads the stored logo (if any) from disk and decodes it to a monochrome
+/// raster here — `build_receipt_bytes` itself stays pure and never touches
+/// the filesystem. An SVG logo (or any decode failure) just means no logo on
+/// this receipt, same as no logo being set at all — never a reason to fail
+/// the print.
 #[tauri::command]
-pub fn billing_print_receipt_thermal(db: State<'_, Db>, sale_id: i64) -> Result<(), String> {
+pub fn billing_print_receipt_thermal(app: AppHandle, db: State<'_, Db>, sale_id: i64) -> Result<(), String> {
     let sale = db
         .with_conn(|conn| Ok(sales::get_sale(conn, sale_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    let tables_module_enabled = db
+        .with_conn(|conn| modules::is_enabled(conn, "tables", Platform::current()))
+        .map_err(|e| e.to_string())?;
 
-    crate::printer::escpos::print_receipt(&sale, &app_config).map_err(|e| e.to_string())
+    let logo_dir_path = logo_dir(&app)?;
+    let logo = app_config
+        .logo_path
+        .as_ref()
+        .and_then(|file_name| images::read_image_bytes(&logo_dir_path, file_name).ok())
+        .and_then(|(bytes, _extension)| crate::printer::escpos::build_logo_raster(&bytes));
+
+    crate::printer::escpos::print_receipt(&sale, &app_config, logo.as_ref(), tables_module_enabled)
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Printer selection (Settings' "Select printer" step)
+//
+// Android only in practice — desktop's USB transport is auto-detected (see
+// `printer::escpos`'s module doc comment) and needs no selection step, so
+// these three simply report "not applicable" there rather than being
+// registered conditionally, which would mean the frontend service layer
+// needing to know at compile/call time which platform it's running on
+// before even trying (it already knows via `IS_ANDROID`, but keeping the
+// command surface uniform across platforms is one less thing to get wrong).
+// ---------------------------------------------------------------------------
+
+/// Every Bluetooth device already paired through the OS settings — the
+/// candidate list for Settings' printer picker. Android only; always empty
+/// on desktop.
+#[tauri::command]
+pub fn printer_list_bluetooth_devices() -> Result<Vec<crate::db::config::BluetoothDeviceOption>, String> {
+    #[cfg(target_os = "android")]
+    {
+        catch_panic(|| {
+            crate::printer::android_bt::list_bonded_devices()
+                .map(|devices| {
+                    devices
+                        .into_iter()
+                        .map(|d| crate::db::config::BluetoothDeviceOption { name: d.name, address: d.address })
+                        .collect()
+                })
+                .map_err(|e| e.to_string())
+        })
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(Vec::new())
+    }
+}
+
+/// Whether this app currently holds the Bluetooth permission it needs to
+/// list/connect to printers. Always `true` on desktop (nothing to grant).
+#[tauri::command]
+pub fn printer_bluetooth_permission_granted() -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        catch_panic(|| crate::printer::android_bt::permission_granted().map_err(|e| e.to_string()))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(true)
+    }
+}
+
+/// Fires the OS Bluetooth-permission dialog if it hasn't been granted yet.
+/// Fire-and-forget — see `android_bt::request_permission`'s doc comment for
+/// why the frontend re-checks `printer_bluetooth_permission_granted`
+/// afterwards rather than this returning the outcome directly. A no-op on
+/// desktop.
+#[tauri::command]
+pub fn printer_request_bluetooth_permission() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        catch_panic(|| crate::printer::android_bt::request_permission().map_err(|e| e.to_string()))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(())
+    }
 }
 
 /// The most recent sales — the refund flow's "pick the original sale" list.
@@ -781,6 +1056,25 @@ pub fn reports_get_table_sales_summary(
         .map_err(|e| e.to_string())
 }
 
+/// The "Product Wise Sales" report: every item sold in the range, ranked by
+/// revenue or quantity (`sort_by`), optionally narrowed to one category, plus
+/// a "no sales this period" list of active items that sold zero units — so
+/// slow-moving stock stays visible rather than just absent from the report.
+#[tauri::command]
+pub fn reports_get_product_sales_summary(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+    category_id: Option<i64>,
+    sort_by: TopItemSort,
+) -> Result<ProductSalesSummaryReport, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(reports::get_product_sales_summary(conn, &start_date, &end_date, category_id, sort_by)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
 /// Prints the Table Wise Sales report on a USB thermal printer.
 #[tauri::command]
 pub fn reports_print_table_sales_summary(
@@ -919,6 +1213,77 @@ pub fn tables_get_parked_cart(db: State<'_, Db>, table_id: i64) -> Result<Option
 pub fn attendance_get_employees(db: State<'_, Db>, session: State<'_, Session>) -> Result<Vec<Employee>, String> {
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(attendance::list_employees).map_err(|e| e.to_string())
+}
+
+/// Every employee, active or not — the employee management screen.
+#[tauri::command]
+pub fn attendance_get_all_employees(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+) -> Result<Vec<ManagedEmployee>, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(attendance::list_all_employees).map_err(|e| e.to_string())
+}
+
+/// Adds a new employee (payroll/attendance record, not a login account —
+/// see `db::attendance`'s module doc comment). Shows up in the check-in
+/// screen and the monthly summary immediately, no restart needed, since both
+/// re-query `employees` on every load.
+#[tauri::command]
+pub fn attendance_add_employee(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    name: String,
+    role: String,
+    contact: Option<String>,
+    base_salary_minor: i64,
+) -> Result<ManagedEmployee, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(move |conn| Ok(attendance::add_employee(conn, &name, &role, contact.as_deref(), base_salary_minor)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Renames/re-roles/updates the contact and base salary of an employee.
+#[tauri::command]
+pub fn attendance_update_employee(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    employee_id: i64,
+    name: String,
+    role: String,
+    contact: Option<String>,
+    base_salary_minor: i64,
+) -> Result<ManagedEmployee, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(move |conn| {
+        Ok(attendance::update_employee(
+            conn,
+            employee_id,
+            &name,
+            &role,
+            contact.as_deref(),
+            base_salary_minor,
+        ))
+    })
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Deactivates or reactivates an employee (soft — attendance and salary
+/// history stay intact). A deactivated employee drops off the check-in
+/// screen and the monthly summary immediately.
+#[tauri::command]
+pub fn attendance_set_employee_active(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    employee_id: i64,
+    is_active: bool,
+) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(move |conn| Ok(attendance::set_employee_active(conn, employee_id, is_active)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 /// Checks an employee in for today. Idempotent — a repeated call the same day
@@ -1236,4 +1601,166 @@ pub fn product_owner_set_module(
             .and_then(|()| modules::list(conn, platform).map_err(|e| e.to_string())))
     })
     .map_err(|e| e.to_string())?
+}
+
+// ---------------------------------------------------------------------------
+// Owner/Admin/Cashier account hierarchy — the `authorize_*` functions above
+// are the actual gate (`create_user`/`update_user`/`set_user_active`/
+// `set_user_pin` are thin wrappers around them), so exercising them directly
+// here proves the rule holds at the command layer itself — an Admin cannot
+// touch the Owner or a peer Admin even by calling the command straight,
+// not merely because the UI hides the button.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod user_hierarchy_tests {
+    use super::*;
+
+    fn user(id: i64, role: Role) -> User {
+        User { id, name: "Test".into(), role }
+    }
+
+    // -- create_user -------------------------------------------------------
+
+    #[test]
+    fn owner_can_create_admin_and_cashier_but_not_another_owner() {
+        assert!(authorize_create_user(Role::Owner, Role::Admin).is_ok());
+        assert!(authorize_create_user(Role::Owner, Role::Cashier).is_ok());
+        assert!(authorize_create_user(Role::Owner, Role::Owner).is_err());
+    }
+
+    #[test]
+    fn admin_can_create_cashier_but_not_admin_or_owner() {
+        assert!(authorize_create_user(Role::Admin, Role::Cashier).is_ok());
+        assert!(authorize_create_user(Role::Admin, Role::Admin).is_err());
+        assert!(authorize_create_user(Role::Admin, Role::Owner).is_err());
+    }
+
+    // -- update_user ---------------------------------------------------------
+
+    #[test]
+    fn admin_cannot_edit_the_owner_account_directly() {
+        let admin = user(2, Role::Admin);
+        // The Owner's account (id 1) — an Admin calling update_user on it
+        // straight, exactly as a direct invoke() would, must be refused.
+        let result = authorize_update_user(&admin, 1, Role::Owner, Role::Owner);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn admin_cannot_edit_another_admins_account_directly() {
+        let admin = user(2, Role::Admin);
+        let other_admin_id = 3;
+        let result = authorize_update_user(&admin, other_admin_id, Role::Admin, Role::Admin);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn admin_can_edit_their_own_admin_account_without_changing_role() {
+        let admin = user(2, Role::Admin);
+        assert!(authorize_update_user(&admin, admin.id, Role::Admin, Role::Admin).is_ok());
+    }
+
+    #[test]
+    fn admin_can_edit_a_cashier_account() {
+        let admin = user(2, Role::Admin);
+        assert!(authorize_update_user(&admin, 5, Role::Cashier, Role::Cashier).is_ok());
+    }
+
+    #[test]
+    fn nobody_can_promote_anyone_to_owner() {
+        let owner = user(1, Role::Owner);
+        assert!(authorize_update_user(&owner, 5, Role::Cashier, Role::Owner).is_err());
+        assert!(authorize_update_user(&owner, 5, Role::Admin, Role::Owner).is_err());
+    }
+
+    #[test]
+    fn the_owner_can_edit_their_own_account_without_changing_role() {
+        let owner = user(1, Role::Owner);
+        assert!(authorize_update_user(&owner, owner.id, Role::Owner, Role::Owner).is_ok());
+    }
+
+    #[test]
+    fn the_owners_own_role_can_never_be_changed_even_by_themselves() {
+        let owner = user(1, Role::Owner);
+        let result = authorize_update_user(&owner, owner.id, Role::Owner, Role::Admin);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn owner_can_edit_an_admin_or_cashier_account() {
+        let owner = user(1, Role::Owner);
+        assert!(authorize_update_user(&owner, 2, Role::Admin, Role::Admin).is_ok());
+        assert!(authorize_update_user(&owner, 5, Role::Cashier, Role::Admin).is_ok());
+    }
+
+    // -- set_user_active -----------------------------------------------------
+
+    #[test]
+    fn admin_cannot_deactivate_the_owner_account_directly() {
+        let admin = user(2, Role::Admin);
+        let result = authorize_set_active(&admin, 1, Role::Owner, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn nobody_can_deactivate_the_owner_including_the_owner_themselves() {
+        let owner = user(1, Role::Owner);
+        let result = authorize_set_active(&owner, owner.id, Role::Owner, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn admin_cannot_deactivate_another_admin_account_directly() {
+        let admin = user(2, Role::Admin);
+        let result = authorize_set_active(&admin, 3, Role::Admin, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn admin_can_deactivate_a_cashier_account() {
+        let admin = user(2, Role::Admin);
+        assert!(authorize_set_active(&admin, 5, Role::Cashier, false).is_ok());
+    }
+
+    #[test]
+    fn nobody_can_deactivate_their_own_account() {
+        let admin = user(2, Role::Admin);
+        assert!(authorize_set_active(&admin, admin.id, Role::Admin, false).is_err());
+        let owner = user(1, Role::Owner);
+        assert!(authorize_set_active(&owner, owner.id, Role::Owner, false).is_err());
+    }
+
+    #[test]
+    fn owner_can_deactivate_an_admin_account() {
+        let owner = user(1, Role::Owner);
+        assert!(authorize_set_active(&owner, 2, Role::Admin, false).is_ok());
+    }
+
+    // -- set_user_pin ---------------------------------------------------------
+
+    #[test]
+    fn admin_cannot_reset_the_owners_pin() {
+        let admin = user(2, Role::Admin);
+        assert!(authorize_set_pin(&admin, 1, Role::Owner).is_err());
+    }
+
+    #[test]
+    fn admin_cannot_reset_another_admins_pin() {
+        let admin = user(2, Role::Admin);
+        assert!(authorize_set_pin(&admin, 3, Role::Admin).is_err());
+    }
+
+    #[test]
+    fn admin_can_reset_a_cashiers_pin() {
+        let admin = user(2, Role::Admin);
+        assert!(authorize_set_pin(&admin, 5, Role::Cashier).is_ok());
+    }
+
+    #[test]
+    fn everyone_can_reset_their_own_pin_regardless_of_role() {
+        let owner = user(1, Role::Owner);
+        assert!(authorize_set_pin(&owner, owner.id, Role::Owner).is_ok());
+        let admin = user(2, Role::Admin);
+        assert!(authorize_set_pin(&admin, admin.id, Role::Admin).is_ok());
+    }
 }

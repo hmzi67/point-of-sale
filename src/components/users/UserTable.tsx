@@ -1,3 +1,4 @@
+import { roleCanManageAccount } from "../../utils/permissions";
 import type { ManagedUser, Role } from "../../types";
 
 const ROLE_LABEL: Record<Role, string> = { owner: "Owner", admin: "Admin", cashier: "Cashier" };
@@ -10,17 +11,35 @@ const ROLE_STYLES: Record<Role, string> = {
 interface UserTableProps {
   users: ManagedUser[];
   currentUserId: number;
+  /** The signed-in user's own role — decides which rows' Edit/Deactivate
+   * actions are available (mirrors `caller_may_manage` in
+   * `src-tauri/src/commands.rs`, which is what actually enforces it). */
+  currentUserRole: Role;
   isLoading: boolean;
   busyId: number | null;
   onEdit: (user: ManagedUser) => void;
   onToggleActive: (user: ManagedUser) => void;
 }
 
-/** Every staff account, active or not. Deactivating yourself, and
- * deactivating the last active Owner, are both refused server-side
- * (`commands::set_user_active`) — the disabled button here is a courtesy,
- * not the actual guard. */
-export function UserTable({ users, currentUserId, isLoading, busyId, onEdit, onToggleActive }: UserTableProps) {
+/** Every staff account, active or not.
+ *
+ * The Owner account never shows a Deactivate button at all — there is
+ * exactly one per installation and it can't be taken offline by anyone,
+ * including itself — and its Edit button only works for the Owner's own
+ * row (an Admin viewing it sees a disabled Edit with an explanatory
+ * tooltip). An Admin viewing a peer Admin's row sees both actions disabled
+ * the same way. Every one of these is a courtesy, not the actual guard —
+ * `commands::update_user`/`set_user_active` re-check the same hierarchy
+ * server-side regardless of what this screen shows. */
+export function UserTable({
+  users,
+  currentUserId,
+  currentUserRole,
+  isLoading,
+  busyId,
+  onEdit,
+  onToggleActive,
+}: UserTableProps) {
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -48,7 +67,23 @@ export function UserTable({ users, currentUserId, isLoading, busyId, onEdit, onT
           ) : (
             users.map((user) => {
               const isSelf = user.id === currentUserId;
+              const isOwnerRow = user.role === "owner";
               const busy = busyId === user.id;
+
+              const canEdit = roleCanManageAccount(currentUserRole, user.role, isSelf);
+              const editTooltip = canEdit
+                ? undefined
+                : isOwnerRow
+                  ? "Only the Owner can edit their own account"
+                  : "Only the Owner can manage Admin accounts";
+
+              // The Owner can never be deactivated by anyone — the button
+              // doesn't just get disabled here, it isn't rendered at all.
+              const canDeactivate = !isOwnerRow && !isSelf && roleCanManageAccount(currentUserRole, user.role, false);
+              const deactivateTooltip = isSelf
+                ? "You can't deactivate your own account"
+                : "Only the Owner can manage Admin accounts";
+
               return (
                 <tr key={user.id} className={user.isActive ? "" : "opacity-60"}>
                   <td className="px-4 py-2 text-slate-700">
@@ -66,20 +101,23 @@ export function UserTable({ users, currentUserId, isLoading, busyId, onEdit, onT
                       <button
                         type="button"
                         onClick={() => onEdit(user)}
-                        disabled={busy}
-                        className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        disabled={busy || !canEdit}
+                        title={editTooltip}
+                        className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Edit
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onToggleActive(user)}
-                        disabled={busy || (isSelf && user.isActive)}
-                        title={isSelf && user.isActive ? "You can't deactivate your own account" : undefined}
-                        className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {user.isActive ? "Deactivate" : "Reactivate"}
-                      </button>
+                      {!isOwnerRow && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleActive(user)}
+                          disabled={busy || !canDeactivate}
+                          title={canDeactivate ? undefined : deactivateTooltip}
+                          className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {user.isActive ? "Deactivate" : "Reactivate"}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

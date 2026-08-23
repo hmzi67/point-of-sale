@@ -7,15 +7,20 @@ import type { AppConfig, Sale } from "../../types";
 interface ReceiptModalProps {
   sale: Sale;
   config: AppConfig;
+  /** Whether the `tables` module is enabled — decides the PDF/thermal
+   * receipt's "Takeaway" vs "Counter Sale" fallback label when this sale
+   * wasn't linked to a table (see `buildReceiptPdf`). */
+  tablesEnabled: boolean;
   onClose: () => void;
 }
 
 /** Shown right after a sale completes (and reusable for a reprint later).
- * PDF is the default/working path; thermal is a best-effort extra — it
- * auto-detects a USB ESC/POS printer and fails gracefully (with a message
- * to fall back to the PDF) if none is found. Serial/network printers
- * aren't supported yet. */
-export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
+ * PDF is the default/always-available path; thermal uses whatever printer
+ * this installation has configured (USB auto-detected on desktop,
+ * Bluetooth selected in Settings on Android) and fails gracefully — with a
+ * message, PDF still right there as the alternative — if none is set up or
+ * reachable. */
+export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptModalProps) {
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
   const [isPreparingPdf, setIsPreparingPdf] = useState(false);
@@ -28,7 +33,7 @@ export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
     setPrintStatus(null);
     try {
       const { downloadReceiptPdf } = await import("../../utils/receiptPdf");
-      downloadReceiptPdf(sale, config);
+      await downloadReceiptPdf(sale, config, tablesEnabled);
     } catch (e) {
       // Without this, a failed PDF build (or a blocked download) was a
       // silent unhandled rejection — the cashier just saw the button do
@@ -70,7 +75,7 @@ export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
           </button>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
+        <div className="max-h-[60dvh] overflow-y-auto px-5 py-4">
           <p className="text-center text-sm text-slate-500">{config.businessName}</p>
           <p className="text-center text-xs text-slate-400">
             Sale #{sale.id} · {sale.createdAt}

@@ -8,6 +8,13 @@ export interface Employee {
   baseSalaryMinor: number;
 }
 
+/** An employee as shown on the employee management screen — includes
+ * whether the record is active, unlike `Employee` (the check-in screen and
+ * the monthly summary only ever see active ones). */
+export interface ManagedEmployee extends Employee {
+  isActive: boolean;
+}
+
 export interface AttendanceRecord {
   id: number;
   employeeId: number;

@@ -67,6 +67,7 @@ export function UserManagementPage() {
       <UserTable
         users={users}
         currentUserId={currentUser.id}
+        currentUserRole={currentUser.role}
         isLoading={isLoading}
         busyId={busyId}
         onEdit={setEditingUser}

@@ -160,9 +160,11 @@ pub fn save_logo(dir: &Path, data_base64: &str, extension: &str) -> Result<Strin
     save_image_as(dir, data_base64, extension, LOGO_ALLOWED_EXTENSIONS, MAX_LOGO_BYTES, "logo")
 }
 
-/// Reads an image back as a `data:` URL the webview can render directly in an
-/// `<img>` tag with no extra IPC round trip needed to display it.
-pub fn read_image_data_url(dir: &Path, file_name: &str) -> Result<String, ImageError> {
+/// Raw file bytes plus lowercased extension — the one place both the
+/// data-URL reader (below) and the ESC/POS logo-raster builder
+/// (`printer::escpos`) read a stored image from disk, so the sanitize/
+/// extension logic isn't duplicated between them.
+pub fn read_image_bytes(dir: &Path, file_name: &str) -> Result<(Vec<u8>, String), ImageError> {
     let file_name = sanitize_file_name(file_name)?;
     let extension = Path::new(file_name)
         .extension()
@@ -171,8 +173,14 @@ pub fn read_image_data_url(dir: &Path, file_name: &str) -> Result<String, ImageE
         .to_ascii_lowercase();
 
     let bytes = fs::read(dir.join(file_name)).map_err(|e| ImageError::Io(e.to_string()))?;
-    let encoded = BASE64.encode(bytes);
+    Ok((bytes, extension))
+}
 
+/// Reads an image back as a `data:` URL the webview can render directly in an
+/// `<img>` tag with no extra IPC round trip needed to display it.
+pub fn read_image_data_url(dir: &Path, file_name: &str) -> Result<String, ImageError> {
+    let (bytes, extension) = read_image_bytes(dir, file_name)?;
+    let encoded = BASE64.encode(bytes);
     Ok(format!("data:{};base64,{}", mime_for_extension(&extension), encoded))
 }
 

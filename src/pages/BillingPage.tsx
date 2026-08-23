@@ -3,18 +3,21 @@ import { BillingHeader } from "../components/billing/BillingHeader";
 import { CartPanel } from "../components/billing/CartPanel";
 import { CategoryPills } from "../components/billing/CategoryPills";
 import { DiscountControl } from "../components/billing/DiscountControl";
-import { ItemDetailModal } from "../components/billing/ItemDetailModal";
+import { EditNoteModal } from "../components/billing/EditNoteModal";
 import { ItemGrid } from "../components/billing/ItemGrid";
 import { ItemSearchBar } from "../components/billing/ItemSearchBar";
+import { MobileCategoryChips, type MobileCategorySelection } from "../components/billing/MobileCategoryChips";
 import { OrderSummaryHeader } from "../components/billing/OrderSummaryHeader";
 import { OrderTypeAndTable } from "../components/billing/OrderTypeAndTable";
 import { PaymentMethodSelector } from "../components/billing/PaymentMethodSelector";
 import { ReceiptModal } from "../components/billing/ReceiptModal";
+import { useBestSellerIds } from "../hooks/useBestSellerIds";
 import { useModules } from "../hooks/useModules";
 import { createSale } from "../services/billingService";
 import { getCategories, getItems } from "../services/inventoryService";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useAuthStore, useBillingStore, useShiftStore } from "../store";
+import { IS_ANDROID } from "../types";
 import { computeCartTotals } from "../utils/billingTotals";
 import { formatMinor } from "../utils/format";
 import type { Category, Item, Sale } from "../types";
@@ -35,7 +38,10 @@ export function BillingPage() {
   // --- Item browsing (grid + category pills) --------------------------------
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  // `"best-seller"` is Android-only (see `MobileCategoryChips`) — desktop's
+  // `CategoryPills` never sets it, so `visibleItems` below only ever needs
+  // to check for it, never worry about it appearing on desktop.
+  const [selectedCategoryId, setSelectedCategoryId] = useState<MobileCategorySelection>(null);
   const [isLoadingItems, setIsLoadingItems] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -62,14 +68,20 @@ export function BillingPage() {
 
   useEffect(loadCatalog, []);
 
+  // Recomputed live on every catalog load (including right after a sale
+  // completes, via loadCatalog below) — never cached across screens or
+  // stored as a flag, so the fire badge can't go stale.
+  const { bestSellerIds, reloadBestSellers } = useBestSellerIds();
+
   const visibleItems = isSearching
     ? searchResults
     : selectedCategoryId === null
       ? items
-      : items.filter((item) => item.categoryId === selectedCategoryId);
+      : selectedCategoryId === "best-seller"
+        ? items.filter((item) => bestSellerIds.has(item.id))
+        : items.filter((item) => item.categoryId === selectedCategoryId);
 
-  // --- Item detail modal: add-mode (grid tap) and edit-mode (cart pencil) ---
-  const [openItem, setOpenItem] = useState<Item | null>(null);
+  // --- Cart line note editing (the cart row's pencil icon) ------------------
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
 
   const cart = useBillingStore((state) => state.cart);
@@ -79,11 +91,9 @@ export function BillingPage() {
   const paymentMethod = useBillingStore((state) => state.paymentMethod);
   const tableId = useBillingStore((state) => state.tableId);
   const clearCart = useBillingStore((state) => state.clearCart);
-  const addItemWithDetails = useBillingStore((state) => state.addItemWithDetails);
   const updateLine = useBillingStore((state) => state.updateLine);
 
   const editingEntry = editingItemId !== null ? cart[editingItemId] : undefined;
-  const editingItem = editingItemId !== null ? items.find((i) => i.id === editingItemId) : undefined;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +120,7 @@ export function BillingPage() {
       setCompletedSale(sale);
       clearCart();
       loadCatalog(); // stock just changed — the grid should reflect it
+      reloadBestSellers(); // this sale may have moved the best-sellers ranking
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -122,12 +133,16 @@ export function BillingPage() {
       {/* Browsing column */}
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <BillingHeader onRefunded={loadCatalog} />
-        <CategoryPills
-          categories={categories}
-          items={items}
-          selectedCategoryId={selectedCategoryId}
-          onSelect={setSelectedCategoryId}
-        />
+        {IS_ANDROID ? (
+          <MobileCategoryChips categories={categories} selected={selectedCategoryId} onSelect={setSelectedCategoryId} />
+        ) : (
+          <CategoryPills
+            categories={categories}
+            items={items}
+            selectedCategoryId={selectedCategoryId === "best-seller" ? null : selectedCategoryId}
+            onSelect={setSelectedCategoryId}
+          />
+        )}
         <ItemSearchBar
           onResultsChange={(query, results) => {
             setSearchQuery(query);
@@ -144,7 +159,8 @@ export function BillingPage() {
             currency={config.currency}
             isLoading={isLoadingItems}
             isSearching={isSearching}
-            onOpenItem={setOpenItem}
+            bestSellerIds={bestSellerIds}
+            fixedTwoColumns={IS_ANDROID}
           />
         </div>
       </div>
@@ -211,35 +227,25 @@ export function BillingPage() {
         </button>
       </div>
 
-      {openItem && (
-        <ItemDetailModal
-          item={openItem}
-          currency={config.currency}
-          onClose={() => setOpenItem(null)}
-          onConfirm={(qty, notes) => {
-            addItemWithDetails(openItem, qty, notes);
-            setOpenItem(null);
-          }}
-        />
-      )}
-
-      {editingItem && editingEntry && (
-        <ItemDetailModal
-          item={editingItem}
-          currency={config.currency}
-          initialQty={editingEntry.qty}
+      {editingItemId !== null && editingEntry && (
+        <EditNoteModal
+          itemName={editingEntry.name}
           initialNotes={editingEntry.notes}
-          confirmLabel="Update Cart"
           onClose={() => setEditingItemId(null)}
-          onConfirm={(qty, notes) => {
-            updateLine(editingItem.id, qty, notes);
+          onSave={(notes) => {
+            updateLine(editingItemId, editingEntry.qty, notes);
             setEditingItemId(null);
           }}
         />
       )}
 
       {completedSale && (
-        <ReceiptModal sale={completedSale} config={config} onClose={() => setCompletedSale(null)} />
+        <ReceiptModal
+          sale={completedSale}
+          config={config}
+          tablesEnabled={tablesEnabled}
+          onClose={() => setCompletedSale(null)}
+        />
       )}
     </div>
   );

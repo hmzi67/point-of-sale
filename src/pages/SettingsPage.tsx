@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Lock } from "lucide-react";
+import { PrinterSettingsSection } from "../components/settings/PrinterSettingsSection";
 import { StoreIdentitySection } from "../components/settings/StoreIdentitySection";
 import { ToggleSwitch } from "../components/ui/ToggleSwitch";
 import { useModuleStore } from "../store";
@@ -53,6 +54,8 @@ export function SettingsPage() {
           </div>
         </dl>
       </div>
+
+      <PrinterSettingsSection config={config} />
 
       <div className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 p-6">

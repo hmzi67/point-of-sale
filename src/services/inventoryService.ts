@@ -52,3 +52,12 @@ export function importItemsCsv(csvContent: string): Promise<ImportSummary> {
 export function getCsvTemplate(): Promise<string> {
   return call<string>("inventory_csv_template", {});
 }
+
+/** Item ids currently qualifying as a "best seller" — ranked by quantity
+ * sold in the last `periodDays`, capped at `limit`. Recomputed fresh on every
+ * call (never stored), so the fire badge can never go stale; a shop with too
+ * little sales history to clear the minimum-quantity floor gets an empty
+ * list rather than an arbitrary one. */
+export function getBestSellingItemIds(periodDays: number, limit: number): Promise<number[]> {
+  return call<number[]>("inventory_get_best_selling_item_ids", { periodDays, limit });
+}

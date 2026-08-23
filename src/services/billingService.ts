@@ -15,8 +15,10 @@ export function getSale(id: number): Promise<Sale> {
   return call<Sale>("billing_get_sale", { id });
 }
 
-/** Auto-detects a USB thermal printer and prints to it; rejects if none is
- * found/reachable — callers should catch and fall back to the PDF receipt. */
+/** Prints to this installation's configured thermal printer (USB,
+ * auto-detected, on desktop; the paired Bluetooth printer selected in
+ * Settings, on Android) — rejects if none is set up/reachable, callers
+ * should catch and fall back to the PDF receipt. */
 export function printReceiptThermal(saleId: number): Promise<void> {
   return call<void>("billing_print_receipt_thermal", { saleId });
 }

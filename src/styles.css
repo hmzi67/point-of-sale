@@ -42,3 +42,19 @@ body {
   /* Cashiers use this all day on low-spec machines: no text selection drag artifacts. */
   -webkit-font-smoothing: antialiased;
 }
+
+/* Android's in-app splash (`SplashGate.tsx`) — a fade-in plus a subtle
+ * scale, matching the desktop native splash window's identical animation
+ * in `public/splashscreen.html`. Declared here (not inline) so Tailwind's
+ * `animate-[splash-reveal_...]` arbitrary-value utility has a `@keyframes`
+ * to reference. */
+@keyframes splash-reveal {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

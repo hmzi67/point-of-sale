@@ -2,6 +2,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Bluetooth thermal-printer transport — see printer/android_bt.rs.
+         BLUETOOTH/BLUETOOTH_ADMIN are install-time permissions the OS
+         grants automatically on API 30 and below (maxSdkVersion caps them
+         there so they don't linger as unused installed permissions on newer
+         Android); BLUETOOTH_CONNECT is the API 31+ runtime permission this
+         app actually requests via printer_request_bluetooth_permission.
+         No BLUETOOTH_SCAN: this only ever connects to devices already
+         paired through the OS Bluetooth settings, never scans for new
+         ones — see android_bt.rs's module doc comment. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Not required: a POS built for Bluetooth-only ESC/POS printing still
+         works (falling back to the PDF receipt) on a device with no
+         Bluetooth radio at all. -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 

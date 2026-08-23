@@ -2,8 +2,8 @@ import { NavLink } from "react-router-dom";
 import { LogOut, User, X } from "lucide-react";
 import { useModules } from "../../hooks/useModules";
 import { useAuthStore } from "../../store";
-import { SETTINGS_NAV, USERS_NAV } from "../../utils/navigation";
-import { roleCanAccessSettings, roleCanManageUsers } from "../../utils/permissions";
+import { EMPLOYEES_NAV, SETTINGS_NAV, USERS_NAV } from "../../utils/navigation";
+import { roleCanAccessSettings, roleCanManageEmployees, roleCanManageUsers } from "../../utils/permissions";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner",
@@ -18,7 +18,9 @@ interface NavOverlayProps {
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   [
-    "flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors",
+    // min-h-11 (44px): py-2.5 alone comes out a little short of a
+    // comfortable phone touch target.
+    "flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors",
     isActive ? "bg-brand-600 text-white shadow-soft" : "text-slate-600 hover:bg-slate-100",
   ].join(" ");
 
@@ -41,11 +43,17 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
   const role = user?.role ?? null;
   const showSettings = role ? roleCanAccessSettings(role) : false;
   const showUsers = role ? roleCanManageUsers(role) : false;
+  const showEmployees = role ? roleCanManageEmployees(role) : false;
 
   return (
+    // h-dvh (not relying on inset-0's implicit sizing, and not h-screen/vh):
+    // dvh tracks the WebView's actual visible viewport, which is the more
+    // reliable unit for this on Android per the platform's own guidance —
+    // 100vh has a long history of mismatching the real visible area on
+    // mobile browsers/webviews, dvh doesn't.
     <div
       className={[
-        "fixed inset-0 z-50 transition-opacity duration-200",
+        "fixed inset-0 z-50 h-dvh transition-opacity duration-200",
         open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
       ].join(" ")}
       aria-hidden={!open}
@@ -65,7 +73,11 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
           open ? "translate-x-0" : "-translate-x-full",
         ].join(" ")}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        {/* pt adds the status-bar/notch inset on top of the row's own
+            padding — same edge-to-edge reasoning as TopBar. This overlay
+            covers the full screen (including behind the status bar), so it
+            needs its own inset handling independent of TopBar's. */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
           {user && (
             <div className="flex items-center gap-2.5">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700">
@@ -81,7 +93,7 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
             type="button"
             onClick={onClose}
             aria-label="Close navigation"
-            className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           >
             <X className="h-4 w-4" />
           </button>
@@ -103,6 +115,14 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
                   </li>
                 );
               })}
+              {showEmployees && (
+                <li>
+                  <NavLink to={EMPLOYEES_NAV.path} className={linkClass} onClick={onClose}>
+                    <EMPLOYEES_NAV.icon className="h-4 w-4 shrink-0" />
+                    {EMPLOYEES_NAV.label}
+                  </NavLink>
+                </li>
+              )}
               {showUsers && (
                 <li>
                   <NavLink to={USERS_NAV.path} className={linkClass} onClick={onClose}>
@@ -123,14 +143,16 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
           )}
         </nav>
 
-        <div className="border-t border-slate-100 p-3">
+        {/* pb adds the gesture-nav-bar inset on top of the section's own
+            padding, same pattern BottomTabBar already uses. */}
+        <div className="border-t border-slate-100 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           <button
             type="button"
             onClick={() => {
               onClose();
               logout();
             }}
-            className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
           >
             <LogOut className="h-4 w-4" />
             Log Out

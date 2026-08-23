@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
 import { getItems } from "../../services/inventoryService";
 import { attachCartToTable, getParkedCart, getTables } from "../../services/tablesService";
 import { useBillingStore } from "../../store";
 import { computeCartTotals } from "../../utils/billingTotals";
+import { DropdownSelect } from "../ui/DropdownSelect";
 import type { TableSummary } from "../../types";
 
 interface OrderTypeAndTableProps {
@@ -11,8 +11,20 @@ interface OrderTypeAndTableProps {
   onParked: (message: string) => void;
 }
 
-const selectClass =
-  "w-full appearance-none rounded-2xl border-0 bg-slate-50 py-2.5 pl-4 pr-9 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-200";
+/** Same free/occupied/reserved color convention as the floor view's
+ * `TableCard` — a small dot next to each table option, restyled for a light
+ * background instead of losing the status info in the redesign. */
+const STATUS_DOT: Record<TableSummary["status"], string> = {
+  free: "bg-emerald-500",
+  occupied: "bg-red-500",
+  reserved: "bg-amber-500",
+};
+
+const STATUS_LABEL: Record<TableSummary["status"], string> = {
+  free: "Free",
+  occupied: "Occupied",
+  reserved: "Reserved",
+};
 
 /**
  * The cart panel's Table + Order Type row. All the actual park/resume logic
@@ -94,39 +106,35 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2.5">
-        <div className="relative">
-          <select
-            value={tableId ?? ""}
-            onChange={(e) => setTableId(e.target.value ? Number(e.target.value) : null)}
-            disabled={isLoading}
-            className={selectClass}
-          >
-            <option value="">Select Table</option>
-            {tables.map((table) => (
-              <option key={table.id} value={table.id}>
-                {table.name} · {table.status}
+        <DropdownSelect
+          value={tableId}
+          placeholder="Select Table"
+          disabled={isLoading}
+          onChange={(id) => setTableId(id)}
+          options={tables.map((table) => ({
+            value: table.id,
+            label: table.name,
+            meta: (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[table.status]}`} />
+                {STATUS_LABEL[table.status]}
                 {table.hasParkedOrder ? " · parked" : ""}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        </div>
+              </span>
+            ),
+          }))}
+        />
 
-        <div className="relative">
-          <select
-            value={orderType}
-            onChange={(e) => {
-              if (e.target.value === "takeaway") setTableId(null);
-            }}
-            className={selectClass}
-          >
-            <option value="dineIn" disabled={tableId === null}>
-              Dine In
-            </option>
-            <option value="takeaway">Takeaway</option>
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        </div>
+        <DropdownSelect
+          value={orderType}
+          placeholder="Order Type"
+          onChange={(next) => {
+            if (next === "takeaway") setTableId(null);
+          }}
+          options={[
+            { value: "dineIn", label: "Dine In", disabled: tableId === null },
+            { value: "takeaway", label: "Takeaway" },
+          ]}
+        />
       </div>
 
       {error && <p className="text-xs text-red-600">{error}</p>}

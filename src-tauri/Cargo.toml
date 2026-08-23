@@ -27,8 +27,28 @@ chrono = "0.4"
 argon2 = { version = "0.5", features = ["std"] }
 base64 = "0.22"
 csv = "1"
-# USB transport for `printer::escpos::send_to_printer`. "vendored" builds
-# libusb from source instead of requiring it preinstalled on the dev/client
-# machine (e.g. `brew install libusb` on macOS) — one less setup step for a
-# feature that's meant to just work once a USB thermal printer is plugged in.
+tauri-plugin-os = "2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+# Desktop printer transport: USB. Platform-gated out of the Android build
+# entirely (not just cfg'd off at the call site) — raw libusb was never
+# designed for Android's USB-permission model, and a previous attempt to
+# call it from the Android build crashed the whole app natively (a libusb
+# fault, not a catchable Rust panic — see printer/android_bt.rs's doc
+# comment for the Android-side replacement). "vendored" builds libusb from
+# source instead of requiring it preinstalled on the dev/client machine
+# (e.g. `brew install libusb` on macOS).
+[target.'cfg(not(target_os = "android"))'.dependencies]
 rusb = { version = "0.9", features = ["vendored"] }
+
+# Android printer transport: Bluetooth Classic (SPP), via direct JNI calls
+# to the framework's own android.bluetooth classes — see
+# printer/android_bt.rs's doc comment for how it gets a JavaVM/Context
+# without any cooperation from Tauri/tao (their own JNI plumbing is
+# `pub(crate)`-sealed, and `ndk-context` — the usual mechanism for this in a
+# winit-family app — turned out not to be initialized in this Tauri version's
+# Android runtime at all). `jni` is pinned to the version already in the
+# dependency tree (pulled in transitively by tauri's Android runtime) so
+# this doesn't drag in a second copy.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"

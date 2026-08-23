@@ -38,6 +38,24 @@ impl Platform {
             _ => None,
         }
     }
+
+    /// The platform this binary was actually built for — for the handful of
+    /// backend checks (e.g. `commands::billing_print_receipt_thermal`'s
+    /// `tables_module_enabled` lookup) that need "what platform is this",
+    /// not "what platform did the frontend say" (the frontend already knows
+    /// its own platform via `IS_ANDROID`/`PLATFORM` in `types.ts`, but a few
+    /// backend-only decisions — like which printer transport to use — have
+    /// no frontend-supplied value to read instead).
+    pub fn current() -> Self {
+        #[cfg(target_os = "android")]
+        {
+            Platform::Android
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            Platform::Desktop
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,6 +114,23 @@ pub fn list(conn: &Connection, platform: Platform) -> Result<Vec<ModuleState>, r
     })?;
 
     rows.collect()
+}
+
+/// Whether a single module (by key) is enabled for `platform` — a lighter
+/// check than `list()` for a caller that only needs one flag, not the whole
+/// catalogue (e.g. the receipt printer deciding "Takeaway" vs "Counter
+/// Sale"). An unknown key is treated as not-enabled rather than an error —
+/// there's nothing sensible for a caller to do differently either way.
+pub fn is_enabled(conn: &Connection, key: &str, platform: Platform) -> Result<bool, rusqlite::Error> {
+    let sql = format!(
+        "SELECT e.{} FROM modules m JOIN enabled_modules e ON e.module_id = m.id WHERE m.key = ?1",
+        platform.column()
+    );
+    match conn.query_row(&sql, params![key], |row| row.get::<_, i64>(0)) {
+        Ok(v) => Ok(v != 0),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 #[derive(Debug)]
@@ -335,5 +370,23 @@ mod tests {
         let conn = test_conn();
         let err = set_by_product_owner(&conn, "loyalty", Platform::Desktop, Some(true), None).unwrap_err();
         assert!(matches!(err, ToggleError::UnknownModule(_)));
+    }
+
+    #[test]
+    fn is_enabled_matches_list_for_a_single_module() {
+        let conn = test_conn();
+        assert!(is_enabled(&conn, "billing", Platform::Desktop).unwrap());
+        // `tables` defaults off on Android (see MODULE_CATALOGUE) but on for desktop.
+        assert!(!is_enabled(&conn, "tables", Platform::Android).unwrap());
+        assert!(is_enabled(&conn, "tables", Platform::Desktop).unwrap());
+
+        set_enabled(&conn, "tables", Platform::Desktop, false).unwrap();
+        assert!(!is_enabled(&conn, "tables", Platform::Desktop).unwrap());
+    }
+
+    #[test]
+    fn is_enabled_treats_an_unknown_key_as_not_enabled() {
+        let conn = test_conn();
+        assert!(!is_enabled(&conn, "loyalty", Platform::Desktop).unwrap());
     }
 }

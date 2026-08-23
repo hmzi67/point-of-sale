@@ -139,7 +139,7 @@ pub fn get_sales_summary(
 // Top items
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TopItemSort {
     Quantity,
@@ -195,6 +195,141 @@ pub fn get_top_items(
     })?;
 
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+// ---------------------------------------------------------------------------
+// Product Wise Sales — a full per-item breakdown across the whole catalog,
+// not just a top-N (contrast with `get_top_items`): every item that sold at
+// least once in the range, ranked by revenue or quantity, plus a separate
+// "no sales this period" section listing active items that sold zero units
+// so slow-moving stock stays visible instead of just silently absent.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductSalesRow {
+    pub item_id: i64,
+    pub item_name: String,
+    pub category_id: Option<i64>,
+    pub category_name: String,
+    pub qty_sold: i64,
+    pub revenue_minor: i64,
+    /// 1-based position under the requested `sort_by`, computed here so the
+    /// frontend never has to re-derive it (and can't get it wrong once the
+    /// table is paginated client-side).
+    pub rank: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductSalesNoSaleRow {
+    pub item_id: i64,
+    pub item_name: String,
+    pub category_id: Option<i64>,
+    pub category_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductSalesSummaryReport {
+    pub start_date: String,
+    pub end_date: String,
+    pub sort_by: TopItemSort,
+    /// Every item with at least one sale in the range, ranked 1..N.
+    pub rows: Vec<ProductSalesRow>,
+    /// Active items with zero sales in the range, alphabetical — a plain
+    /// list rather than ranked, since there is nothing to rank them by.
+    pub no_sales_items: Vec<ProductSalesNoSaleRow>,
+}
+
+/// The "Product Wise Sales" report: every item sold in `start_date`..
+/// `end_date`, optionally narrowed to one category, ranked by `sort_by` —
+/// plus every active item that sold zero units in the same range/category,
+/// so a slow mover shows up as a visible zero rather than being hidden by
+/// only ever reporting "what sold".
+///
+/// Same join shape as `get_top_items` (`sale_items` -> `sales` -> `items`),
+/// so it rides the same `idx_sale_items_item` / `idx_sales_created_at`
+/// indexes already proven index-backed by `hot_path_queries_are_index_backed`
+/// — no new index needed for this query.
+pub fn get_product_sales_summary(
+    conn: &Connection,
+    start_date: &str,
+    end_date: &str,
+    category_id: Option<i64>,
+    sort_by: TopItemSort,
+) -> Result<ProductSalesSummaryReport, ReportError> {
+    let (start_ts, end_ts) = validate_range(start_date, end_date)?;
+
+    // `sort_by` is a closed Rust enum, never user-supplied text — safe to
+    // interpolate its matched column list directly into the SQL text.
+    let order_by = match sort_by {
+        TopItemSort::Quantity => "qty_sold DESC, revenue_minor DESC, i.name",
+        TopItemSort::Revenue => "revenue_minor DESC, qty_sold DESC, i.name",
+    };
+    let sql = format!(
+        "SELECT si.item_id, i.name, i.category_id, COALESCE(c.name, 'Uncategorized') AS category_name,
+                SUM(si.qty) AS qty_sold, SUM(si.qty * si.price_at_sale_minor) AS revenue_minor
+           FROM sale_items si
+           JOIN sales s ON s.id = si.sale_id
+           JOIN items i ON i.id = si.item_id
+           LEFT JOIN categories c ON c.id = i.category_id
+          WHERE s.created_at >= ?1 AND s.created_at <= ?2
+            AND (?3 IS NULL OR i.category_id = ?3)
+          GROUP BY si.item_id
+          ORDER BY {}",
+        order_by
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows: Vec<ProductSalesRow> = stmt
+        .query_map(params![start_ts, end_ts, category_id], |row| {
+            Ok(ProductSalesRow {
+                item_id: row.get(0)?,
+                item_name: row.get(1)?,
+                category_id: row.get(2)?,
+                category_name: row.get(3)?,
+                qty_sold: row.get(4)?,
+                revenue_minor: row.get(5)?,
+                rank: 0,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    for (i, row) in rows.iter_mut().enumerate() {
+        row.rank = (i + 1) as i64;
+    }
+
+    let mut no_sales_stmt = conn.prepare(
+        "SELECT i.id, i.name, i.category_id, COALESCE(c.name, 'Uncategorized')
+           FROM items i
+           LEFT JOIN categories c ON c.id = i.category_id
+          WHERE i.is_active = 1
+            AND (?1 IS NULL OR i.category_id = ?1)
+            AND i.id NOT IN (
+                SELECT si.item_id FROM sale_items si
+                  JOIN sales s ON s.id = si.sale_id
+                 WHERE s.created_at >= ?2 AND s.created_at <= ?3
+            )
+          ORDER BY i.name",
+    )?;
+    let no_sales_items: Vec<ProductSalesNoSaleRow> = no_sales_stmt
+        .query_map(params![category_id, start_ts, end_ts], |row| {
+            Ok(ProductSalesNoSaleRow {
+                item_id: row.get(0)?,
+                item_name: row.get(1)?,
+                category_id: row.get(2)?,
+                category_name: row.get(3)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+
+    Ok(ProductSalesSummaryReport {
+        start_date: start_date.to_string(),
+        end_date: end_date.to_string(),
+        sort_by,
+        rows,
+        no_sales_items,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +568,52 @@ pub fn get_sales_over_time(
     }
 
     Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Best sellers — a live, recomputed-on-every-load ranking (never a stored
+// flag) feeding the "fire" badge on Inventory/Billing item cards. Offline
+// software has no background job scheduler, so this is a plain query run on
+// screen load rather than anything cron-like.
+// ---------------------------------------------------------------------------
+
+/// Minimum total quantity sold within the window before an item counts as a
+/// "best seller" at all. Without a floor, a brand-new client with only a
+/// handful of sales would get an arbitrary badge on whatever 1-2 items
+/// happened to sell once — this keeps the badge meaningless until an item
+/// has genuinely moved some real volume.
+const BEST_SELLER_MIN_QTY: i64 = 5;
+
+/// Top-selling item ids by quantity sold in the last `period_days` (a
+/// rolling window ending now, not a calendar range), highest quantity first,
+/// capped at `limit` — the "best seller" set for the fire badge. Items below
+/// `BEST_SELLER_MIN_QTY` total units in the window never qualify, so a shop
+/// with little/no sales history gets no badges at all rather than random ones.
+pub fn get_best_selling_item_ids(
+    conn: &Connection,
+    period_days: i64,
+    limit: i64,
+) -> Result<Vec<i64>, ReportError> {
+    let period_days = period_days.clamp(1, MAX_RANGE_DAYS);
+    let limit = limit.clamp(1, 50);
+    let window_start = (chrono::Local::now() - chrono::Duration::days(period_days))
+        .format("%Y-%m-%d 00:00:00")
+        .to_string();
+
+    let mut stmt = conn.prepare(
+        "SELECT si.item_id, SUM(si.qty) AS qty_sold
+           FROM sale_items si
+           JOIN sales s ON s.id = si.sale_id
+          WHERE s.created_at >= ?1
+          GROUP BY si.item_id
+         HAVING qty_sold >= ?2
+          ORDER BY qty_sold DESC
+          LIMIT ?3",
+    )?;
+    let ids = stmt
+        .query_map(params![window_start, BEST_SELLER_MIN_QTY, limit], |row| row.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ids)
 }
 
 #[cfg(test)]
@@ -816,5 +997,114 @@ mod tests {
         let table_sales = get_table_sales_summary(&conn, &far_future, &far_future).unwrap();
         assert!(table_sales.rows.is_empty());
         assert_eq!(table_sales.grand_total_minor, 0);
+    }
+
+    #[test]
+    fn product_sales_summary_ranks_sold_items_and_lists_the_rest_as_no_sales() {
+        let conn = test_conn();
+        let report =
+            get_product_sales_summary(&conn, &days_ago(30), &days_ago(0), None, TopItemSort::Revenue).unwrap();
+
+        assert!(!report.rows.is_empty(), "seed data has sales");
+        for (i, row) in report.rows.iter().enumerate() {
+            assert_eq!(row.rank, (i + 1) as i64);
+        }
+        for pair in report.rows.windows(2) {
+            assert!(pair[0].revenue_minor >= pair[1].revenue_minor, "must be ranked by revenue descending");
+        }
+
+        // Every active item is in exactly one of the two lists, never both.
+        let sold_ids: std::collections::HashSet<_> = report.rows.iter().map(|r| r.item_id).collect();
+        for no_sale in &report.no_sales_items {
+            assert!(!sold_ids.contains(&no_sale.item_id), "an item can't be both sold and no-sale for the same range");
+        }
+
+        let total_active: i64 =
+            conn.query_row("SELECT COUNT(*) FROM items WHERE is_active = 1", [], |row| row.get(0)).unwrap();
+        assert_eq!(report.rows.len() as i64 + report.no_sales_items.len() as i64, total_active);
+    }
+
+    #[test]
+    fn product_sales_summary_sort_order_changes_with_sort_by() {
+        let conn = test_conn();
+        let by_qty =
+            get_product_sales_summary(&conn, &days_ago(30), &days_ago(0), None, TopItemSort::Quantity).unwrap();
+        for pair in by_qty.rows.windows(2) {
+            assert!(pair[0].qty_sold >= pair[1].qty_sold);
+        }
+    }
+
+    #[test]
+    fn product_sales_summary_narrows_to_one_category() {
+        let conn = test_conn();
+        let category_id: i64 = conn
+            .query_row("SELECT category_id FROM items WHERE category_id IS NOT NULL LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        let report = get_product_sales_summary(
+            &conn,
+            &days_ago(30),
+            &days_ago(0),
+            Some(category_id),
+            TopItemSort::Revenue,
+        )
+        .unwrap();
+        for row in &report.rows {
+            assert_eq!(row.category_id, Some(category_id));
+        }
+        for row in &report.no_sales_items {
+            assert_eq!(row.category_id, Some(category_id));
+        }
+    }
+
+    #[test]
+    fn product_sales_summary_is_all_no_sales_for_a_range_with_no_sales() {
+        let conn = test_conn();
+        let far_future = (Local::now() + Duration::days(365)).format("%Y-%m-%d").to_string();
+        let report =
+            get_product_sales_summary(&conn, &far_future, &far_future, None, TopItemSort::Revenue).unwrap();
+        assert!(report.rows.is_empty());
+        assert!(!report.no_sales_items.is_empty(), "every active item should show up as a zero-sales row");
+    }
+
+    #[test]
+    fn best_sellers_requires_the_minimum_quantity_floor() {
+        let conn = test_conn();
+        // A very high floor via a tiny limit still respects HAVING — assert
+        // every id returned genuinely cleared the floor by checking none of
+        // them are absent from a manual qty sum above the floor.
+        let ids = get_best_selling_item_ids(&conn, 30, 5).unwrap();
+        for id in &ids {
+            let qty: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(SUM(si.qty), 0) FROM sale_items si
+                       JOIN sales s ON s.id = si.sale_id
+                      WHERE si.item_id = ?1 AND s.created_at >= datetime('now', '-30 days')",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(qty >= BEST_SELLER_MIN_QTY, "item {} only sold {} units, below the best-seller floor", id, qty);
+        }
+    }
+
+    #[test]
+    fn best_sellers_is_empty_for_a_brand_new_database_with_no_sales() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        // A fresh install with schema applied but demo-seed data skipped
+        // (simulated here by wiping sales) must not badge anything.
+        crate::db::schema::apply(&conn).unwrap();
+        conn.execute("DELETE FROM sale_items", []).unwrap();
+        conn.execute("DELETE FROM sales", []).unwrap();
+
+        let ids = get_best_selling_item_ids(&conn, 30, 5).unwrap();
+        assert!(ids.is_empty(), "no sales history must mean no best-seller badges");
+    }
+
+    #[test]
+    fn best_sellers_respects_the_limit() {
+        let conn = test_conn();
+        let ids = get_best_selling_item_ids(&conn, 30, 1).unwrap();
+        assert!(ids.len() <= 1);
     }
 }

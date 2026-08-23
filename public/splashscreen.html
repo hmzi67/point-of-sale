@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>POS</title>
+    <style>
+      /*
+       * Desktop's native splash window (see tauri.conf.json's "splashscreen"
+       * window entry and lib.rs's reveal_main_window / splashscreen_ready).
+       * Plain, unprocessed HTML/CSS — no Vite build step, no framework
+       * mount — so it paints as fast as the webview itself can, which is
+       * the whole point of a splash: something on screen immediately.
+       *
+       * Android has no secondary-window support, so it never loads this
+       * file at all — see SplashGate.tsx for its in-app equivalent.
+       */
+      :root {
+        color-scheme: dark;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        /* Fixed brand color, not theme-dependent: brand-logo.png is a
+           light/cream card (verified by sampling its pixels — every pixel
+           opaque, average RGB ~(210, 203, 190)), so it needs a deliberately
+           dark backdrop for contrast in every environment, not just when
+           the OS happens to be in dark mode. Deep green sampled from the
+           logo's own arch/subtitle color so the splash reads as "branded",
+           not an arbitrary dark box. */
+        background: #123326;
+      }
+
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .logo {
+        /* Proportional to the window, not a fixed tiny box: the splash
+           window is 320x320 (tauri.conf.json), so this fills most of it
+           while leaving breathing room — sized off vmin so it still scales
+           sensibly if that window size ever changes. brand-logo.png is a
+           square (512x512) with all its detail — including small "DIWAN /
+           POS & BILLING SOFTWARE" text — baked into the image itself, so
+           it needs to render large enough for that text to actually be
+           legible; at the old 96px fixed size it was illegible and, worse,
+           its own baked-in cream background nearly matched this window's
+           old near-white background, so the whole thing visually
+           disappeared into a blank pale square. */
+        width: min(70vmin, 240px);
+        height: min(70vmin, 240px);
+        border-radius: 20%;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+        opacity: 0;
+        transform: scale(0.95);
+        animation: reveal 500ms ease-out forwards;
+      }
+
+      @keyframes reveal {
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      /* Respect a "reduce motion" OS setting — show the logo plainly
+         rather than force the animation on someone who's opted out. */
+      @media (prefers-reduced-motion: reduce) {
+        .logo {
+          animation: none;
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <img class="logo" src="brand-logo.png" alt="" />
+    <script src="splashscreen.js"></script>
+  </body>
+</html>

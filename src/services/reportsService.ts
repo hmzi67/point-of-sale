@@ -1,4 +1,12 @@
-import type { CategorySalesReport, DailySales, SalesSummary, TableSalesSummary, TopItem, TopItemSort } from "../types";
+import type {
+  CategorySalesReport,
+  DailySales,
+  ProductSalesSummaryReport,
+  SalesSummary,
+  TableSalesSummary,
+  TopItem,
+  TopItemSort,
+} from "../types";
 import { call } from "./tauriClient";
 
 /** `startDate`/`endDate` are `YYYY-MM-DD`, inclusive. */
@@ -44,4 +52,21 @@ export function getTableSalesSummary(startDate: string, endDate: string): Promis
  * auto-detect/fall-back-to-PDF contract as the other print buttons. */
 export function printTableSalesThermal(startDate: string, endDate: string): Promise<void> {
   return call<void>("reports_print_table_sales_summary", { startDate, endDate });
+}
+
+/** The "Product Wise Sales" report: every item sold in the range (ranked by
+ * `sortBy`), optionally narrowed to one category, plus a "no sales this
+ * period" list of active items that sold zero units. */
+export function getProductSalesSummary(
+  startDate: string,
+  endDate: string,
+  categoryId: number | null,
+  sortBy: TopItemSort,
+): Promise<ProductSalesSummaryReport> {
+  return call<ProductSalesSummaryReport>("reports_get_product_sales_summary", {
+    startDate,
+    endDate,
+    categoryId: categoryId ?? undefined,
+    sortBy,
+  });
 }

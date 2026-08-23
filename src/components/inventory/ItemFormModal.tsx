@@ -187,7 +187,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
         </div>
 
         <form
-          className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4"
+          className="max-h-[75dvh] space-y-4 overflow-y-auto px-5 py-4"
           onSubmit={(event) => {
             event.preventDefault();
             void submit();

@@ -123,7 +123,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-soft-lg">
+      <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <ReceiptText className="h-4 w-4 text-brand-600" />

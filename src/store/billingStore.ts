@@ -51,12 +51,9 @@ interface BillingState {
   draftOrderNumber: number;
 
   /** Quick-add: +1 to an existing line (keeping its notes), or a fresh line
-   * at qty 1. Used by the barcode-scan/search path — no mouse, no modal. */
+   * at qty 1. Used by the barcode-scan/search path and the item card's
+   * "Add to Cart" button — no mouse, no modal. */
   addItem: (item: Item) => void;
-  /** The item detail modal's "Add to Cart": adds `qty` on top of whatever's
-   * already in the cart for this item, and overwrites the line's notes with
-   * whatever was typed in the modal this time. */
-  addItemWithDetails: (item: Item, qty: number, notes: string) => void;
   /** The cart row's notes-pencil "edit" flow: sets (not adds) qty and notes
    * to exactly the given values, since this is editing an existing line
    * rather than adding more of it. */
@@ -106,33 +103,6 @@ export const useBillingStore = create<BillingState>((set) => ({
         imagePath: item.imagePath,
         qty: 1,
         notes: "",
-      };
-      return {
-        cart: { ...state.cart, [item.id]: entry },
-        cartOrder: [...state.cartOrder, item.id],
-      };
-    });
-  },
-
-  addItemWithDetails: (item, qty, notes) => {
-    if (item.stockQty <= 0 || qty <= 0) return;
-
-    set((state) => {
-      const existing = state.cart[item.id];
-      if (existing) {
-        const nextQty = Math.min(existing.qty + qty, item.stockQty);
-        return { cart: { ...state.cart, [item.id]: { ...existing, qty: nextQty, notes } } };
-      }
-
-      const entry: CartEntry = {
-        itemId: item.id,
-        name: item.name,
-        barcode: item.barcode,
-        priceMinor: item.priceMinor,
-        stockQty: item.stockQty,
-        imagePath: item.imagePath,
-        qty: Math.min(qty, item.stockQty),
-        notes,
       };
       return {
         cart: { ...state.cart, [item.id]: entry },

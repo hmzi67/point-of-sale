@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Download, FileText, Printer } from "lucide-react";
 import {
   getCategorySales,
+  getProductSalesSummary,
   getTableSalesSummary,
   printCategorySalesThermal,
   printTableSalesThermal,
 } from "../../services/reportsService";
 import { downloadReportCsv, downloadTableSalesCsv } from "../../utils/reportCsv";
-import type { AppConfig, DailySales, SalesSummary, TopItem } from "../../types";
+import { downloadProductSalesCsv } from "../../utils/productSalesCsv";
+import type { AppConfig, DailySales, SalesSummary, TopItem, TopItemSort } from "../../types";
 
 interface ExportButtonsProps {
   summary: SalesSummary | null;
@@ -20,15 +22,31 @@ interface ExportButtonsProps {
    * module isn't enabled — same "not just empty data, not offered at all"
    * treatment the report view itself gets. */
   tablesEnabled: boolean;
+  /** The Product Wise Sales view's current category filter/sort — exported
+   * files match whatever the on-screen table is currently showing. */
+  productCategoryId: number | null;
+  productSort: TopItemSort;
 }
 
-export function ExportButtons({ summary, topItems, series, config, startDate, endDate, tablesEnabled }: ExportButtonsProps) {
+export function ExportButtons({
+  summary,
+  topItems,
+  series,
+  config,
+  startDate,
+  endDate,
+  tablesEnabled,
+  productCategoryId,
+  productSort,
+}: ExportButtonsProps) {
   const [isPreparingPdf, setIsPreparingPdf] = useState(false);
   const [isPreparingCategoryPdf, setIsPreparingCategoryPdf] = useState(false);
   const [isPrintingCategory, setIsPrintingCategory] = useState(false);
   const [isPreparingTablePdf, setIsPreparingTablePdf] = useState(false);
   const [isPreparingTableCsv, setIsPreparingTableCsv] = useState(false);
   const [isPrintingTable, setIsPrintingTable] = useState(false);
+  const [isPreparingProductPdf, setIsPreparingProductPdf] = useState(false);
+  const [isPreparingProductCsv, setIsPreparingProductCsv] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const disabled = !summary;
 
@@ -116,6 +134,33 @@ export function ExportButtons({ summary, topItems, series, config, startDate, en
     }
   };
 
+  const exportProductSalesPdf = async () => {
+    setIsPreparingProductPdf(true);
+    setError(null);
+    try {
+      const report = await getProductSalesSummary(startDate, endDate, productCategoryId, productSort);
+      const { downloadProductSalesPdf } = await import("../../utils/productSalesPdf");
+      downloadProductSalesPdf(report, config);
+    } catch (e) {
+      setError(`Could not prepare the Product Wise Sales PDF: ${(e as Error).message}`);
+    } finally {
+      setIsPreparingProductPdf(false);
+    }
+  };
+
+  const exportProductSalesCsv = async () => {
+    setIsPreparingProductCsv(true);
+    setError(null);
+    try {
+      const report = await getProductSalesSummary(startDate, endDate, productCategoryId, productSort);
+      downloadProductSalesCsv(report);
+    } catch (e) {
+      setError(`Could not prepare the Product Wise Sales CSV: ${(e as Error).message}`);
+    } finally {
+      setIsPreparingProductCsv(false);
+    }
+  };
+
   const printTableSalesThermalHandler = async () => {
     setIsPrintingTable(true);
     setError(null);
@@ -166,6 +211,24 @@ export function ExportButtons({ summary, topItems, series, config, startDate, en
         >
           <Printer className="h-4 w-4" />
           {isPrintingCategory ? "Printing…" : "Print Category Wise Sale"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void exportProductSalesPdf()}
+          disabled={disabled || isPreparingProductPdf}
+          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <FileText className="h-4 w-4" />
+          {isPreparingProductPdf ? "Preparing…" : "Product Wise Sales (PDF)"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void exportProductSalesCsv()}
+          disabled={disabled || isPreparingProductCsv}
+          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" />
+          {isPreparingProductCsv ? "Preparing…" : "Product Wise Sales (CSV)"}
         </button>
         {tablesEnabled && (
           <>

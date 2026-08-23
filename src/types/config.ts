@@ -12,4 +12,24 @@ export interface AppConfig {
   /** Set once the first-time setup wizard finishes. `false` on a brand-new
    * install routes the app into onboarding instead of the normal screens. */
   onboardingCompleted: boolean;
+  /** The chosen printer transport — set from Settings' "Select printer"
+   * step. `null` until that step has actually been done once, which is
+   * deliberately indistinguishable from "no printer": printing never
+   * guesses at a transport. `"usb"` (desktop) is informational only — USB
+   * is auto-detected either way; `"bluetooth"` (Android) is the one that
+   * actually gates anything. */
+  printerConnectionType: "usb" | "bluetooth" | null;
+  /** Paired device MAC address — set only when `printerConnectionType` is
+   * `"bluetooth"`. */
+  printerBluetoothAddress: string | null;
+  /** Paired device display name, stored alongside the address purely so
+   * Settings can show "Selected: <name>" without a live Bluetooth query. */
+  printerBluetoothName: string | null;
+}
+
+/** One paired-device entry in Settings' "Select printer" list — see
+ * `printerListBluetoothDevices` in `services/printerService.ts`. */
+export interface BluetoothDeviceOption {
+  name: string;
+  address: string;
 }

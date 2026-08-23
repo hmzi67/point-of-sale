@@ -1,6 +1,7 @@
 export { AttendancePage } from "./AttendancePage";
 export { BillingPage } from "./BillingPage";
 export { DashboardPage } from "./DashboardPage";
+export { EmployeesPage } from "./EmployeesPage";
 export { ExpensesPage } from "./ExpensesPage";
 export { InventoryPage } from "./InventoryPage";
 export { LoginPage } from "./LoginPage";

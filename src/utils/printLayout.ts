@@ -21,6 +21,59 @@ export function newReceiptDoc(estimatedHeightMm: number): jsPDF {
   return new jsPDF({ unit: "mm", format: [PAGE_WIDTH_MM, Math.max(estimatedHeightMm, 90)] });
 }
 
+/** Max box a receipt logo is drawn into, aspect ratio preserved — a modest
+ * mark at the top of the receipt, matching the reference receipt's small
+ * logo, not a full-width banner. */
+export const LOGO_MAX_WIDTH_MM = 26;
+export const LOGO_MAX_HEIGHT_MM = 16;
+
+/** Resolves a `data:` URL's natural pixel dimensions — needed to draw it into
+ * the PDF at the right aspect ratio instead of stretching/squashing it to a
+ * fixed box. Rejects on a load failure (a corrupt or unreadable data URL)
+ * rather than hanging forever. */
+export function loadImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => reject(new Error("Could not read the logo image"));
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Draws `dataUrl` centered at the top of the page, scaled to fit within
+ * `LOGO_MAX_WIDTH_MM` × `LOGO_MAX_HEIGHT_MM` while preserving its aspect
+ * ratio. Returns the y position to continue drawing from (`startY`
+ * unchanged if nothing was drawn).
+ *
+ * Skips entirely for an SVG data URL — jsPDF's `addImage` only rasterizes
+ * PNG/JPEG/WEBP, not SVG, so an SVG logo (allowed for the on-screen logo,
+ * see `images::LOGO_ALLOWED_EXTENSIONS` on the Rust side) just doesn't
+ * appear on the PDF receipt. Same graceful "no logo" fallback the ESC/POS
+ * path takes for the same underlying reason — see
+ * `printer::escpos::build_logo_raster`'s doc comment.
+ */
+export function drawLogo(
+  doc: jsPDF,
+  dataUrl: string,
+  naturalWidth: number,
+  naturalHeight: number,
+  startY = 6,
+): number {
+  if (dataUrl.startsWith("data:image/svg") || naturalWidth <= 0 || naturalHeight <= 0) return startY;
+
+  const aspect = naturalWidth / naturalHeight;
+  let width = LOGO_MAX_WIDTH_MM;
+  let height = width / aspect;
+  if (height > LOGO_MAX_HEIGHT_MM) {
+    height = LOGO_MAX_HEIGHT_MM;
+    width = height * aspect;
+  }
+
+  doc.addImage(dataUrl, (PAGE_WIDTH_MM - width) / 2, startY, width, height);
+  return startY + height + 3;
+}
+
 /** Business name (bold, centered) plus `subtitleLines` centered underneath
  * it. Returns the y position to continue drawing from. */
 export function drawHeader(doc: jsPDF, businessName: string, subtitleLines: string[], startY = 8): number {
@@ -75,6 +128,21 @@ export function drawTable(doc: jsPDF, startY: number, head: string[], body: stri
   return (finalY ?? startY) + 6;
 }
 
+/** Plain label-left/value-right rows at a given font size — the "Cashier ...
+ * John" / "Subtotal ... 123.45" alignment convention shared by the receipt's
+ * info block and `drawTotalsBlock`'s rows below. Returns the y position to
+ * continue drawing from. */
+export function drawKeyValueRows(doc: jsPDF, startY: number, rows: Array<[string, string]>, fontSize = 9): number {
+  let y = startY;
+  doc.setFontSize(fontSize);
+  for (const [label, value] of rows) {
+    doc.text(label, MARGIN_MM, y);
+    doc.text(value, PAGE_WIDTH_MM - MARGIN_MM, y, { align: "right" });
+    y += 5;
+  }
+  return y;
+}
+
 /** A block of label/value rows, then a bold, larger grand-total row under a
  * rule — the totals section every template ends with. */
 export function drawTotalsBlock(
@@ -84,13 +152,7 @@ export function drawTotalsBlock(
   grandLabel: string,
   grandValue: string,
 ): number {
-  let y = startY;
-  doc.setFontSize(9);
-  for (const [label, value] of rows) {
-    doc.text(label, MARGIN_MM, y);
-    doc.text(value, PAGE_WIDTH_MM - MARGIN_MM, y, { align: "right" });
-    y += 5;
-  }
+  let y = drawKeyValueRows(doc, startY, rows);
 
   doc.setDrawColor(203, 213, 225); // slate-300
   doc.line(MARGIN_MM, y, PAGE_WIDTH_MM - MARGIN_MM, y);

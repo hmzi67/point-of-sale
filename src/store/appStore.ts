@@ -29,6 +29,9 @@ const placeholderConfig: AppConfig = {
   // that hasn't loaded from SQLite yet — it waits on `isLoadingConfig`
   // instead. See `RequireOnboarding`.
   onboardingCompleted: true,
+  printerConnectionType: null,
+  printerBluetoothAddress: null,
+  printerBluetoothName: null,
 };
 
 export const useAppStore = create<AppState>((set) => ({

@@ -5,14 +5,27 @@ import { MonthlySummaryTable } from "../components/attendance/MonthlySummaryTabl
 
 type Tab = "checkInOut" | "log" | "summary";
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: "checkInOut", label: "Check in / out" },
-  { key: "log", label: "Attendance log" },
-  { key: "summary", label: "Monthly summary" },
+const TABS: { key: Tab; label: string; help: string }[] = [
+  {
+    key: "checkInOut",
+    label: "Check in / out",
+    help: "Tap Check In when an employee starts their shift, and Check Out when they leave.",
+  },
+  {
+    key: "log",
+    label: "Attendance log",
+    help: "A day-by-day record of everyone's check-in and check-out times — filter by employee or date range.",
+  },
+  {
+    key: "summary",
+    label: "Monthly summary",
+    help: "Days present, days absent, and total hours worked per employee for a chosen month.",
+  },
 ];
 
 export function AttendancePage() {
   const [tab, setTab] = useState<Tab>("checkInOut");
+  const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0];
 
   return (
     <section className="space-y-4">
@@ -36,6 +49,10 @@ export function AttendancePage() {
           </button>
         ))}
       </div>
+
+      {/* One plain-language line per tab so a non-technical shop owner
+       * knows what it's for without guessing. */}
+      <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{activeTab.help}</p>
 
       {tab === "checkInOut" && <CheckInOutList />}
       {tab === "log" && <AttendanceLogTable />}

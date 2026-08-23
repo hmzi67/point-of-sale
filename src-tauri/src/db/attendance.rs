@@ -22,6 +22,7 @@ pub enum AttendanceError {
     NotCheckedIn,
     InvalidMonth(String),
     InvalidDateRange(String),
+    EmptyName,
     Sqlite(rusqlite::Error),
 }
 
@@ -34,6 +35,7 @@ impl std::fmt::Display for AttendanceError {
             }
             AttendanceError::InvalidMonth(msg) => write!(f, "{}", msg),
             AttendanceError::InvalidDateRange(msg) => write!(f, "{}", msg),
+            AttendanceError::EmptyName => write!(f, "Name cannot be empty"),
             AttendanceError::Sqlite(err) => write!(f, "database error: {}", err),
         }
     }
@@ -53,6 +55,21 @@ pub struct Employee {
     pub role: String,
     pub contact: Option<String>,
     pub base_salary_minor: i64,
+}
+
+/// An employee as shown on the employee management screen — includes
+/// whether the record is active, unlike `Employee` (`list_employees` only
+/// ever returns ones that are, since that's the check-in screen and the
+/// monthly summary, neither of which should offer a former employee).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedEmployee {
+    pub id: i64,
+    pub name: String,
+    pub role: String,
+    pub contact: Option<String>,
+    pub base_salary_minor: i64,
+    pub is_active: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -141,6 +158,124 @@ pub fn list_employees(conn: &Connection) -> Result<Vec<Employee>, rusqlite::Erro
         })
     })?;
     rows.collect()
+}
+
+/// Every employee, active or not — the employee management screen, where a
+/// deactivated staff member still needs to be visible (and reactivatable),
+/// same convention `users::list_all` uses for staff accounts.
+pub fn list_all_employees(conn: &Connection) -> Result<Vec<ManagedEmployee>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, role, contact, base_salary_minor, is_active
+           FROM employees
+          ORDER BY is_active DESC, name",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(ManagedEmployee {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            role: row.get(2)?,
+            contact: row.get(3)?,
+            base_salary_minor: row.get(4)?,
+            is_active: row.get::<_, i64>(5)? != 0,
+        })
+    })?;
+    rows.collect()
+}
+
+fn normalize_employee_input<'a>(
+    name: &'a str,
+    role: &'a str,
+    contact: Option<&'a str>,
+) -> Result<(&'a str, &'a str, Option<&'a str>), AttendanceError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AttendanceError::EmptyName);
+    }
+    let role = role.trim();
+    let role = if role.is_empty() { "staff" } else { role };
+    let contact = contact.map(str::trim).filter(|c| !c.is_empty());
+    Ok((name, role, contact))
+}
+
+/// Adds a new employee record — a payroll/attendance entry, not a login
+/// account (see the module doc comment on `schema.sql` for why the two are
+/// deliberately separate tables).
+pub fn add_employee(
+    conn: &Connection,
+    name: &str,
+    role: &str,
+    contact: Option<&str>,
+    base_salary_minor: i64,
+) -> Result<ManagedEmployee, AttendanceError> {
+    let (name, role, contact) = normalize_employee_input(name, role, contact)?;
+
+    conn.execute(
+        "INSERT INTO employees (name, role, contact, base_salary_minor) VALUES (?1, ?2, ?3, ?4)",
+        params![name, role, contact, base_salary_minor],
+    )?;
+
+    Ok(ManagedEmployee {
+        id: conn.last_insert_rowid(),
+        name: name.to_string(),
+        role: role.to_string(),
+        contact: contact.map(str::to_string),
+        base_salary_minor,
+        is_active: true,
+    })
+}
+
+/// Renames/re-roles/updates the contact and base salary of an employee — a
+/// full-row replace of the editable fields, same convention
+/// `inventory::update_item` and `users::update` both use. Does not touch
+/// `is_active`; that's `set_employee_active`'s job.
+pub fn update_employee(
+    conn: &Connection,
+    employee_id: i64,
+    name: &str,
+    role: &str,
+    contact: Option<&str>,
+    base_salary_minor: i64,
+) -> Result<ManagedEmployee, AttendanceError> {
+    let (name, role, contact) = normalize_employee_input(name, role, contact)?;
+
+    let changed = conn.execute(
+        "UPDATE employees SET name = ?1, role = ?2, contact = ?3, base_salary_minor = ?4 WHERE id = ?5",
+        params![name, role, contact, base_salary_minor, employee_id],
+    )?;
+    if changed == 0 {
+        return Err(AttendanceError::EmployeeNotFound);
+    }
+
+    let is_active: i64 = conn.query_row(
+        "SELECT is_active FROM employees WHERE id = ?1",
+        params![employee_id],
+        |row| row.get(0),
+    )?;
+
+    Ok(ManagedEmployee {
+        id: employee_id,
+        name: name.to_string(),
+        role: role.to_string(),
+        contact: contact.map(str::to_string),
+        base_salary_minor,
+        is_active: is_active != 0,
+    })
+}
+
+/// Deactivates or reactivates an employee (soft — never a hard delete, same
+/// convention `inventory::delete_item` and `users::set_active` use):
+/// attendance and salary history stay intact and keep referencing the row,
+/// but a deactivated employee drops out of `list_employees` (the check-in
+/// screen and the monthly summary) immediately, no restart needed.
+pub fn set_employee_active(conn: &Connection, employee_id: i64, is_active: bool) -> Result<(), AttendanceError> {
+    let changed = conn.execute(
+        "UPDATE employees SET is_active = ?1 WHERE id = ?2",
+        params![is_active as i64, employee_id],
+    )?;
+    if changed == 0 {
+        return Err(AttendanceError::EmployeeNotFound);
+    }
+    Ok(())
 }
 
 /// Checks an employee in for today. Idempotent: if today's row already
@@ -381,6 +516,58 @@ mod tests {
         let employees = list_employees(&conn).unwrap();
         assert_eq!(employees.len(), 3);
         assert!(employees.iter().any(|e| e.name == "Ahmed Raza"));
+    }
+
+    #[test]
+    fn add_employee_shows_up_in_the_active_list_immediately() {
+        let conn = test_conn();
+        let added = add_employee(&conn, "Zara Iqbal", "Cashier", Some("0300-1234567"), 30_000_00).unwrap();
+        assert!(added.is_active);
+
+        let active = list_employees(&conn).unwrap();
+        assert!(active.iter().any(|e| e.id == added.id && e.name == "Zara Iqbal"));
+    }
+
+    #[test]
+    fn add_employee_rejects_an_empty_name() {
+        let conn = test_conn();
+        assert!(matches!(
+            add_employee(&conn, "   ", "Cashier", None, 0),
+            Err(AttendanceError::EmptyName)
+        ));
+    }
+
+    #[test]
+    fn update_employee_changes_the_editable_fields() {
+        let conn = test_conn();
+        let id = employee_id(&conn, "Ahmed Raza");
+        let updated = update_employee(&conn, id, "Ahmed R.", "Supervisor", Some("0301-9998888"), 45_000_00).unwrap();
+        assert_eq!(updated.name, "Ahmed R.");
+        assert_eq!(updated.role, "Supervisor");
+        assert_eq!(updated.base_salary_minor, 45_000_00);
+    }
+
+    #[test]
+    fn deactivating_an_employee_hides_them_from_the_active_list_but_not_the_managed_list() {
+        let conn = test_conn();
+        let id = employee_id(&conn, "Ahmed Raza");
+        set_employee_active(&conn, id, false).unwrap();
+
+        let active = list_employees(&conn).unwrap();
+        assert!(!active.iter().any(|e| e.id == id));
+
+        let all = list_all_employees(&conn).unwrap();
+        let managed = all.iter().find(|e| e.id == id).expect("still present, just inactive");
+        assert!(!managed.is_active);
+    }
+
+    #[test]
+    fn a_deactivated_employee_cannot_check_in() {
+        let conn = test_conn();
+        let id = employee_id(&conn, "Sana Khalid");
+        clear_todays_seeded_shift(&conn, id);
+        set_employee_active(&conn, id, false).unwrap();
+        assert!(matches!(check_in(&conn, id), Err(AttendanceError::EmployeeNotFound)));
     }
 
     #[test]

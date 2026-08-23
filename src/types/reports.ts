@@ -68,6 +68,35 @@ export interface TableSalesSummary {
   grandTotalMinor: number;
 }
 
+export interface ProductSalesRow {
+  itemId: number;
+  itemName: string;
+  categoryId: number | null;
+  categoryName: string;
+  qtySold: number;
+  revenueMinor: number;
+  /** 1-based position under the report's `sortBy`. */
+  rank: number;
+}
+
+export interface ProductSalesNoSaleRow {
+  itemId: number;
+  itemName: string;
+  categoryId: number | null;
+  categoryName: string;
+}
+
+export interface ProductSalesSummaryReport {
+  startDate: string;
+  endDate: string;
+  sortBy: TopItemSort;
+  /** Every item with at least one sale in the range, ranked. */
+  rows: ProductSalesRow[];
+  /** Active items with zero sales in the range — shown as their own
+   * section so slow-moving stock stays visible, not hidden. */
+  noSalesItems: ProductSalesNoSaleRow[];
+}
+
 export type DateRangePreset = "today" | "thisWeek" | "thisMonth" | "custom";
 
 export interface DateRange {

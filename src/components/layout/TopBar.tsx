@@ -31,13 +31,21 @@ export function TopBar({ onOpenNav }: TopBarProps) {
   const onSecretTap = useSecretTapTrigger(() => setShowVendorAccess(true));
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4">
+    // min-h (not h-) + pt-[env(safe-area-inset-top)]: on Android the WebView
+    // draws edge-to-edge behind the status bar (MainActivity calls
+    // enableEdgeToEdge()), so without this the bar's own 56px content row
+    // renders partially under the status bar/notch instead of below it. A
+    // fixed height would clip that padding instead of growing to fit it.
+    <header className="flex min-h-14 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4 pt-[env(safe-area-inset-top)]">
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={onOpenNav}
           aria-label="Open navigation"
-          className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+          // min-h/min-w-11 (44px): the visual icon+padding box otherwise
+          // comes out around 36px, under the ~44px minimum comfortable touch
+          // target on a phone.
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
         >
           <Menu className="h-5 w-5" />
         </button>
@@ -70,7 +78,7 @@ export function TopBar({ onOpenNav }: TopBarProps) {
             <button
               type="button"
               onClick={logout}
-              className="inline-flex items-center gap-1.5 rounded-xl px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2.5 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
             >
               <LogOut className="h-4 w-4" />
               Sign out

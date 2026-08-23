@@ -68,9 +68,16 @@ pub enum AuthError {
     UnknownUser,
     DuplicateName(String),
     EmptyName,
-    /// Refused: this would leave the installation with no active Owner
-    /// account at all, and nobody left who could create a new one.
-    LastActiveOwner,
+    /// Refused: there is exactly one Owner account per installation (the one
+    /// seeded at first run, see `db::schema::seed_owner`) — this path is
+    /// never a legitimate way to create or promote one. Kept here as a
+    /// second line of defense; the actual gate a normal caller hits is the
+    /// role-assignment check in `commands::create_user`/`update_user`.
+    OwnerRoleNotAssignable,
+    /// Refused: the Owner account can never be deactivated, by anyone,
+    /// including itself — there being exactly one means there is no other
+    /// account left who could create a new one.
+    OwnerCannotBeDeactivated,
     Hash(String),
     Sqlite(rusqlite::Error),
 }
@@ -87,8 +94,11 @@ impl std::fmt::Display for AuthError {
             AuthError::UnknownUser => write!(f, "That user no longer exists"),
             AuthError::DuplicateName(name) => write!(f, "A user named {} already exists", name),
             AuthError::EmptyName => write!(f, "Name cannot be empty"),
-            AuthError::LastActiveOwner => {
-                write!(f, "Can't deactivate the last active Owner account")
+            AuthError::OwnerRoleNotAssignable => {
+                write!(f, "Only one Owner account is allowed on this installation")
+            }
+            AuthError::OwnerCannotBeDeactivated => {
+                write!(f, "The Owner account can't be deactivated")
             }
             AuthError::Hash(msg) => write!(f, "Could not process PIN: {}", msg),
             AuthError::Sqlite(err) => write!(f, "database error: {}", err),
@@ -158,6 +168,17 @@ pub fn list_all(conn: &Connection) -> Result<Vec<ManagedUser>, rusqlite::Error> 
     rows.collect()
 }
 
+/// The current role of an account, if it exists — lets the command layer
+/// authorize who may edit/deactivate whom (see `commands::update_user` /
+/// `set_user_active`) without pulling a whole row.
+pub fn role_of(conn: &Connection, user_id: i64) -> Result<Option<Role>, rusqlite::Error> {
+    conn.query_row("SELECT role FROM users WHERE id = ?1", params![user_id], |row| {
+        let role: String = row.get(0)?;
+        Ok(Role::parse(&role).unwrap_or(Role::Cashier))
+    })
+    .optional()
+}
+
 /// Verifies a PIN against the stored argon2 hash.
 pub fn authenticate(conn: &Connection, user_id: i64, pin: &str) -> Result<User, AuthError> {
     validate_pin(pin)?;
@@ -182,6 +203,9 @@ pub fn authenticate(conn: &Connection, user_id: i64, pin: &str) -> Result<User, 
 }
 
 pub fn create(conn: &Connection, name: &str, pin: &str, role: Role) -> Result<User, AuthError> {
+    if matches!(role, Role::Owner) {
+        return Err(AuthError::OwnerRoleNotAssignable);
+    }
     validate_pin(pin)?;
     let pin_hash = hash_pin(pin).map_err(AuthError::Hash)?;
 
@@ -234,27 +258,20 @@ pub fn update(conn: &Connection, user_id: i64, name: &str, role: Role) -> Result
 /// Deactivates or reactivates an account (soft — never a hard delete, the
 /// same convention `inventory::delete_item` uses for items with history;
 /// here it's unconditional since a user always "has history" the moment
-/// they've rung up a sale). Refuses to deactivate the installation's last
-/// active Owner, since nobody would be left who could create a new one.
+/// they've rung up a sale). Refuses to deactivate the Owner account,
+/// unconditionally — there is exactly one per installation (see
+/// `db::schema::seed_owner`), and nobody, including the Owner themselves,
+/// may take it offline through this path. Kept here as a second line of
+/// defense; the actual gate a normal caller hits is in
+/// `commands::set_user_active`.
 pub fn set_active(conn: &Connection, user_id: i64, is_active: bool) -> Result<(), AuthError> {
     if !is_active {
         let target_role: Option<String> = conn
-            .query_row(
-                "SELECT role FROM users WHERE id = ?1 AND is_active = 1",
-                params![user_id],
-                |row| row.get(0),
-            )
+            .query_row("SELECT role FROM users WHERE id = ?1", params![user_id], |row| row.get(0))
             .optional()?;
 
         if target_role.as_deref() == Some(Role::Owner.as_str()) {
-            let active_owners: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM users WHERE role = 'owner' AND is_active = 1",
-                [],
-                |row| row.get(0),
-            )?;
-            if active_owners <= 1 {
-                return Err(AuthError::LastActiveOwner);
-            }
+            return Err(AuthError::OwnerCannotBeDeactivated);
         }
     }
 
@@ -400,18 +417,25 @@ mod tests {
     }
 
     #[test]
-    fn set_active_refuses_to_deactivate_the_last_active_owner() {
+    fn set_active_refuses_to_deactivate_the_owner() {
         let conn = test_conn();
         let err = set_active(&conn, owner_id(&conn), false).unwrap_err();
-        assert!(matches!(err, AuthError::LastActiveOwner));
+        assert!(matches!(err, AuthError::OwnerCannotBeDeactivated));
     }
 
     #[test]
-    fn set_active_allows_deactivating_an_owner_when_another_owner_remains() {
+    fn create_rejects_assigning_the_owner_role() {
         let conn = test_conn();
-        let second_owner = create(&conn, "Co-Owner", "5678", Role::Owner).unwrap();
-        // Now there are two active owners, so the seeded one can step down.
-        set_active(&conn, owner_id(&conn), false).unwrap();
-        assert!(authenticate(&conn, second_owner.id, "5678").is_ok());
+        assert!(matches!(
+            create(&conn, "Co-Owner", "5678", Role::Owner).unwrap_err(),
+            AuthError::OwnerRoleNotAssignable
+        ));
+    }
+
+    #[test]
+    fn role_of_returns_the_current_role_or_none_for_an_unknown_user() {
+        let conn = test_conn();
+        assert_eq!(role_of(&conn, owner_id(&conn)).unwrap(), Some(Role::Owner));
+        assert_eq!(role_of(&conn, 999_999).unwrap(), None);
     }
 }

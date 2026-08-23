@@ -1,7 +1,7 @@
 import type { ModuleKey, Role } from "../types";
 
 /**
- * The product's permission matrix — two roles, kept deliberately minimal.
+ * The product's permission matrix.
  *
  * | Area                          | Owner | Admin | Cashier |
  * |--------------------------------|:-----:|:-----:|:-------:|
@@ -16,26 +16,31 @@ import type { ModuleKey, Role } from "../types";
  * | Expenses                        |   ✓   |   ✓   |         |
  * | Salary                          |   ✓   |   ✓   |         |
  * | Settings (module toggles, config)|  ✓   |   ✓   |         |
- * | User management                 |   ✓   |   ✓   |         |
- * | — create/promote another Owner  |   ✓   |       |         |
- * | — deactivate an Owner account   |  ✓*   |       |         |
+ * | User management (screen access) |   ✓   |   ✓   |         |
+ * | Employee management             |   ✓   |   ✓   |         |
  *
- * `*` an Owner can deactivate a *different* Owner, never themselves, and
- * never the last active one — see `db::users::set_active`.
+ * Owner and Admin see the same *screens*, but User Management itself is
+ * hierarchical, not flat — there is exactly one Owner account per
+ * installation (seeded at first run) and it outranks Admin:
  *
- * Owner and Admin are functionally identical everywhere except the two
- * ✓* rows above: this product doesn't yet have a workflow that needs a third
- * tier ("manager", "supervisor", ...), so it doesn't have one — adding a role
- * nobody asked for is exactly the kind of over-building the brief warns
- * against. If a real need for a narrower admin tier shows up later, it slots
- * in here without touching anything module-shaped.
+ * | Can create/edit/deactivate →  | Owner | Admin | Cashier |
+ * |--------------------------------|:-----:|:-----:|:-------:|
+ * | ...an Owner account            |  n/a  |   ✗   |   ✗     |
+ * | ...an Admin account            |   ✓   |   ✗   |   ✗     |
+ * | ...a Cashier account           |   ✓   |   ✓   |   ✗     |
  *
- * This file is the *first* check, used to keep the UI honest (hide a link a
- * role can't use, redirect a direct URL hit). It is never the *only* check:
- * every Tauri command behind a ✗ above re-verifies the caller's role
- * server-side against `Session` (see `src-tauri/src/session.rs`), because a
- * frontend check alone stops a confused user, not a deliberate one poking
- * `invoke()` directly.
+ * The Owner may always edit (name/PIN) their *own* account, and its role can
+ * never change — but it can never be deactivated, by anyone, including
+ * itself. `roleCanManageAccount`/`assignableRoles` below are the frontend
+ * mirror of this; `caller_may_manage`/`assignable_roles` in
+ * `src-tauri/src/commands.rs` are what actually enforce it.
+ *
+ * This file is the *first* check, used to keep the UI honest (hide a link or
+ * button a role can't use, redirect a direct URL hit). It is never the
+ * *only* check: every Tauri command this file gates re-verifies the
+ * caller's role server-side against `Session` (see
+ * `src-tauri/src/session.rs`), because a frontend check alone stops a
+ * confused user, not a deliberate one poking `invoke()` directly.
  */
 
 /** Cashiers get the till and a look at stock; nothing else. */
@@ -63,14 +68,43 @@ export function roleCanManageUsers(role: Role): boolean {
   return isAdminRole(role);
 }
 
+/** Same tier again — employee (payroll/attendance) records are managed on
+ * their own screen too, gated the same as Users/Settings rather than tied to
+ * the Attendance or Salary module toggle, since either module can consume
+ * this list even when the other (or both) are off. */
+export function roleCanManageEmployees(role: Role): boolean {
+  return isAdminRole(role);
+}
+
 export function isModuleReadOnlyFor(role: Role, key: ModuleKey): boolean {
   return !isAdminRole(role) && CASHIER_READ_ONLY_MODULES.includes(key);
 }
 
-/** Only an Owner may create or promote another Owner account — mirrors
- * `commands::create_user`/`update_user` in Rust, which is what actually
- * enforces this; this copy only lets the form disable the option instead of
- * offering a choice the server will just reject. */
-export function roleCanAssignRole(actingRole: Role, targetRole: Role): boolean {
-  return targetRole !== "owner" || actingRole === "owner";
+/** Roles `actingRole` may assign when creating an account or changing an
+ * existing one's role — Owner is never offered to anyone, since there is
+ * exactly one Owner account per installation (seeded at first run) and it
+ * isn't a role this screen hands out. Mirrors `assignable_roles` in
+ * `src-tauri/src/commands.rs`, which is what actually enforces it; this copy
+ * only keeps the "Add/edit staff account" dropdown from offering a choice
+ * the server would reject. */
+export function assignableRoles(actingRole: Role): Role[] {
+  if (actingRole === "owner") return ["admin", "cashier"];
+  if (actingRole === "admin") return ["cashier"];
+  return [];
+}
+
+/** Whether `actorRole` may edit or deactivate an account whose *current*
+ * role is `targetRole` — used for the "own account" exception too, so pass
+ * `isSelf` for that case: editing your own non-Owner account is always
+ * allowed (deactivating it is refused separately, unconditionally, by the
+ * caller — see `UserTable`), and the Owner may edit (never deactivate)
+ * *their own* account specifically. Mirrors `caller_may_manage` /
+ * `authorize_update_user` / `authorize_set_active` in
+ * `src-tauri/src/commands.rs`, which is what actually enforces this. */
+export function roleCanManageAccount(actorRole: Role, targetRole: Role, isSelf: boolean): boolean {
+  if (targetRole === "owner") return isSelf && actorRole === "owner";
+  if (isSelf) return true;
+  if (actorRole === "owner") return true;
+  if (actorRole === "admin") return targetRole === "cashier";
+  return false;
 }

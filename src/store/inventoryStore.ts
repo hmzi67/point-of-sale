@@ -26,6 +26,12 @@ interface InventoryState {
   addItem: (input: ItemInput) => Promise<Item>;
   updateItem: (id: number, input: ItemInput) => Promise<Item>;
   deleteItem: (id: number) => Promise<DeleteOutcome>;
+  /** Deletes/archives each id in turn (same per-item rules as `deleteItem`,
+   * one `inventory_delete_item` call per id — there's no bulk backend
+   * command), reloading the list once at the end rather than after every
+   * item. A single failure doesn't stop the rest; the tally plus any error
+   * messages are returned so the caller can summarize what happened. */
+  deleteItems: (ids: number[]) => Promise<{ deleted: number; archived: number; failed: { id: number; error: string }[] }>;
   addCategory: (name: string) => Promise<Category>;
 
   /** filename -> data URL, shared so a table of thumbnails fetches each
@@ -89,6 +95,23 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     const outcome = await deleteItemCommand(id);
     await get().load();
     return outcome;
+  },
+
+  deleteItems: async (ids) => {
+    let deleted = 0;
+    let archived = 0;
+    const failed: { id: number; error: string }[] = [];
+    for (const id of ids) {
+      try {
+        const outcome = await deleteItemCommand(id);
+        if (outcome === "archived") archived += 1;
+        else deleted += 1;
+      } catch (error) {
+        failed.push({ id, error: (error as Error).message });
+      }
+    }
+    await get().load();
+    return { deleted, archived, failed };
   },
 
   addCategory: async (name) => {

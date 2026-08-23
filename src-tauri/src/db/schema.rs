@@ -170,6 +170,13 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // `enabled_modules` for what these mean.
     ("enabled_modules", "desktop_locked", "INTEGER NOT NULL DEFAULT 0"),
     ("enabled_modules", "android_locked", "INTEGER NOT NULL DEFAULT 0"),
+    // Printer selection (Settings' "Select printer" step) — see
+    // `db::config::AppConfig`'s doc comments and `printer::escpos::send_to_printer`.
+    // All NULL until a cashier/owner has actually chosen one, which is
+    // deliberately indistinguishable from "not configured yet".
+    ("app_config", "printer_connection_type", "TEXT"),
+    ("app_config", "printer_bluetooth_address", "TEXT"),
+    ("app_config", "printer_bluetooth_name", "TEXT"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs

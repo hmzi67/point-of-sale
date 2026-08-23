@@ -116,7 +116,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
           </button>
         </div>
 
-        <div className="max-h-[75vh] overflow-y-auto p-4">
+        <div className="max-h-[75dvh] overflow-y-auto p-4">
           {stage === "loading" && <p className="text-sm text-slate-400">Checking…</p>}
 
           {stage === "setup" && (
