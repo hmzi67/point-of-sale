@@ -235,12 +235,18 @@ pub fn run() {
             // fully standalone — it doesn't need a running Tauri app/event
             // loop, so it still works even when the failure happens this
             // early, before `.run()` ever gets an app instance off the
-            // ground.
+            // ground. Desktop-only: `rfd` has no backend implementation for
+            // Android at all (a compile error, not a runtime gap — see
+            // Cargo.toml's doc comment), so this falls back to `eprintln!`
+            // there, which reaches `adb logcat`.
+            #[cfg(not(target_os = "android"))]
             rfd::MessageDialog::new()
                 .set_title("POS failed to start")
                 .set_description(&error.to_string())
                 .set_level(rfd::MessageLevel::Error)
                 .show();
+            #[cfg(target_os = "android")]
+            eprintln!("POS failed to start: {error}");
             std::process::exit(1);
         });
 }

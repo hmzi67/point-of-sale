@@ -31,7 +31,6 @@ tauri-plugin-os = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
-rfd = "0.16"
 
 # Desktop printer transport: USB. Platform-gated out of the Android build
 # entirely (not just cfg'd off at the call site) — raw libusb was never
@@ -41,8 +40,15 @@ rfd = "0.16"
 # comment for the Android-side replacement). "vendored" builds libusb from
 # source instead of requiring it preinstalled on the dev/client machine
 # (e.g. `brew install libusb` on macOS).
+#
+# `rfd` (the fatal-startup-error dialog in `lib.rs`) is desktop-only for a
+# different reason: it has no backend implementation at all for Android —
+# `FileDialogImpl`/`MessageDialogImpl` simply aren't implemented for that
+# target, a hard compile error, not a runtime one. `lib.rs`'s `run()` falls
+# back to logging via `eprintln!` (reaches `adb logcat`) on Android instead.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 rusb = { version = "0.9", features = ["vendored"] }
+rfd = "0.16"
 
 # Android printer transport: Bluetooth Classic (SPP), via direct JNI calls
 # to the framework's own android.bluetooth classes — see
