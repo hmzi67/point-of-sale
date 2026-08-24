@@ -154,9 +154,17 @@ fn authorize_set_pin(caller: &User, target_user_id: i64, target_current_role: Ro
 // Health
 // ---------------------------------------------------------------------------
 
-/// Health check used by `tauriClient.ping()` to prove the IPC bridge is live.
+/// Health check used by `tauriClient.ping()` to prove the IPC bridge is
+/// live — `main.tsx` calls this unconditionally, immediately on mount, on
+/// every platform, purely so its arrival in `pos-startup.log` is proof the
+/// "main" window's own JS bundle actually started executing (not just that
+/// the window was created — a JS error before this line, or an asset that
+/// failed to resolve in a bundled build, would leave the log with "main
+/// window shown" but no `app_ping` line after it, pointing squarely at the
+/// frontend rather than anything in `setup()`).
 #[tauri::command]
 pub fn app_ping() -> String {
+    crate::startup_log::log("app_ping invoked — main window's frontend JS is executing");
     "pong".to_string()
 }
 
@@ -173,6 +181,12 @@ pub fn app_ping() -> String {
 /// firing first (see `lib.rs::run`).
 #[tauri::command]
 pub fn splashscreen_ready(app: AppHandle) {
+    // Proof the splash window's own JS actually executed (its `load`
+    // listener fired and the IPC bridge reached Rust) — if a real startup
+    // failure's log is missing this line entirely, the splash's content
+    // itself never finished loading, which points at an asset-resolution
+    // problem in the bundle rather than anything in `setup()`.
+    crate::startup_log::log("splashscreen_ready invoked — splash content loaded and painted");
     let launched_at = app.state::<crate::LaunchedAt>().0;
     let remaining = crate::MIN_SPLASH_MS.saturating_sub(launched_at.elapsed().as_millis() as u64);
     if remaining > 0 {

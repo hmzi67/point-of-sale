@@ -106,6 +106,10 @@ pub fn missing_tables(conn: &Connection) -> Result<Vec<&'static str>, rusqlite::
 pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     let previous_version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let missing_before = missing_tables(conn)?;
+    crate::startup_log::log(&format!(
+        "db: schema currently at v{previous_version} (target v{SCHEMA_VERSION}), {} table(s) missing before apply",
+        missing_before.len()
+    ));
 
     if !missing_before.is_empty() {
         println!(
@@ -118,11 +122,17 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
 
     conn.execute_batch(SCHEMA_SQL)?;
+    crate::startup_log::log("db: schema.sql applied (CREATE TABLE/INDEX IF NOT EXISTS)");
     add_missing_columns(conn)?;
+    crate::startup_log::log("db: added-columns migration applied");
 
     // If this ever trips, `schema.sql` and EXPECTED_TABLES have drifted apart.
     let missing_after = missing_tables(conn)?;
     if !missing_after.is_empty() {
+        crate::startup_log::log(&format!(
+            "db: FATAL — schema still incomplete after apply, missing: {}",
+            missing_after.join(", ")
+        ));
         return Err(rusqlite::Error::InvalidParameterName(format!(
             "schema incomplete after apply, missing: {}",
             missing_after.join(", ")
@@ -130,11 +140,14 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
 
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    crate::startup_log::log(&format!("db: schema now at v{SCHEMA_VERSION}"));
 
     seed_app_config(conn)?;
     seed_modules(conn)?;
     seed_owner(conn)?;
+    crate::startup_log::log("db: app_config/modules/owner seeded (or already present)");
     crate::db::seed::seed_demo_data(conn)?;
+    crate::startup_log::log("db: apply() complete");
 
     Ok(())
 }
@@ -203,7 +216,7 @@ fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
             .any(|name| name == column);
 
         if !has_column {
-            println!("[db] adding column {}.{}", table, column);
+            crate::startup_log::log(&format!("db: adding column {table}.{column}"));
             conn.execute_batch(&format!(
                 "ALTER TABLE {} ADD COLUMN {} {}",
                 table, column, definition

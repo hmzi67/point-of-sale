@@ -43,10 +43,17 @@ pub struct Db {
 }
 
 impl Db {
-    /// Opens (creating if needed) the database at `dir/pos.db`.
+    /// Opens (creating if needed) the database at `dir/pos.db`. Every step
+    /// logged (see `startup_log`'s doc comment) — this is the single most
+    /// likely place a real client install ever fails at startup (a locked
+    /// file, a permissions issue writing to `dir`, a migration that doesn't
+    /// like whatever state an existing `pos.db` is actually in), so it's
+    /// exactly where a support call needs the log to be most detailed.
     pub fn open(dir: PathBuf) -> Result<Self, DbError> {
+        crate::startup_log::log(&format!("db: opening connection at {}", dir.join(DB_FILE_NAME).display()));
         std::fs::create_dir_all(&dir).map_err(|e| DbError::Io(e.to_string()))?;
         let conn = Connection::open(dir.join(DB_FILE_NAME))?;
+        crate::startup_log::log("db: connection opened");
 
         // WAL keeps reads fast while a sale is being written, and the foreign
         // key enforcement matters once Phase 2 lands the relational schema.
@@ -54,7 +61,9 @@ impl Db {
         conn.pragma_update(None, "foreign_keys", "ON")?;
 
         // Idempotent: creates anything missing and seeds the module catalogue.
+        crate::startup_log::log("db: migrations starting");
         crate::db::schema::apply(&conn)?;
+        crate::startup_log::log("db: migrations complete");
 
         Ok(Self {
             conn: Mutex::new(conn),

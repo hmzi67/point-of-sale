@@ -319,7 +319,10 @@ pub fn run() {
             #[cfg(not(target_os = "android"))]
             rfd::MessageDialog::new()
                 .set_title("POS failed to start")
-                .set_description(&error.to_string())
+                .set_description(&format!(
+                    "{error}\n\nDetails were written to:\n{}",
+                    startup_log::active_log_path().display()
+                ))
                 .set_level(rfd::MessageLevel::Error)
                 .show();
             #[cfg(target_os = "android")]

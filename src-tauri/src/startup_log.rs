@@ -52,6 +52,19 @@ fn append(path: &Path, line: &str) {
     }
 }
 
+/// The log path most likely to have the freshest entries right now — the
+/// real `app_data_dir` copy once [`set_log_dir`] has been called, the
+/// temp-dir fallback before that. For pointing a user at the right file
+/// from the fatal-startup-error dialog.
+pub fn active_log_path() -> PathBuf {
+    LOG_DIR
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .map(|dir| dir.join(LOG_FILE_NAME))
+        .unwrap_or_else(temp_log_path)
+}
+
 /// Appends one timestamped line, best-effort — a failure to write the log
 /// itself must never be a reason to fail startup, so every I/O error here
 /// is silently swallowed.
