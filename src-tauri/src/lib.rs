@@ -4,6 +4,7 @@ mod images;
 mod printer;
 mod product_owner_session;
 mod session;
+mod startup_log;
 
 use tauri::Manager;
 
@@ -44,18 +45,49 @@ fn reveal_main_window(app: &tauri::AppHandle) {
         return;
     }
 
+    // Show `main` *before* closing `splashscreen` — with only one window
+    // open at a time, Tauri's default "exit when the last window closes"
+    // behavior means closing splashscreen first, if showing main were ever
+    // to silently no-op (a `None` from `get_webview_window`, a `.show()`
+    // that errors), would leave the app with zero visible windows and the
+    // whole process would exit — exactly "splash appears, then the app
+    // closes entirely, never reaching the main window." Logged either way
+    // so that failure mode is visible in `pos-startup.log` instead of just
+    // happening.
+    match app.get_webview_window("main") {
+        Some(main) => {
+            let shown = main.show();
+            let focused = main.set_focus();
+            startup_log::log(&format!(
+                "reveal_main_window: show={shown:?} focus={focused:?}"
+            ));
+        }
+        None => startup_log::log("reveal_main_window: no \"main\" window found — was it ever built?"),
+    }
+
     if let Some(splash) = app.get_webview_window("splashscreen") {
         let _ = splash.close();
     }
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.show();
-        let _ = main.set_focus();
+}
+
+/// Extracts a printable message from a `catch_unwind` payload — panics can
+/// carry either a `&str` (the common `panic!("literal")` case) or a
+/// `String` (`panic!("{}", x)`/`.expect(...)`), and anything else prints as
+/// a fixed placeholder rather than nothing at all.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "panicked with a non-string payload".to_string()
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let launched_at = std::time::Instant::now();
+    startup_log::log("run() entered");
 
     tauri::Builder::default()
         // `Session`/`ProductOwnerSession`/`LaunchedAt`/`SplashRevealed` need
@@ -81,53 +113,97 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(move |app| {
-            let dir = app.path().app_data_dir()?;
-            let db = Db::open(dir)?;
-            app.manage(db);
+            // The whole body is wrapped in `catch_unwind`: every fallible
+            // step below already returns a proper `Result` via `?` (nothing
+            // here should ever panic), but this runs once, at startup,
+            // where a panic is the single worst place for one to happen —
+            // unwinding out of `setup()` and back into Tauri's own runtime
+            // internals is exactly the kind of cross-callback-boundary
+            // unwind that can abort the process outright on some platforms
+            // instead of surfacing as an `Err` (see `startup_log`'s doc
+            // comment), which would make even this logging useless. Belt
+            // and braces, same pattern `printer::escpos::send_to_printer`
+            // already uses for hardware I/O.
+            let app_ref = &*app;
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                move || -> Result<(), Box<dyn std::error::Error>> {
+                    startup_log::log("setup(): entered");
 
-            // The "main" window is built here — *after* `db` is managed —
-            // rather than left in `tauri.conf.json`'s static `windows` list.
-            // A statically-declared window's webview starts loading (and can
-            // fire its first `invoke()`) the moment the window is created,
-            // which happens before `.setup()` runs at all — so on a slow
-            // first launch (seen in practice on Windows: a fresh
-            // `app_data_dir`, antivirus scanning the newly-written SQLite
-            // file, a cold disk) the frontend's very first command call
-            // could land before `Db::open()` above had finished, failing
-            // with "state not managed for field `db` on command `get_users`"
-            // even though the app would have worked fine a moment later.
-            // Creating the window down here instead makes that ordering
-            // impossible: the webview simply doesn't exist yet for any JS
-            // inside it to run.
-            let mut main_window =
-                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+                    let dir = app_ref.path().app_data_dir()?;
+                    startup_log::set_log_dir(&dir);
+                    startup_log::log(&format!("setup(): app_data_dir resolved to {}", dir.display()));
+
+                    let db = Db::open(dir)?;
+                    startup_log::log("setup(): database opened and migrated");
+                    app_ref.manage(db);
+
+                    // The "main" window is built here — *after* `db` is
+                    // managed — rather than left in `tauri.conf.json`'s
+                    // static `windows` list. A statically-declared window's
+                    // webview starts loading (and can fire its first
+                    // `invoke()`) the moment the window is created, which
+                    // happens before `.setup()` runs at all — so on a slow
+                    // first launch (seen in practice on Windows: a fresh
+                    // `app_data_dir`, antivirus scanning the newly-written
+                    // SQLite file, a cold disk) the frontend's very first
+                    // command call could land before `Db::open()` above had
+                    // finished, failing with "state not managed for field
+                    // `db` on command `get_users`" even though the app
+                    // would have worked fine a moment later. Creating the
+                    // window down here instead makes that ordering
+                    // impossible: the webview simply doesn't exist yet for
+                    // any JS inside it to run.
+                    let mut main_window = tauri::WebviewWindowBuilder::new(
+                        app_ref,
+                        "main",
+                        tauri::WebviewUrl::App("index.html".into()),
+                    )
                     .title("POS")
                     .inner_size(1280.0, 800.0);
-            // Desktop only: mobile has no splash *window* to reveal past
-            // (see `reveal_main_window`'s doc comment) — Android's "main" is
-            // shown immediately, at its config's default size, with no
-            // minimum-size constraint of its own.
-            #[cfg(not(target_os = "android"))]
-            {
-                main_window = main_window.min_inner_size(1024.0, 640.0).visible(false);
-            }
-            main_window.build()?;
+                    // Desktop only: mobile has no splash *window* to reveal
+                    // past (see `reveal_main_window`'s doc comment) —
+                    // Android's "main" is shown immediately, at its config's
+                    // default size, with no minimum-size constraint of its
+                    // own.
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        main_window = main_window.min_inner_size(1024.0, 640.0).visible(false);
+                    }
+                    main_window.build()?;
+                    startup_log::log("setup(): \"main\" window built");
 
-            // Absolute ceiling, independent of whether the splash's own
-            // "I've painted" signal (`splashscreen_ready`, the primary path)
-            // ever arrives — so a splash that somehow never gets to render
-            // still can't hang the app open on it forever. A no-op on
-            // Android: no "splashscreen" window exists there to reveal past.
-            if app.get_webview_window("splashscreen").is_some() {
-                let app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    let remaining = MAX_SPLASH_MS.saturating_sub(launched_at.elapsed().as_millis() as u64);
-                    std::thread::sleep(std::time::Duration::from_millis(remaining));
-                    reveal_main_window(&app_handle);
-                });
-            }
+                    // Absolute ceiling, independent of whether the splash's
+                    // own "I've painted" signal (`splashscreen_ready`, the
+                    // primary path) ever arrives — so a splash that somehow
+                    // never gets to render still can't hang the app open on
+                    // it forever. A no-op on Android: no "splashscreen"
+                    // window exists there to reveal past.
+                    if app_ref.get_webview_window("splashscreen").is_some() {
+                        let app_handle = app_ref.handle().clone();
+                        std::thread::spawn(move || {
+                            let remaining = MAX_SPLASH_MS.saturating_sub(launched_at.elapsed().as_millis() as u64);
+                            std::thread::sleep(std::time::Duration::from_millis(remaining));
+                            startup_log::log("MAX_SPLASH_MS ceiling reached — revealing main window");
+                            reveal_main_window(&app_handle);
+                        });
+                    }
 
-            Ok(())
+                    startup_log::log("setup(): complete");
+                    Ok(())
+                },
+            ));
+
+            match result {
+                Ok(inner) => inner.map_err(|e| {
+                    startup_log::log(&format!("setup() returned an error: {e}"));
+                    e
+                }),
+                Err(panic) => {
+                    let message = panic_message(&*panic);
+                    startup_log::log(&format!("setup() PANICKED: {message}"));
+                    Err(message.into())
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_ping,
@@ -221,6 +297,7 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|error| {
+            startup_log::log(&format!("run() returned a fatal error: {error}"));
             // A release build has no attached console, so a fatal startup
             // failure — no writable app-data folder, a database that won't
             // open, a missing WebView2 runtime on Windows, `setup()` erroring
