@@ -220,5 +220,27 @@ pub fn run() {
             commands::set_user_active
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|error| {
+            // A release build has no attached console, so a fatal startup
+            // failure — no writable app-data folder, a database that won't
+            // open, a missing WebView2 runtime on Windows, `setup()` erroring
+            // for any reason — used to be completely invisible: the process
+            // would just exit right after the splash window appeared, with
+            // nothing on screen to say why (this is what "opens a dialog and
+            // closes automatically, no idea why" on a Windows install turned
+            // out to be — not the dialog itself failing, the *app* dying
+            // moments later with the real reason going nowhere).
+            //
+            // `rfd` (not `tauri_plugin_dialog`) specifically because it's
+            // fully standalone — it doesn't need a running Tauri app/event
+            // loop, so it still works even when the failure happens this
+            // early, before `.run()` ever gets an app instance off the
+            // ground.
+            rfd::MessageDialog::new()
+                .set_title("POS failed to start")
+                .set_description(&error.to_string())
+                .set_level(rfd::MessageLevel::Error)
+                .show();
+            std::process::exit(1);
+        });
 }
