@@ -33,11 +33,11 @@ struct SplashRevealed(std::sync::atomic::AtomicBool);
 /// Closes the "splashscreen" window and reveals "main". Idempotent — safe to
 /// call from both the ready-signal path and the timeout path; only the
 /// first call actually does anything. A no-op on Android, where there is no
-/// "splashscreen" window at all (see `tauri.android.conf.json`, which
-/// overrides `windows` down to a single always-visible "main" — Tauri's
-/// secondary-window pattern isn't supported on mobile) — the Android splash
-/// experience is instead the in-app `SplashGate` overlay on the frontend
-/// side, timed independently.
+/// "splashscreen" window at all (see `run()`'s `#[cfg(not(target_os =
+/// "android"))]` branch — "main" there is built already-visible, with no
+/// separate secondary-window splash; Tauri's secondary-window pattern isn't
+/// supported on mobile) — the Android splash experience is instead the
+/// in-app `SplashGate` overlay on the frontend side, timed independently.
 fn reveal_main_window(app: &tauri::AppHandle) {
     let already_revealed = app.state::<SplashRevealed>();
     if already_revealed.0.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -58,6 +58,18 @@ pub fn run() {
     let launched_at = std::time::Instant::now();
 
     tauri::Builder::default()
+        // `Session`/`ProductOwnerSession`/`LaunchedAt`/`SplashRevealed` need
+        // nothing but their own constructors — no `AppHandle`, no filesystem
+        // access — so they're managed here, directly on the builder, before
+        // any window (and therefore any webview, and therefore any frontend
+        // JS that might `invoke()` a command) exists at all. That's what
+        // actually closes the "state not managed" race described below for
+        // these four; `Db` still has to wait for `.setup()` since resolving
+        // `app_data_dir()` needs an `AppHandle`.
+        .manage(Session::new())
+        .manage(ProductOwnerSession::new())
+        .manage(LaunchedAt(launched_at))
+        .manage(SplashRevealed(std::sync::atomic::AtomicBool::new(false)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
         // Native "Save As" flow for exports (CSV/PDF reports) — the dialog
@@ -72,10 +84,34 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let db = Db::open(dir)?;
             app.manage(db);
-            app.manage(Session::new());
-            app.manage(ProductOwnerSession::new());
-            app.manage(LaunchedAt(launched_at));
-            app.manage(SplashRevealed(std::sync::atomic::AtomicBool::new(false)));
+
+            // The "main" window is built here — *after* `db` is managed —
+            // rather than left in `tauri.conf.json`'s static `windows` list.
+            // A statically-declared window's webview starts loading (and can
+            // fire its first `invoke()`) the moment the window is created,
+            // which happens before `.setup()` runs at all — so on a slow
+            // first launch (seen in practice on Windows: a fresh
+            // `app_data_dir`, antivirus scanning the newly-written SQLite
+            // file, a cold disk) the frontend's very first command call
+            // could land before `Db::open()` above had finished, failing
+            // with "state not managed for field `db` on command `get_users`"
+            // even though the app would have worked fine a moment later.
+            // Creating the window down here instead makes that ordering
+            // impossible: the webview simply doesn't exist yet for any JS
+            // inside it to run.
+            let mut main_window =
+                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+                    .title("POS")
+                    .inner_size(1280.0, 800.0);
+            // Desktop only: mobile has no splash *window* to reveal past
+            // (see `reveal_main_window`'s doc comment) — Android's "main" is
+            // shown immediately, at its config's default size, with no
+            // minimum-size constraint of its own.
+            #[cfg(not(target_os = "android"))]
+            {
+                main_window = main_window.min_inner_size(1024.0, 640.0).visible(false);
+            }
+            main_window.build()?;
 
             // Absolute ceiling, independent of whether the splash's own
             // "I've painted" signal (`splashscreen_ready`, the primary path)

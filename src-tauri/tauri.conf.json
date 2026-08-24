@@ -13,15 +13,6 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "label": "main",
-        "title": "POS",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 1024,
-        "minHeight": 640,
-        "visible": false
-      },
-      {
         "label": "splashscreen",
         "url": "splashscreen.html",
         "width": 320,
