@@ -153,6 +153,10 @@ pub fn run() {
                     // window down here instead makes that ordering
                     // impossible: the webview simply doesn't exist yet for
                     // any JS inside it to run.
+                    // Only reassigned on desktop (see below) — Android's
+                    // branch never mutates it, hence `#[allow(unused_mut)]`
+                    // rather than a `mut` that'd warn on that target.
+                    #[allow(unused_mut)]
                     let mut main_window = tauri::WebviewWindowBuilder::new(
                         app_ref,
                         "main",
@@ -326,7 +330,10 @@ pub fn run() {
                 .set_level(rfd::MessageLevel::Error)
                 .show();
             #[cfg(target_os = "android")]
-            eprintln!("POS failed to start: {error}");
+            eprintln!(
+                "POS failed to start: {error}\n\nDetails were written to: {}",
+                startup_log::active_log_path().display()
+            );
             std::process::exit(1);
         });
 }
