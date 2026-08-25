@@ -52,11 +52,32 @@ jobs:
     outputs:
       release_id: ${{ steps.create-release.outputs.result }}
     steps:
-      - name: Create draft release
+      # Idempotent: a re-run of this workflow for a tag that already has a
+      # release (the platform jobs failed/were re-run after the release was
+      # already created, or already published) must reuse that release
+      # rather than creating a second one for the same tag_name. GitHub
+      # allows a second *draft* to be created against an already-released
+      # tag_name (drafts aren't tied to the tag until published), so without
+      # this check `create-release` would silently succeed here and only
+      # blow up later, in `finalize-release`, with a confusing
+      # "already_exists" error when trying to undraft it.
+      - name: Find or create release for this tag
         id: create-release
         uses: actions/github-script@v7
         with:
           script: |
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: process.env.RELEASE_TAG,
+              });
+              core.info(`Reusing existing release ${data.id} for tag ${process.env.RELEASE_TAG} (draft=${data.draft})`);
+              return data.id;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -299,9 +320,28 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const release_id = ${{ needs.create-release.outputs.release_id }};
+
+            // A re-run of this job (e.g. only a platform job needed
+            // re-running) can land here after a previous run already
+            // published this same release — publishing again would send
+            // GitHub the same PATCH and, because the tag is now attached to
+            // a published release, it comes back as a 422 "already_exists"
+            // on tag_name instead of a harmless no-op. Skip it outright
+            // when it's already published.
+            const { data: current } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id,
+            });
+            if (!current.draft) {
+              core.info(`Release ${release_id} is already published — nothing to do.`);
+              return;
+            }
+
             await github.rest.repos.updateRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              release_id: ${{ needs.create-release.outputs.release_id }},
+              release_id,
               draft: false,
             });
