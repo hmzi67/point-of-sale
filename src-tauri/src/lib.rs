@@ -304,6 +304,7 @@ pub fn run() {
             commands::printer_list_bluetooth_devices,
             commands::printer_bluetooth_permission_granted,
             commands::printer_request_bluetooth_permission,
+            commands::printer_list_windows_printers,
             commands::billing_list_recent_sales,
             commands::refund_get_sale,
             commands::refund_create,

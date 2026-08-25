@@ -190,6 +190,11 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("app_config", "printer_connection_type", "TEXT"),
     ("app_config", "printer_bluetooth_address", "TEXT"),
     ("app_config", "printer_bluetooth_name", "TEXT"),
+    // Windows printer selection (Print Spooler, by installed printer name)
+    // — see `db::config::AppConfig::printer_windows_name` and
+    // `printer::windows_spool`. Same "NULL until chosen" convention as the
+    // Bluetooth fields above.
+    ("app_config", "printer_windows_name", "TEXT"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs

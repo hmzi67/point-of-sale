@@ -32,23 +32,27 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 
-# Desktop printer transport: USB. Platform-gated out of the Android build
-# entirely (not just cfg'd off at the call site) — raw libusb was never
-# designed for Android's USB-permission model, and a previous attempt to
-# call it from the Android build crashed the whole app natively (a libusb
-# fault, not a catchable Rust panic — see printer/android_bt.rs's doc
-# comment for the Android-side replacement). "vendored" builds libusb from
-# source instead of requiring it preinstalled on the dev/client machine
-# (e.g. `brew install libusb` on macOS).
-#
-# `rfd` (the fatal-startup-error dialog in `lib.rs`) is desktop-only for a
-# different reason: it has no backend implementation at all for Android —
-# `FileDialogImpl`/`MessageDialogImpl` simply aren't implemented for that
-# target, a hard compile error, not a runtime one. `lib.rs`'s `run()` falls
-# back to logging via `eprintln!` (reaches `adb logcat`) on Android instead.
+# `rfd` (the fatal-startup-error dialog in `lib.rs`) is desktop-only because
+# it has no backend implementation at all for Android — `FileDialogImpl`/
+# `MessageDialogImpl` simply aren't implemented for that target, a hard
+# compile error, not a runtime one. `lib.rs`'s `run()` falls back to logging
+# via `eprintln!` (reaches `adb logcat`) on Android instead.
 [target.'cfg(not(target_os = "android"))'.dependencies]
-rusb = { version = "0.9", features = ["vendored"] }
 rfd = "0.16"
+
+# macOS/Linux desktop printer transport: raw USB. Gated to
+# "not Android, not Windows" — Android is excluded for the libusb/permission
+# reasons below; Windows is excluded because a USB thermal printer with an
+# installed driver has that driver's own service (usbprint.sys) bound to the
+# device's Printer-class interface, which blocks libusb/WinUSB from ever
+# claiming it — this is *the* reason Windows never found an installed
+# printer here (see `printer::windows_spool`'s module doc comment for the
+# real fix: go through the Print Spooler, the way every other Windows
+# application drives a printer, instead of raw USB at all). "vendored"
+# builds libusb from source instead of requiring it preinstalled on the dev
+# machine (e.g. `brew install libusb` on macOS).
+[target.'cfg(all(not(target_os = "android"), not(target_os = "windows")))'.dependencies]
+rusb = { version = "0.9", features = ["vendored"] }
 
 # Android printer transport: Bluetooth Classic (SPP), via direct JNI calls
 # to the framework's own android.bluetooth classes — see
@@ -61,3 +65,12 @@ rfd = "0.16"
 # this doesn't drag in a second copy.
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+
+# Windows printer transport: the Print Spooler ("winspool"), via Microsoft's
+# own official Rust bindings — see `printer::windows_spool`'s module doc
+# comment for why this replaces raw USB on Windows specifically.
+# `Win32_Graphics_Printing` has EnumPrinters/OpenPrinter/StartDocPrinter/
+# WritePrinter/etc.; `Win32_Foundation` has the shared HANDLE/BOOL/error
+# types those functions use.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = ["Win32_Graphics_Printing", "Win32_Foundation", "Win32_Graphics_Gdi"] }

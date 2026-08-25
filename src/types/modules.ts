@@ -49,6 +49,25 @@ export const PLATFORM: Platform = detectPlatform();
  * hamburger overlay) — equivalent to `PLATFORM === "android"`. */
 export const IS_ANDROID = PLATFORM === "android";
 
+/**
+ * Whether this desktop build is running on Windows specifically —
+ * `PLATFORM`/`IS_ANDROID` deliberately collapse every desktop OS to one
+ * bucket, but the printer transport genuinely differs between them (see
+ * `printer::windows_spool`'s doc comment on the Rust side: Windows needs
+ * the Print Spooler and an explicit by-name printer selection, unlike
+ * macOS/Linux's USB auto-detect), so `PrinterSettingsSection` needs to tell
+ * Windows apart from the rest of desktop specifically. Same try/catch
+ * fallback as `detectPlatform` for the same reason — `npm run dev`'s plain
+ * browser has no `@tauri-apps/plugin-os` global to read.
+ */
+export const IS_WINDOWS: boolean = (() => {
+  try {
+    return osPlatform() === "windows";
+  } catch {
+    return false;
+  }
+})();
+
 /** One row of the module catalogue joined with its stored visibility. */
 export interface ModuleState {
   id: number;

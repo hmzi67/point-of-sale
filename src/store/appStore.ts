@@ -32,6 +32,7 @@ const placeholderConfig: AppConfig = {
   printerConnectionType: null,
   printerBluetoothAddress: null,
   printerBluetoothName: null,
+  printerWindowsName: null,
 };
 
 export const useAppStore = create<AppState>((set) => ({

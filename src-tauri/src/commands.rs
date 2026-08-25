@@ -782,6 +782,32 @@ pub fn printer_request_bluetooth_permission() -> Result<(), String> {
     }
 }
 
+/// Every printer Windows currently has installed — the candidate list for
+/// Settings' printer picker on Windows (the Windows equivalent of
+/// `printer_list_bluetooth_devices`). Windows only; always empty elsewhere,
+/// same "uniform command surface, empty result off-platform" convention as
+/// the Bluetooth commands above.
+#[tauri::command]
+pub fn printer_list_windows_printers() -> Result<Vec<crate::db::config::WindowsPrinterOption>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        catch_panic(|| {
+            crate::printer::windows_spool::list_printers()
+                .map(|printers| {
+                    printers
+                        .into_iter()
+                        .map(|p| crate::db::config::WindowsPrinterOption { name: p.name })
+                        .collect()
+                })
+                .map_err(|e| e.to_string())
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(Vec::new())
+    }
+}
+
 /// The most recent sales — the refund flow's "pick the original sale" list.
 /// Owner/Admin only, same as the refund commands below it.
 #[tauri::command]

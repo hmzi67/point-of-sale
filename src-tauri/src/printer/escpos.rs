@@ -5,14 +5,28 @@
 //! testable without a printer attached.
 //!
 //! [`send_to_printer`] dispatches by platform and by what's stored in
-//! `AppConfig`'s `printer_connection_type`/`printer_bluetooth_address`
-//! (set from Settings' "Select printer" step — see `commands::printer_*`):
+//! `AppConfig`'s `printer_connection_type` and whichever transport-specific
+//! field goes with it (`printer_bluetooth_address`, `printer_windows_name`)
+//! — set from Settings' "Select printer" step, see `commands::printer_*`:
 //!
-//! - **Desktop**: USB, unchanged from before — it looks for any attached
-//!   device that exposes a standard USB Printer-class (0x07) interface and
-//!   writes the receipt bytes to its bulk OUT endpoint, no vendor/product ID
-//!   configuration needed. Serial and network (raw bytes to TCP port 9100)
-//!   are still not implemented.
+//! - **Windows**: the Print Spooler (`winspool`), RAW datatype, to whichever
+//!   *installed* printer was selected in Settings by name — see
+//!   `printer::windows_spool`. Not raw USB: a printer installed the normal
+//!   Windows way (driver present, visible in "Devices and Printers") has its
+//!   driver's own service bound to its USB interface, which blocks
+//!   libusb/WinUSB from ever claiming it — see that module's doc comment
+//!   for the full story. This is why Windows needs an explicit name-based
+//!   selection step, the same as Android's Bluetooth picker, rather than the
+//!   old "just look for a USB Printer-class device" auto-detect.
+//! - **macOS/Linux**: USB, unchanged from before — it looks for any
+//!   attached device that exposes a standard USB Printer-class (0x07)
+//!   interface and writes the receipt bytes to its bulk OUT endpoint, no
+//!   vendor/product ID configuration or selection step needed. Serial and
+//!   network (raw bytes to TCP port 9100) are still not implemented. (macOS
+//!   has its own OS-level print system, CUPS, with a "raw" queue concept
+//!   analogous to Windows' RAW datatype — but that's unbuilt; this crate's
+//!   raw-USB path is what macOS gets today, same as before this fix, which
+//!   was scoped to Windows specifically.)
 //! - **Android**: Bluetooth Classic (SPP) to whichever *already-paired*
 //!   device was selected in Settings — see `printer::android_bt`. There is
 //!   deliberately no "select any nearby device" scan step (that needs
@@ -23,7 +37,8 @@
 //!   designed for Android's USB-permission model, and calling it there
 //!   crashed the whole app natively (a libusb-level fault, not a catchable
 //!   Rust panic) — see `Cargo.toml`'s doc comment on why `rusb` is now
-//!   `cfg`'d out of Android builds entirely, not just unused there.
+//!   `cfg`'d out of Android (and Windows) builds entirely, not just unused
+//!   there.
 //!
 //! If no printer has been selected at all, this returns
 //! [`PrinterError::NoPrinterSelected`] immediately, on every platform,
@@ -42,9 +57,9 @@ use crate::db::refunds::Refund;
 use crate::db::sales::Sale;
 use crate::db::shifts::ShiftSummary;
 use crate::printer::layout::{bordered_line, bordered_row, divider, double_divider, format_minor, row, two_col};
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 use rusb::{Direction, TransferType};
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 use std::time::Duration;
 
 // Control bytes from the ESC/POS command reference:
@@ -826,9 +841,24 @@ fn send_to_printer_dispatch(bytes: &[u8], config: &AppConfig) -> Result<(), Prin
             _ => Err(PrinterError::NoPrinterSelected),
         }
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "windows")]
     {
-        let _ = config; // desktop's USB auto-detect doesn't need a stored selection (see module doc)
+        match config.printer_connection_type.as_deref() {
+            Some("windows") => {
+                let name = config.printer_windows_name.as_deref().ok_or(PrinterError::NoPrinterSelected)?;
+                crate::printer::windows_spool::send(name, bytes)
+            }
+            // Same reasoning as Android's `_` arm above: nothing chosen yet
+            // in Settings, not a hardware failure. Windows deliberately
+            // never falls back to auto-detected raw USB here — see this
+            // module's doc comment for why that never reliably found an
+            // installed printer in the first place.
+            _ => Err(PrinterError::NoPrinterSelected),
+        }
+    }
+    #[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
+    {
+        let _ = config; // macOS/Linux's USB auto-detect doesn't need a stored selection (see module doc)
         send_to_printer_usb(bytes)
     }
 }
@@ -836,13 +866,13 @@ fn send_to_printer_dispatch(bytes: &[u8], config: &AppConfig) -> Result<(), Prin
 /// The standard USB device-class code for printers (USB.org base class
 /// 0x07) — this is what lets a compatible printer be found without any
 /// vendor/product ID configuration.
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 const USB_PRINTER_CLASS: u8 = 0x07;
 
 /// How long to wait for the printer to accept the write before giving up.
 /// A receipt is small (well under 1 KB of ESC/POS bytes), so this only
 /// needs to cover a slow/busy printer, not a large transfer.
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 const USB_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Finds the first attached USB device that exposes a Printer-class (0x07)
@@ -854,10 +884,10 @@ const USB_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 /// claim, and the first failure shouldn't stop a working receipt printer
 /// further down the device list from being tried.
 ///
-/// Desktop only — see this module's doc comment and `Cargo.toml` for why
-/// this (and the `rusb` dependency it needs) is `cfg`'d out of Android
-/// entirely.
-#[cfg(not(target_os = "android"))]
+/// macOS/Linux only — see this module's doc comment and `Cargo.toml` for
+/// why this (and the `rusb` dependency it needs) is `cfg`'d out of Android
+/// and Windows entirely; `windows_spool` is Windows' equivalent.
+#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 fn send_to_printer_usb(bytes: &[u8]) -> Result<(), PrinterError> {
     let devices = rusb::devices().map_err(|e| PrinterError::Io(format!("USB enumeration failed: {e}")))?;
 
@@ -988,6 +1018,7 @@ mod tests {
             printer_connection_type: None,
             printer_bluetooth_address: None,
             printer_bluetooth_name: None,
+            printer_windows_name: None,
         }
     }
 

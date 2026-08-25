@@ -1,11 +1,19 @@
-import type { BluetoothDeviceOption } from "../types";
+import type { BluetoothDeviceOption, WindowsPrinterOption } from "../types";
 import { call } from "./tauriClient";
 
 /** Every Bluetooth device already paired through the OS settings — the
- * candidate list for Settings' printer picker. Always empty on desktop
- * (USB is auto-detected there — see `PrinterSettingsSection.tsx`). */
+ * candidate list for Settings' printer picker. Always empty outside
+ * Android (USB is auto-detected on macOS/Linux, and Windows has its own
+ * picker below — see `PrinterSettingsSection.tsx`). */
 export function listBluetoothDevices(): Promise<BluetoothDeviceOption[]> {
   return call<BluetoothDeviceOption[]>("printer_list_bluetooth_devices");
+}
+
+/** Every printer installed on this machine (the same list "Devices and
+ * Printers" would show) — the candidate list for Settings' printer picker
+ * on Windows. Always empty elsewhere. */
+export function listWindowsPrinters(): Promise<WindowsPrinterOption[]> {
+  return call<WindowsPrinterOption[]>("printer_list_windows_printers");
 }
 
 /** Whether this app currently holds the Bluetooth permission it needs to

@@ -91,7 +91,7 @@ in the address bar) must redirect away, not show a broken/empty screen.
 ## 3. Printer failures — must never crash the app
 
 `printer::escpos::send_to_printer` returns a proper `Result` for every
-failure mode on both platforms (see its module doc comment and
+failure mode on every platform (see its module doc comment and
 `PrinterError`) — this section confirms that holds in practice, not just in
 `cargo test`. The historical bug this guards against: an earlier build
 called into raw USB (`rusb`/libusb) unconditionally on Android too, and
@@ -131,7 +131,7 @@ about before touching it again:
   dev`) specifically for anything touching this file — a debug build skips
   R8 entirely, so it can't reproduce the class-stripping failure mode above.
 
-**Desktop, no USB printer attached** (true for most dev machines, which
+**macOS/Linux, no USB printer attached** (true for most dev machines, which
 makes this an easy one to actually run):
 
 - [ ] Complete a sale. On the receipt screen, click "Print (thermal)".
@@ -146,6 +146,31 @@ makes this an easy one to actually run):
       printer failure — printing is a post-sale action, not part of the
       `billing_create_sale` transaction, so a failed print must never look
       like a failed sale.
+
+**Windows, no printer selected yet** (the default state for every install
+until Settings' "Select printer" step has been used once — Windows,
+unlike macOS/Linux, never auto-detects; see `printer::windows_spool`'s
+module doc comment for why raw USB scanning doesn't work once a printer
+driver is installed):
+
+- [ ] Fresh install (or an install that's never had a printer selected).
+      Complete a sale, click "Print (thermal)".
+  - [ ] A clear message appears ("No printer is set up yet…") and the PDF
+        button still works — no crash, no raw Rust error.
+- [ ] Go to Settings → Printer. Confirm the installed printer (the same one
+      visible in Windows' own "Devices and Printers"/"Printers & scanners")
+      appears in the list by name, and selecting it is reflected as
+      "Selected: <name>".
+- [ ] Complete a sale, click "Print (thermal)" (or let it fire
+      automatically): confirm a real receipt prints through that printer —
+      table borders intact, correct cut spacing, no stray characters at the
+      top (the wake-padding fix), logo present if one is configured. This is
+      the actual regression test for the bug this module fixed: it must
+      print via the RAW spooler path, not silently succeed some other way.
+- [ ] Uninstall/disconnect that printer in Windows (or select a printer
+      name that no longer exists) and print again:
+  - [ ] The app does not crash.
+  - [ ] A clear message appears and the PDF button still works.
 
 **Android, no printer selected yet** (the default state for every install
 until Settings' "Select printer" step has been used once):
