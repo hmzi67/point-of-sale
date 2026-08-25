@@ -26,14 +26,40 @@ const MAX_SPLASH_MS: u64 = 3000;
 /// measure the same clock.
 struct LaunchedAt(std::time::Instant);
 
-/// Guards `reveal_main_window` against running twice — the splash's "I've
-/// painted" signal and the `MAX_SPLASH_MS` ceiling both call it, and
-/// whichever fires first must win outright, not both.
+/// Guards `reveal_main_window` against actually revealing the window twice
+/// — the splash's "I've painted" signal and the `MAX_SPLASH_MS` ceiling both
+/// call it, and whichever one *successfully* reveals the window must win
+/// outright, not both. Deliberately only flipped to `true` once a reveal has
+/// actually happened (see `reveal_main_window`) — flipping it on a call that
+/// merely raced `setup()` and found no window yet would permanently lock the
+/// other caller out too, which is exactly the bug this used to have (see
+/// that fn's doc comment).
 struct SplashRevealed(std::sync::atomic::AtomicBool);
 
-/// Closes the "splashscreen" window and reveals "main". Idempotent — safe to
-/// call from both the ready-signal path and the timeout path; only the
-/// first call actually does anything. A no-op on Android, where there is no
+/// `main`'s configured size (must match the `WebviewWindowBuilder` call in
+/// `setup()`) — used to force the window back to a sane size on reveal
+/// rather than trusting whatever restore/default size the OS handed it.
+const MAIN_WINDOW_WIDTH: f64 = 1280.0;
+const MAIN_WINDOW_HEIGHT: f64 = 800.0;
+
+/// How long `reveal_main_window` will poll for "main" to exist before giving
+/// up. Confirmed on Windows: `splashscreen_ready`'s IPC call can land before
+/// `setup()` finishes `WebviewWindowBuilder::build()` for "main" — WebView2
+/// can paint the splash and fire its `load` handler faster than `setup()`
+/// gets through `Db::open()` + the window build on a slow disk/AV-scanned
+/// first launch. Rather than treat a `None` from `get_webview_window` as
+/// permanent failure, retry for a bit; `setup()` finishing is normally
+/// ~100ms away at that point, so this essentially never has to wait the
+/// full ceiling out in practice.
+const REVEAL_POLL_INTERVAL_MS: u64 = 25;
+const REVEAL_POLL_TIMEOUT_MS: u64 = 2000;
+
+/// Closes the "splashscreen" window and reveals "main", polling for "main"
+/// to exist first (see `REVEAL_POLL_TIMEOUT_MS`) rather than assuming
+/// `setup()` has already built it. Idempotent — safe to call from both the
+/// ready-signal path and the timeout path; only the call that actually
+/// succeeds in finding and showing the window does anything, and only that
+/// one flips `SplashRevealed`. A no-op on Android, where there is no
 /// "splashscreen" window at all (see `run()`'s `#[cfg(not(target_os =
 /// "android"))]` branch — "main" there is built already-visible, with no
 /// separate secondary-window splash; Tauri's secondary-window pattern isn't
@@ -41,32 +67,72 @@ struct SplashRevealed(std::sync::atomic::AtomicBool);
 /// in-app `SplashGate` overlay on the frontend side, timed independently.
 fn reveal_main_window(app: &tauri::AppHandle) {
     let already_revealed = app.state::<SplashRevealed>();
-    if already_revealed.0.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    if already_revealed.0.load(std::sync::atomic::Ordering::SeqCst) {
         return;
     }
 
-    // Show `main` *before* closing `splashscreen` — with only one window
-    // open at a time, Tauri's default "exit when the last window closes"
-    // behavior means closing splashscreen first, if showing main were ever
-    // to silently no-op (a `None` from `get_webview_window`, a `.show()`
-    // that errors), would leave the app with zero visible windows and the
-    // whole process would exit — exactly "splash appears, then the app
-    // closes entirely, never reaching the main window." Logged either way
-    // so that failure mode is visible in `pos-startup.log` instead of just
-    // happening.
-    match app.get_webview_window("main") {
-        Some(main) => {
-            let shown = main.show();
-            let focused = main.set_focus();
-            startup_log::log(&format!(
-                "reveal_main_window: show={shown:?} focus={focused:?}"
-            ));
-        }
-        None => startup_log::log("reveal_main_window: no \"main\" window found — was it ever built?"),
-    }
+    let mut waited_ms = 0u64;
+    loop {
+        // Show `main` *before* closing `splashscreen` — with only one
+        // window open at a time, Tauri's default "exit when the last window
+        // closes" behavior means closing splashscreen first, if showing
+        // main were ever to silently no-op (a `None` from
+        // `get_webview_window`, a `.show()` that errors), would leave the
+        // app with zero visible windows and the whole process would exit —
+        // exactly "splash appears, then the app closes entirely, never
+        // reaching the main window." Every step below is logged with its
+        // actual `Result`/state so a future regression shows up as a
+        // specific failed call instead of a silent no-op.
+        match app.get_webview_window("main") {
+            Some(main) => {
+                // Someone else (the other caller — ready-signal vs.
+                // timeout) already won the race while we were polling.
+                if already_revealed.0.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
 
-    if let Some(splash) = app.get_webview_window("splashscreen") {
-        let _ = splash.close();
+                let shown = main.show();
+                let unminimized = main.unminimize();
+                // Force back to the configured size/position rather than
+                // trusting whatever the OS restored — confirmed on Windows
+                // that a window left in this state can end up visible but
+                // sized ~15x15px in the top-left corner.
+                let resized = main.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+                    MAIN_WINDOW_WIDTH,
+                    MAIN_WINDOW_HEIGHT,
+                )));
+                let centered = main.center();
+                let focused = main.set_focus();
+                let visible_after = main.is_visible();
+                let size_after = main.inner_size();
+                startup_log::log(&format!(
+                    "reveal_main_window: show={shown:?} unminimize={unminimized:?} \
+                     set_size={resized:?} center={centered:?} focus={focused:?} \
+                     is_visible={visible_after:?} inner_size={size_after:?}"
+                ));
+
+                match app.get_webview_window("splashscreen") {
+                    Some(splash) => {
+                        let closed = splash.close();
+                        startup_log::log(&format!("reveal_main_window: splashscreen close={closed:?}"));
+                    }
+                    None => startup_log::log(
+                        "reveal_main_window: no \"splashscreen\" window found to close (already closed?)",
+                    ),
+                }
+                return;
+            }
+            None => {
+                if waited_ms >= REVEAL_POLL_TIMEOUT_MS {
+                    startup_log::log(&format!(
+                        "reveal_main_window: gave up after {waited_ms}ms — \"main\" window never appeared"
+                    ));
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(REVEAL_POLL_INTERVAL_MS));
+                waited_ms += REVEAL_POLL_INTERVAL_MS;
+            }
+        }
     }
 }
 
