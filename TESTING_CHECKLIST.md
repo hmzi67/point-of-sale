@@ -241,7 +241,38 @@ not just the fixed test dates in `cargo test`.
       confirm the UI either prevents it or shows the "start date must not be
       after the end date" error clearly — not a blank/broken chart.
 
-## 5. Spot-check while you're in there
+## 5. Refunds report reconciliation
+
+Confirms `reports::get_refunds_summary` (the Reports → Refunds tab, its
+CSV/PDF/thermal exports, and its section in "Generate Full Report") shows
+exactly what's actually in `refunds`/`refund_items` for the range — not a
+different number computed a different way.
+
+- [ ] Process at least two refunds against different sales, one with a
+      reason and a `refunded_by`, one without.
+- [ ] Reports → Refunds tab for a range covering both:
+  - [ ] Both appear, most recent first, each showing the correct receipt #
+        (original sale id), item(s) + qty, reason (or blank), processed-by
+        name (or blank), and timestamp.
+  - [ ] The grand total shown equals the sum of the two refunds' amounts —
+        cross-check directly against `SELECT SUM(total_refund_amount_minor)
+        FROM refunds WHERE created_at BETWEEN ...` for the same range.
+- [ ] Download the Refunds PDF and confirm it lists the same refunds and
+      the same grand total as the on-screen tab.
+- [ ] Click "Print Refunds Report" with a thermal printer attached:
+  - [ ] Clean bordered item grid per refund (no missing/misaligned pipes),
+        correct pre-cut feed spacing, logo present if configured, no stray
+        characters at the top of the printout — same checks as the other
+        printed reports.
+  - [ ] The printed grand total matches the on-screen and PDF totals.
+- [ ] Generate a Full Report for the same range: confirm its Refunds
+      section lists the same refunds/total, and the Overview section's
+      "Refunds" figure matches the same grand total.
+- [ ] Log in as a Cashier (if one exists) and confirm Reports — and
+      therefore the Refunds tab — is unreachable, same as every other
+      report.
+
+## 6. Spot-check while you're in there
 
 Not exhaustive, but worth a glance alongside the above:
 
