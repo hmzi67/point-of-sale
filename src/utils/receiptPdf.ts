@@ -59,6 +59,11 @@ function drawCopyLabelBanner(doc: jsPDF, y: number, label: string): number {
  * `buildReceiptPdf`/`buildReceiptPdfWithMerchantCopy` below can never
  * drift apart in what they show, mirroring
  * `printer::escpos::build_receipt_bytes_for_copy` on the ESC/POS side.
+ *
+ * When `copyLabel` is set (the merchant copy), the itemized table is
+ * skipped — the merchant copy is a condensed totals-only slip, not a
+ * duplicate of the full customer receipt (same behavior as the ESC/POS
+ * builder).
  */
 async function drawReceiptContent(
   doc: jsPDF,
@@ -83,17 +88,19 @@ async function drawReceiptContent(
   ]);
   y += 4;
 
-  y = drawTable(
-    doc,
-    y,
-    ["Item", "Qty", "Rate", "Amount"],
-    sale.items.map((line) => [
-      line.itemName,
-      String(line.qty),
-      formatMinor(line.priceAtSaleMinor, config.currency),
-      formatMinor(line.lineTotalMinor, config.currency),
-    ]),
-  );
+  if (!copyLabel) {
+    y = drawTable(
+      doc,
+      y,
+      ["Item", "Qty", "Rate", "Amount"],
+      sale.items.map((line) => [
+        line.itemName,
+        String(line.qty),
+        formatMinor(line.priceAtSaleMinor, config.currency),
+        formatMinor(line.lineTotalMinor, config.currency),
+      ]),
+    );
+  }
 
   const totalsRows: Array<[string, string]> = [["Subtotal", formatMinor(sale.subtotalMinor, config.currency)]];
   if (sale.discountMinor > 0) {
@@ -112,14 +119,15 @@ async function drawReceiptContent(
 }
 
 function estimatedHeightMm(sale: Sale, config: AppConfig, hasLogo: boolean, hasCopyLabel: boolean): number {
-  // logo + optional banner + header block + info rows + one row per item +
+  // logo + optional banner + header block + info rows + one row per item
+  // (skipped on the condensed merchant copy — see `drawReceiptContent`) +
   // totals block + footer.
   return (
     44 +
     (hasLogo ? LOGO_MAX_HEIGHT_MM + 3 : 0) +
     (hasCopyLabel ? 12 : 0) +
     10 +
-    sale.items.length * 6 +
+    (hasCopyLabel ? 0 : sale.items.length * 6) +
     36 +
     (config.receiptFooter.trim() ? 10 : 0)
   );
@@ -152,12 +160,19 @@ export async function buildReceiptPdf(sale: Sale, config: AppConfig, tablesEnabl
  */
 export async function buildReceiptPdfWithMerchantCopy(sale: Sale, config: AppConfig, tablesEnabled: boolean): Promise<jsPDF> {
   const logo = await resolveLogo(config.logoPath);
-  const pageHeight = estimatedHeightMm(sale, config, logo !== null, true);
+  const hasLogo = logo !== null;
+  // Sized independently per page — the merchant copy is shorter (no item
+  // table, see `drawReceiptContent`/`estimatedHeightMm`), so reusing the
+  // customer page's height for it would leave a wasted blank tail, and
+  // reusing the merchant page's (shorter) height for the customer page
+  // would cut off its item table.
+  const customerPageHeight = estimatedHeightMm(sale, config, hasLogo, false);
+  const merchantPageHeight = estimatedHeightMm(sale, config, hasLogo, true);
 
-  const doc = newReceiptDoc(pageHeight);
+  const doc = newReceiptDoc(customerPageHeight);
   await drawReceiptContent(doc, sale, config, tablesEnabled, logo);
 
-  doc.addPage([PAGE_WIDTH_MM, pageHeight]);
+  doc.addPage([PAGE_WIDTH_MM, merchantPageHeight]);
   await drawReceiptContent(doc, sale, config, tablesEnabled, logo, "MERCHANT COPY");
 
   return doc;

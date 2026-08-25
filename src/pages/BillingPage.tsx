@@ -105,29 +105,23 @@ export function BillingPage() {
 
   // Fires automatically the instant a sale completes — no cashier click
   // required. `billing_print_receipt_thermal` already sends *two* copies
-  // back to back (customer, then a "MERCHANT COPY"-labeled one; see
-  // `printer::escpos::print_receipt`), so a successful thermal print here
-  // needs nothing further. Only when that fails — no printer configured or
-  // reachable — does this fall back to the PDF twin (also two copies, one
-  // per page; see `receiptPdf.ts`), auto-saved via the native "Save As"
-  // flow rather than requiring a button first. Either way this never
-  // blocks or fails the sale itself, which is already committed by the
-  // time this runs.
+  // back to back (customer, then a condensed "MERCHANT COPY"-labeled one;
+  // see `printer::escpos::print_receipt`), so a successful thermal print
+  // here needs nothing further. When that fails — no printer configured or
+  // reachable — this used to fall back to auto-saving a PDF twin via the
+  // native "Save As" dialog, but that meant every single sale on a machine
+  // with no thermal printer attached popped a blocking OS file picker right
+  // after checkout. That auto-save is intentionally gone: `ReceiptModal`
+  // (already shown after every sale) offers a manual "Save as PDF" button
+  // instead, so the cashier can still get a PDF copy on demand without one
+  // firing unprompted on every sale. This never blocks or fails the sale
+  // itself, which is already committed by the time this runs.
   const printReceiptAutomatically = async (sale: Sale) => {
     try {
       await printReceiptThermal(sale.id);
     } catch {
-      try {
-        const { downloadReceiptPdf } = await import("../utils/receiptPdf");
-        const saved = await downloadReceiptPdf(sale, config, tablesEnabled);
-        if (saved) {
-          setNotice("No thermal printer found — receipt saved as a PDF instead.");
-          window.setTimeout(() => setNotice(null), 5000);
-        }
-      } catch {
-        // Swallow — a failed/cancelled receipt copy is never a reason to
-        // interrupt the cashier after the sale has already gone through.
-      }
+      setNotice("No thermal printer found — use \"Save as PDF\" below if you need a receipt copy.");
+      window.setTimeout(() => setNotice(null), 5000);
     }
   };
 
@@ -265,7 +259,12 @@ export function BillingPage() {
       )}
 
       {completedSale && (
-        <ReceiptModal sale={completedSale} config={config} onClose={() => setCompletedSale(null)} />
+        <ReceiptModal
+          sale={completedSale}
+          config={config}
+          tablesEnabled={tablesEnabled}
+          onClose={() => setCompletedSale(null)}
+        />
       )}
     </div>
   );

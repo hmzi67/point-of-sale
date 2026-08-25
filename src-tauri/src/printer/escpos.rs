@@ -295,15 +295,18 @@ pub fn build_receipt_bytes(
     build_receipt_bytes_for_copy(sale, config, logo, tables_module_enabled, None)
 }
 
-/// Same receipt as [`build_receipt_bytes`] — same items, totals, business
-/// info, logo, table borders, cut margin, all of it — with one addition:
-/// when `copy_label` is `Some`, a bold banner (see [`copy_label_banner`])
-/// appears right after the logo. This is the *only* receipt template;
-/// [`print_receipt`] calls it twice (`None`, then `Some("MERCHANT COPY")`)
-/// rather than a second template existing anywhere, which is what
-/// guarantees the merchant copy can never drift from the customer copy in
-/// content or in any of the print-quality fixes (borders, wake padding,
-/// cut feed) applied here.
+/// Same receipt as [`build_receipt_bytes`] — same header, business info,
+/// logo, totals block, and cut margin — with two differences when
+/// `copy_label` is `Some`: a bold banner (see [`copy_label_banner`]) appears
+/// right after the logo, and the itemized item table is skipped entirely —
+/// the merchant copy is a condensed totals-only slip, not a duplicate of
+/// the full customer receipt, so it prints shorter and faster. This is the
+/// *only* receipt template; [`print_receipt`] calls it twice (`None`, then
+/// `Some("MERCHANT COPY")`), which is what guarantees the merchant copy can
+/// never drift from the customer copy in shared content (header, totals
+/// math, footer) or in any of the print-quality fixes (borders, wake
+/// padding, cut feed) applied here — only the item table and banner differ,
+/// both explicitly gated on `copy_label`.
 fn build_receipt_bytes_for_copy(
     sale: &Sale,
     config: &AppConfig,
@@ -341,28 +344,32 @@ fn build_receipt_bytes_for_copy(
     out.push(b'\n');
     out.push(b'\n');
 
-    out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(item_table_row("Item", "Qty", "Rate", "Amount").as_bytes());
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
-    out.push(b'\n');
-    for item in &sale.items {
-        out.extend(
-            item_table_row(
-                &item.item_name,
-                &item.qty.to_string(),
-                &format_minor(item.price_at_sale_minor),
-                &format_minor(item.line_total_minor),
-            )
-            .as_bytes(),
-        );
+    // Merchant copy is a condensed totals-only slip — the itemized table is
+    // customer-copy-only (see this fn's doc comment).
+    if copy_label.is_none() {
+        out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
+        out.push(b'\n');
+        out.extend(bold(true));
+        out.extend(item_table_row("Item", "Qty", "Rate", "Amount").as_bytes());
+        out.push(b'\n');
+        out.extend(bold(false));
+        out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
+        out.push(b'\n');
+        for item in &sale.items {
+            out.extend(
+                item_table_row(
+                    &item.item_name,
+                    &item.qty.to_string(),
+                    &format_minor(item.price_at_sale_minor),
+                    &format_minor(item.line_total_minor),
+                )
+                .as_bytes(),
+            );
+            out.push(b'\n');
+        }
+        out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
         out.push(b'\n');
     }
-    out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
-    out.push(b'\n');
 
     out.extend(two_col("Subtotal", &format!("{} {}", currency, format_minor(sale.subtotal_minor))).as_bytes());
     out.push(b'\n');
@@ -1137,10 +1144,11 @@ mod tests {
         let bytes = build_receipt_bytes_for_copy(&sample_sale(), &sample_config(), None, true, Some("MERCHANT COPY"));
         let text = String::from_utf8_lossy(&bytes);
         assert!(text.contains("MERCHANT COPY"), "expected the banner: {text}");
-        // Same content as the customer copy — same items, same total —
-        // this is one shared template, not a second one.
-        assert!(text.contains("Cola 500ml"));
+        // Condensed: totals shared with the customer copy, but the
+        // itemized table is intentionally dropped — see this fn's doc
+        // comment.
         assert!(text.contains("TOTAL"));
+        assert!(!text.contains("Cola 500ml"), "merchant copy must not list line items: {text}");
     }
 
     #[test]
@@ -1167,14 +1175,16 @@ mod tests {
         assert!(!String::from_utf8_lossy(&customer).contains("MERCHANT COPY"), "first copy must be the plain customer copy");
         assert!(String::from_utf8_lossy(&merchant).contains("MERCHANT COPY"), "second copy must carry the banner");
 
-        // Both copies keep the recent print-quality fixes — bordered item
-        // table and full item content — not just the first one.
+        // The customer copy keeps the recent print-quality fixes —
+        // bordered item table and full item content; the merchant copy is
+        // deliberately condensed (totals only, no item table) — see
+        // `build_receipt_bytes_for_copy`'s doc comment.
         let combined_text = String::from_utf8_lossy(&combined);
-        assert_eq!(combined_text.matches("Cola 500ml").count(), 2, "both copies must list every item");
+        assert_eq!(combined_text.matches("Cola 500ml").count(), 1, "only the customer copy lists items");
         assert_eq!(
             combined_text.matches(bordered_line(&ITEM_TABLE_COLS).as_str()).count(),
-            6,
-            "both copies must draw the bordered item table (3 border lines each)"
+            3,
+            "only the customer copy draws the bordered item table (3 border lines)"
         );
     }
 

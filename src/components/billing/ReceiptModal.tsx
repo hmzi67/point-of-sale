@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, Printer, X } from "lucide-react";
+import { CheckCircle2, Download, Printer, X } from "lucide-react";
 import { printReceiptThermal } from "../../services/billingService";
 import { formatMinor } from "../../utils/format";
 import type { AppConfig, Sale } from "../../types";
@@ -7,21 +7,28 @@ import type { AppConfig, Sale } from "../../types";
 interface ReceiptModalProps {
   sale: Sale;
   config: AppConfig;
+  tablesEnabled: boolean;
   onClose: () => void;
 }
 
 /** Shown right after a sale completes. Printing itself already happened
  * automatically the moment the sale went through — see `BillingPage.tsx`'s
- * `printReceiptAutomatically` — so this modal's button is a manual
- * *reprint*, for a second physical copy or after fixing a printer that
- * wasn't reachable the first time, not something the cashier has to click
- * to get the first copy out. Thermal print uses whatever printer this
+ * `printReceiptAutomatically` — so the "Reprint (thermal)" button is a
+ * manual *reprint*, for a second physical copy or after fixing a printer
+ * that wasn't reachable the first time, not something the cashier has to
+ * click to get the first copy out. Thermal print uses whatever printer this
  * installation has configured (USB auto-detected on desktop, Bluetooth
  * selected in Settings on Android) and fails gracefully — with a message —
- * if none is set up or reachable. */
-export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
+ * if none is set up or reachable.
+ *
+ * "Save as PDF" is the on-demand equivalent for when there's no thermal
+ * printer at all: it used to fire automatically (and pop a native "Save
+ * As" dialog) the instant every such sale completed — now it only runs
+ * when the cashier actually clicks it. */
+export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptModalProps) {
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isSavingPdf, setIsSavingPdf] = useState(false);
 
   const printThermal = async () => {
     setIsPrinting(true);
@@ -33,6 +40,20 @@ export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
       setPrintStatus((e as Error).message);
     } finally {
       setIsPrinting(false);
+    }
+  };
+
+  const savePdf = async () => {
+    setIsSavingPdf(true);
+    setPrintStatus(null);
+    try {
+      const { downloadReceiptPdf } = await import("../../utils/receiptPdf");
+      const saved = await downloadReceiptPdf(sale, config, tablesEnabled);
+      setPrintStatus(saved ? "Receipt PDF saved." : null);
+    } catch (e) {
+      setPrintStatus((e as Error).message);
+    } finally {
+      setIsSavingPdf(false);
     }
   };
 
@@ -110,6 +131,15 @@ export function ReceiptModal({ sale, config, onClose }: ReceiptModalProps) {
           >
             <Printer className="h-4 w-4" />
             {isPrinting ? "Printing…" : "Reprint (thermal)"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void savePdf()}
+            disabled={isSavingPdf}
+            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            {isSavingPdf ? "Saving…" : "Save as PDF"}
           </button>
           <button
             type="button"
