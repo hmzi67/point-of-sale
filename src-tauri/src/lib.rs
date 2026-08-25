@@ -323,6 +323,8 @@ pub fn run() {
             commands::reports_print_category_sales,
             commands::reports_get_table_sales_summary,
             commands::reports_print_table_sales_summary,
+            commands::reports_get_refunds_summary,
+            commands::reports_print_refunds_summary,
             commands::reports_get_full_report,
             commands::reports_print_full_report,
             commands::reports_get_product_sales_summary,

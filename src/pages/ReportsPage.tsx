@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { DateRangePicker } from "../components/reports/DateRangePicker";
 import { ExportButtons } from "../components/reports/ExportButtons";
 import { ProductWiseSalesTable } from "../components/reports/ProductWiseSalesTable";
+import { RefundsTable } from "../components/reports/RefundsTable";
 import { SummaryCards } from "../components/reports/SummaryCards";
 import { TableWiseSalesTable } from "../components/reports/TableWiseSalesTable";
 import { TopItemsTable } from "../components/reports/TopItemsTable";
@@ -9,16 +10,23 @@ import { useAppConfig } from "../hooks/useAppConfig";
 import { useModules } from "../hooks/useModules";
 import { getDashboardSummary } from "../services/dashboardService";
 import { getCategories } from "../services/inventoryService";
-import { getProductSalesSummary, getTableSalesSummary } from "../services/reportsService";
+import { getProductSalesSummary, getRefundsSummary, getTableSalesSummary } from "../services/reportsService";
 import { useReportsStore } from "../store";
-import type { Category, DashboardSummary, ProductSalesSummaryReport, TableSalesSummary, TopItemSort } from "../types";
+import type {
+  Category,
+  DashboardSummary,
+  ProductSalesSummaryReport,
+  RefundsSummary,
+  TableSalesSummary,
+  TopItemSort,
+} from "../types";
 
 // Recharts is large and only ever used here — deferred so it never loads on
 // the (much more frequently visited) Billing/Dashboard/Inventory screens.
 const SalesChart = lazy(() => import("../components/reports/SalesChart"));
 const TopEntriesChart = lazy(() => import("../components/reports/TopEntriesChart"));
 
-type View = "overview" | "tables" | "products";
+type View = "overview" | "tables" | "products" | "refunds";
 
 const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />;
 
@@ -71,6 +79,12 @@ export function ReportsPage() {
   const [isLoadingProductSales, setIsLoadingProductSales] = useState(false);
   const [productSalesError, setProductSalesError] = useState<string | null>(null);
 
+  // Refunds is likewise its own query — not folded into useReportsStore's
+  // load(), same reasoning as Table Wise Sales/Product Wise Sales above.
+  const [refundsSummary, setRefundsSummary] = useState<RefundsSummary | null>(null);
+  const [isLoadingRefunds, setIsLoadingRefunds] = useState(false);
+  const [refundsError, setRefundsError] = useState<string | null>(null);
+
   useEffect(() => {
     // Runs once on mount — subsequent loads are triggered by the store's own
     // setters (setPreset/setCustomRange/setTopItemsSort), not by re-running this.
@@ -106,6 +120,16 @@ export function ReportsPage() {
       .finally(() => setIsLoadingProductSales(false));
   }, [view, startDate, endDate, productCategoryId, productSort]);
 
+  useEffect(() => {
+    if (view !== "refunds") return;
+    setIsLoadingRefunds(true);
+    setRefundsError(null);
+    getRefundsSummary(startDate, endDate)
+      .then(setRefundsSummary)
+      .catch((e: Error) => setRefundsError(e.message))
+      .finally(() => setIsLoadingRefunds(false));
+  }, [view, startDate, endDate]);
+
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -131,7 +155,7 @@ export function ReportsPage() {
         <DateRangePicker />
 
         <div className="flex shrink-0 rounded-xl bg-slate-100 p-1">
-          {(["overview", "products", ...(tablesEnabled ? (["tables"] as const) : [])] as const).map((v) => (
+          {(["overview", "products", ...(tablesEnabled ? (["tables"] as const) : []), "refunds"] as const).map((v) => (
             <button
               key={v}
               type="button"
@@ -141,7 +165,13 @@ export function ReportsPage() {
                 view === v ? "bg-brand-600 text-white shadow-soft" : "text-slate-600 hover:bg-white",
               ].join(" ")}
             >
-              {v === "overview" ? "Overview" : v === "products" ? "Product Wise Sales" : "Table Wise Sales"}
+              {v === "overview"
+                ? "Overview"
+                : v === "products"
+                  ? "Product Wise Sales"
+                  : v === "tables"
+                    ? "Table Wise Sales"
+                    : "Refunds"}
             </button>
           ))}
         </div>
@@ -183,7 +213,7 @@ export function ReportsPage() {
             isLoading={isLoadingProductSales}
           />
         </>
-      ) : (
+      ) : view === "tables" ? (
         <>
           {tableSalesError && (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{tableSalesError}</p>
@@ -197,6 +227,11 @@ export function ReportsPage() {
             />
           </Suspense>
           <TableWiseSalesTable data={tableSales} currency={config.currency} isLoading={isLoadingTableSales} />
+        </>
+      ) : (
+        <>
+          {refundsError && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{refundsError}</p>}
+          <RefundsTable data={refundsSummary} currency={config.currency} isLoading={isLoadingRefunds} />
         </>
       )}
     </section>

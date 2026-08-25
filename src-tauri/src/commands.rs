@@ -20,7 +20,8 @@ use crate::db::modules::{ModuleState, Platform};
 use crate::db::full_report::FullReport;
 use crate::db::refunds::{CreateRefundInput, Refund, RefundLineInput, RefundableSale};
 use crate::db::reports::{
-    CategorySalesReport, DailySales, ProductSalesSummaryReport, SalesSummary, TableSalesSummary, TopItem, TopItemSort,
+    CategorySalesReport, DailySales, ProductSalesSummaryReport, RefundsSummary, SalesSummary, TableSalesSummary,
+    TopItem, TopItemSort,
 };
 use crate::db::sales::{CreateSaleInput, Sale, SaleListItem};
 use crate::db::shifts::{Shift, ShiftSummary};
@@ -1131,6 +1132,41 @@ pub fn reports_print_table_sales_summary(
         .map_err(|e| e.to_string())?;
     let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
     crate::printer::escpos::print_table_sales(&report, &app_config).map_err(|e| e.to_string())
+}
+
+/// The "Refunds" report: every refund recorded in the range (by refund
+/// date, not the date of the original sale), most recent first, itemized
+/// with the original sale/receipt number (`originalSaleId`), refunded
+/// item(s), reason, who processed it, and a grand total refunded for the
+/// period. Not module-gated — refunds aren't a toggleable module.
+#[tauri::command]
+pub fn reports_get_refunds_summary(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+) -> Result<RefundsSummary, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(reports::get_refunds_summary(conn, &start_date, &end_date)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Prints the Refunds report on a USB thermal printer.
+#[tauri::command]
+pub fn reports_print_refunds_summary(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    start_date: String,
+    end_date: String,
+) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    let report = db
+        .with_conn(|conn| Ok(reports::get_refunds_summary(conn, &start_date, &end_date)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_refunds_summary(&report, &app_config).map_err(|e| e.to_string())
 }
 
 /// The "Generate Full Report" consolidated document: Overview (incl. net

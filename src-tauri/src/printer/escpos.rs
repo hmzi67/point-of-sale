@@ -52,7 +52,7 @@
 use crate::db::config::AppConfig;
 use crate::db::dashboard::DashboardSummary;
 use crate::db::full_report::FullReport;
-use crate::db::reports::{CategorySalesReport, ProductSalesSummaryReport, TableSalesSummary};
+use crate::db::reports::{CategorySalesReport, ProductSalesSummaryReport, RefundsSummary, TableSalesSummary};
 use crate::db::refunds::Refund;
 use crate::db::sales::Sale;
 use crate::db::shifts::ShiftSummary;
@@ -650,6 +650,95 @@ fn write_table_sales_section(out: &mut Vec<u8>, report: &TableSalesSummary, curr
     out.extend(bold(false));
 }
 
+/// The Refunds report: one block per refund — Vno (original sale id),
+/// timestamp, who processed it, a bordered Item/Qty/Amount grid (the same
+/// 3-column border style the other report sections use), the reason if one
+/// was given, and that refund's own subtotal — followed by a grand total
+/// across every refund in the range. This is the itemized "Vno/Details/
+/// Amount rows, Total Refund at the bottom" shape the single-refund receipt
+/// (`build_refund_bytes`) already uses, just repeated for every refund in
+/// the period instead of one. Reused by both [`build_refunds_summary_bytes`]
+/// and [`build_full_report_bytes`], same reasoning as
+/// [`write_table_sales_section`].
+fn write_refunds_section(out: &mut Vec<u8>, report: &RefundsSummary, currency: &str) {
+    if report.refunds.is_empty() {
+        out.extend(b"No refunds in this period\n");
+        return;
+    }
+
+    for (i, refund) in report.refunds.iter().enumerate() {
+        if i > 0 {
+            out.push(b'\n');
+        }
+
+        out.extend(bold(true));
+        out.extend(format!("Refund #{}  Vno: {}", refund.id, refund.original_sale_id).as_bytes());
+        out.push(b'\n');
+        out.extend(bold(false));
+        out.extend(refund.created_at.as_bytes());
+        out.push(b'\n');
+        if let Some(name) = &refund.refunded_by_name {
+            out.extend(format!("By: {}\n", name).as_bytes());
+        }
+
+        out.extend(three_col_border().as_bytes());
+        out.push(b'\n');
+        out.extend(bold(true));
+        out.extend(three_col_row("Item", "Qty", "Amount").as_bytes());
+        out.push(b'\n');
+        out.extend(bold(false));
+        out.extend(three_col_border().as_bytes());
+        out.push(b'\n');
+        for item in &refund.items {
+            out.extend(
+                three_col_row(&item.item_name, &item.qty_refunded.to_string(), &format_minor(item.amount_refunded_minor))
+                    .as_bytes(),
+            );
+            out.push(b'\n');
+        }
+        out.extend(three_col_border().as_bytes());
+        out.push(b'\n');
+
+        if let Some(reason) = &refund.reason {
+            out.extend(format!("Reason: {}\n", reason).as_bytes());
+        }
+
+        out.extend(
+            two_col("Refund Total", &format!("{} {}", currency, format_minor(refund.total_refund_amount_minor)))
+                .as_bytes(),
+        );
+        out.push(b'\n');
+    }
+
+    out.push(b'\n');
+    out.extend(double_divider().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(
+        two_col("TOTAL REFUNDED", &format!("{} {}", currency, format_minor(report.grand_total_refunded_minor)))
+            .as_bytes(),
+    );
+    out.push(b'\n');
+    out.extend(bold(false));
+}
+
+/// The standalone "Refunds Report" thermal print/PDF — every refund in the
+/// range via [`write_refunds_section`], with its own header/footer.
+pub fn build_refunds_summary_bytes(report: &RefundsSummary, config: &AppConfig) -> Vec<u8> {
+    let mut out = Vec::new();
+
+    out.extend(wake_padding());
+    out.extend(init());
+
+    let subtitle = vec!["Refunds Report".to_string(), format!("{} to {}", report.start_date, report.end_date)];
+    header_block(&mut out, &config.business_name, &subtitle);
+
+    write_refunds_section(&mut out, report, &config.currency);
+
+    close_out(&mut out, &config.receipt_footer);
+    out
+}
+
 /// The Product Wise Sales bordered grid — rank-prefixed item name / qty /
 /// revenue, same 3-column border style as the other two sections. Only
 /// used inside [`build_full_report_bytes`] — Product Wise Sales has no
@@ -718,12 +807,12 @@ fn section_banner(out: &mut Vec<u8>, title: &str) {
 }
 
 /// Builds the "Generate Full Report" consolidated document: Overview
-/// (including net profit), Category Wise Sale, Product Wise Sales, and —
-/// when the `tables` module was enabled at the time this [`FullReport`]
-/// was assembled (see `db::full_report::get_full_report`) — Table Wise
-/// Sales, all for one date range in a single print job. Distinct from the
-/// individual per-report prints above: "everything for this period, one
-/// document," not a stand-in for them.
+/// (including net profit), Refunds, Category Wise Sale, Product Wise
+/// Sales, and — when the `tables` module was enabled at the time this
+/// [`FullReport`] was assembled (see `db::full_report::get_full_report`) —
+/// Table Wise Sales, all for one date range in a single print job.
+/// Distinct from the individual per-report prints above: "everything for
+/// this period, one document," not a stand-in for them.
 pub fn build_full_report_bytes(report: &FullReport, config: &AppConfig) -> Vec<u8> {
     let mut out = Vec::new();
     let currency = &config.currency;
@@ -739,6 +828,11 @@ pub fn build_full_report_bytes(report: &FullReport, config: &AppConfig) -> Vec<u
 
     section_banner(&mut out, "OVERVIEW");
     write_overview_section(&mut out, &report.overview, report.average_sale_minor, currency);
+    out.push(b'\n');
+    out.push(b'\n');
+
+    section_banner(&mut out, "REFUNDS");
+    write_refunds_section(&mut out, &report.refunds, currency);
     out.push(b'\n');
     out.push(b'\n');
 
@@ -992,6 +1086,12 @@ pub fn print_table_sales(report: &TableSalesSummary, config: &AppConfig) -> Resu
     send_to_printer(&bytes, config)
 }
 
+/// Builds and prints the Refunds report.
+pub fn print_refunds_summary(report: &RefundsSummary, config: &AppConfig) -> Result<(), PrinterError> {
+    let bytes = build_refunds_summary_bytes(report, config);
+    send_to_printer(&bytes, config)
+}
+
 /// Builds and prints the consolidated Full Report.
 pub fn print_full_report(report: &FullReport, config: &AppConfig) -> Result<(), PrinterError> {
     let bytes = build_full_report_bytes(report, config);
@@ -1064,6 +1164,40 @@ mod tests {
                 amount_refunded_minor: 500,
             }],
         }
+    }
+
+    fn sample_refunds_summary() -> RefundsSummary {
+        RefundsSummary {
+            start_date: "2026-01-01".into(),
+            end_date: "2026-01-31".into(),
+            refunds: vec![sample_refund()],
+            grand_total_refunded_minor: 500,
+        }
+    }
+
+    #[test]
+    fn build_refunds_summary_bytes_includes_vno_items_reason_and_grand_total() {
+        let bytes = build_refunds_summary_bytes(&sample_refunds_summary(), &sample_config());
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("Refunds Report"));
+        assert!(text.contains("Vno: 42"), "original sale id must appear as Vno: {text}");
+        assert!(text.contains("Cola 500ml"));
+        assert!(text.contains("Customer changed mind"));
+        assert!(text.contains("Owner"), "processed-by name must appear: {text}");
+        assert!(text.contains("TOTAL REFUNDED"));
+        assert!(text.contains("PKR 5.00"));
+        assert!(text.contains(three_col_border().as_str()), "expected a bordered item grid: {text}");
+        assert!(text.contains("|Cola 500ml"), "item row must be pipe-bordered: {text}");
+    }
+
+    #[test]
+    fn build_refunds_summary_bytes_reports_no_refunds_cleanly() {
+        let mut report = sample_refunds_summary();
+        report.refunds = vec![];
+        report.grand_total_refunded_minor = 0;
+        let bytes = build_refunds_summary_bytes(&report, &sample_config());
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("No refunds in this period"));
     }
 
     fn sample_shift_summary() -> ShiftSummary {
@@ -1393,6 +1527,7 @@ mod tests {
                 top_table_by_sales: None,
             },
             average_sale_minor: 8_000,
+            refunds: sample_refunds_summary(),
             category_sales: sample_category_report(),
             product_sales: sample_product_sales(),
             table_sales: Some(sample_table_sales()),
@@ -1407,6 +1542,8 @@ mod tests {
         assert!(text.contains("OVERVIEW"));
         assert!(text.contains("NET PROFIT"));
         assert!(text.contains("PKR 750.00"), "net profit must appear formatted: {text}");
+        assert!(text.contains("REFUNDS"));
+        assert!(text.contains("TOTAL REFUNDED"));
         assert!(text.contains("CATEGORY WISE SALE"));
         assert!(text.contains("Beverages"));
         assert!(text.contains("PRODUCT WISE SALES"));

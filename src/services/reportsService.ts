@@ -3,6 +3,7 @@ import type {
   DailySales,
   FullReport,
   ProductSalesSummaryReport,
+  RefundsSummary,
   SalesSummary,
   TableSalesSummary,
   TopItem,
@@ -56,6 +57,19 @@ export function printTableSalesThermal(startDate: string, endDate: string): Prom
   return call<void>("reports_print_table_sales_summary", { startDate, endDate });
 }
 
+/** Every refund recorded in the range (by refund date, not the date of the
+ * original sale), most recent first, plus a grand total — the "Refunds"
+ * report. */
+export function getRefundsSummary(startDate: string, endDate: string): Promise<RefundsSummary> {
+  return call<RefundsSummary>("reports_get_refunds_summary", { startDate, endDate });
+}
+
+/** Prints the Refunds report on a USB thermal printer — same
+ * auto-detect/fall-back-to-PDF contract as the other print buttons. */
+export function printRefundsSummaryThermal(startDate: string, endDate: string): Promise<void> {
+  return call<void>("reports_print_refunds_summary", { startDate, endDate });
+}
+
 /** The "Product Wise Sales" report: every item sold in the range (ranked by
  * `sortBy`), optionally narrowed to one category, plus a "no sales this
  * period" list of active items that sold zero units. */
@@ -74,9 +88,10 @@ export function getProductSalesSummary(
 }
 
 /** The "Generate Full Report" consolidated document: Overview (incl. net
- * profit), Category Wise Sale, Product Wise Sales, and Table Wise Sales
- * (only when `tables` is enabled) for one date range, all in one payload —
- * source for both the combined PDF download and the thermal print below. */
+ * profit), Refunds, Category Wise Sale, Product Wise Sales, and Table Wise
+ * Sales (only when `tables` is enabled) for one date range, all in one
+ * payload — source for both the combined PDF download and the thermal
+ * print below. */
 export function getFullReport(startDate: string, endDate: string): Promise<FullReport> {
   return call<FullReport>("reports_get_full_report", { startDate, endDate, platform: PLATFORM });
 }

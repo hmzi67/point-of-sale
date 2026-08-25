@@ -501,6 +501,99 @@ pub fn get_table_sales_summary(
 }
 
 // ---------------------------------------------------------------------------
+// Refunds
+// ---------------------------------------------------------------------------
+
+/// One refund for the report — reuses `refunds::Refund`/`RefundLine` (the
+/// same shape the single-refund receipt/reprint already return) rather than
+/// a parallel type, so the frontend's existing `Refund` type covers this
+/// report's rows for free and the two can never drift in shape.
+use crate::db::refunds::{Refund, RefundLine};
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefundsSummary {
+    pub start_date: String,
+    pub end_date: String,
+    /// Most recent first — matches the on-screen table's default sort.
+    pub refunds: Vec<Refund>,
+    pub grand_total_refunded_minor: i64,
+}
+
+/// Every refund recorded in the range (by refund date, not the date of the
+/// original sale — same convention `DashboardSummary.refunds_minor` and
+/// `SalesSummary.refunds_minor` already use), most recent first, plus a
+/// grand total. Not module-gated — refunds aren't a toggleable module, same
+/// as the Overview's refunds figure.
+pub fn get_refunds_summary(
+    conn: &Connection,
+    start_date: &str,
+    end_date: &str,
+) -> Result<RefundsSummary, ReportError> {
+    let (start_ts, end_ts) = validate_range(start_date, end_date)?;
+
+    let mut header_stmt = conn.prepare(
+        "SELECT r.id, r.original_sale_id, r.refunded_by, u.name, r.reason,
+                r.total_refund_amount_minor, r.created_at
+           FROM refunds r
+           LEFT JOIN users u ON u.id = r.refunded_by
+          WHERE r.created_at >= ?1 AND r.created_at <= ?2
+          ORDER BY r.created_at DESC, r.id DESC",
+    )?;
+    #[allow(clippy::type_complexity)]
+    let headers: Vec<(i64, i64, Option<i64>, Option<String>, Option<String>, i64, String)> = header_stmt
+        .query_map(params![start_ts, end_ts], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut item_stmt = conn.prepare(
+        "SELECT ri.sale_item_id, si.item_id, i.name, ri.qty_refunded, ri.amount_refunded_minor
+           FROM refund_items ri
+           JOIN sale_items si ON si.id = ri.sale_item_id
+           JOIN items i ON i.id = si.item_id
+          WHERE ri.refund_id = ?1
+          ORDER BY ri.id",
+    )?;
+
+    let mut refunds = Vec::with_capacity(headers.len());
+    let mut grand_total_refunded_minor: i64 = 0;
+    for (id, original_sale_id, refunded_by, refunded_by_name, reason, total_refund_amount_minor, created_at) in headers
+    {
+        let items = item_stmt
+            .query_map(params![id], |row| {
+                Ok(RefundLine {
+                    sale_item_id: row.get(0)?,
+                    item_id: row.get(1)?,
+                    item_name: row.get(2)?,
+                    qty_refunded: row.get(3)?,
+                    amount_refunded_minor: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        grand_total_refunded_minor += total_refund_amount_minor;
+        refunds.push(Refund {
+            id,
+            original_sale_id,
+            refunded_by,
+            refunded_by_name,
+            reason,
+            total_refund_amount_minor,
+            created_at,
+            items,
+        });
+    }
+
+    Ok(RefundsSummary {
+        start_date: start_date.to_string(),
+        end_date: end_date.to_string(),
+        refunds,
+        grand_total_refunded_minor,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Sales over time
 // ---------------------------------------------------------------------------
 
@@ -1106,5 +1199,93 @@ mod tests {
         let conn = test_conn();
         let ids = get_best_selling_item_ids(&conn, 30, 1).unwrap();
         assert!(ids.len() <= 1);
+    }
+
+    /// Rings up a fresh Cola x2 sale and refunds 1 unit of it, with a reason
+    /// and a `refunded_by` set — a clean, known refund every test below
+    /// checks the report against.
+    fn seed_one_refund(conn: &mut Connection) -> i64 {
+        use crate::db::refunds::{create_refund, CreateRefundInput, RefundLineInput};
+        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+
+        let tx = conn.transaction().unwrap();
+        let cola: i64 =
+            tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+        let owner_id: i64 = tx.query_row("SELECT id FROM users LIMIT 1", [], |row| row.get(0)).unwrap();
+        let sale = create_sale(
+            &tx,
+            CreateSaleInput {
+                items: vec![CartLine { item_id: cola, qty: 2, notes: None }],
+                discount_minor: 0,
+                tax_minor: 0,
+                payment_method: "cash".into(),
+                cashier_id: None,
+                table_id: None,
+                shift_id: None,
+            },
+        )
+        .unwrap();
+        let sale_item_id: i64 =
+            tx.query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale.id], |row| row.get(0)).unwrap();
+        let refund = create_refund(
+            &tx,
+            CreateRefundInput {
+                sale_id: sale.id,
+                items: vec![RefundLineInput { sale_item_id, qty: 1, amount_minor: 8000 }],
+                reason: Some("Customer changed mind".into()),
+                refunded_by: Some(owner_id),
+            },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        refund.id
+    }
+
+    #[test]
+    fn refunds_summary_lists_a_refund_with_its_item_reason_and_processed_by() {
+        let mut conn = test_conn();
+        let refund_id = seed_one_refund(&mut conn);
+
+        let report = get_refunds_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
+        let refund = report.refunds.iter().find(|r| r.id == refund_id).expect("seeded refund must appear");
+
+        assert_eq!(refund.items.len(), 1);
+        assert_eq!(refund.items[0].item_name, "Cola 500ml");
+        assert_eq!(refund.items[0].qty_refunded, 1);
+        assert_eq!(refund.reason.as_deref(), Some("Customer changed mind"));
+        assert!(refund.refunded_by_name.is_some(), "refunded_by must resolve to a user name");
+        assert_eq!(refund.total_refund_amount_minor, 8000);
+    }
+
+    #[test]
+    fn refunds_summary_grand_total_matches_the_sum_of_every_row() {
+        let mut conn = test_conn();
+        seed_one_refund(&mut conn);
+        seed_one_refund(&mut conn);
+
+        let report = get_refunds_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
+        let rows_sum: i64 = report.refunds.iter().map(|r| r.total_refund_amount_minor).sum();
+        assert_eq!(report.grand_total_refunded_minor, rows_sum);
+        assert!(report.refunds.len() >= 2, "both seeded refunds must appear");
+    }
+
+    #[test]
+    fn refunds_summary_sorts_most_recent_first() {
+        let mut conn = test_conn();
+        seed_one_refund(&mut conn);
+        seed_one_refund(&mut conn);
+
+        let report = get_refunds_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
+        for pair in report.refunds.windows(2) {
+            assert!(pair[0].id >= pair[1].id, "most recently created refund must come first");
+        }
+    }
+
+    #[test]
+    fn refunds_summary_is_empty_for_a_range_with_no_refunds() {
+        let conn = test_conn(); // seed data has sales but no refunds
+        let report = get_refunds_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
+        assert!(report.refunds.is_empty());
+        assert_eq!(report.grand_total_refunded_minor, 0);
     }
 }

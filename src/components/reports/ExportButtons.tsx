@@ -4,15 +4,17 @@ import {
   getCategorySales,
   getFullReport,
   getProductSalesSummary,
+  getRefundsSummary,
   getTableSalesSummary,
   printCategorySalesThermal,
   printFullReportThermal,
+  printRefundsSummaryThermal,
   printTableSalesThermal,
 } from "../../services/reportsService";
 import { downloadReportCsv } from "../../utils/reportCsv";
 import type { AppConfig, DailySales, SalesSummary, TopItem, TopItemSort } from "../../types";
 
-type View = "overview" | "products" | "tables";
+type View = "overview" | "products" | "tables" | "refunds";
 
 interface ExportButtonsProps {
   view: View;
@@ -123,7 +125,10 @@ export function ExportButtons({
   const [isPrintingCategory, setIsPrintingCategory] = useState(false);
   const [isDownloadingFull, setIsDownloadingFull] = useState(false);
   const [isPrintingFull, setIsPrintingFull] = useState(false);
-  const [isPrintingTables, setIsPrintingTables] = useState(false);
+  // Shared by every tab-aware "current view" print button (Table Wise
+  // Sales, Refunds) — only one of them is ever visible/clickable at a time
+  // since only one tab is active.
+  const [isPrintingCurrentView, setIsPrintingCurrentView] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const disabled = !summary;
 
@@ -139,10 +144,14 @@ export function ExportButtons({
         const report = await getProductSalesSummary(startDate, endDate, productCategoryId, productSort);
         const { downloadProductSalesPdf } = await import("../../utils/productSalesPdf");
         await downloadProductSalesPdf(report, config);
-      } else {
+      } else if (view === "tables") {
         const report = await getTableSalesSummary(startDate, endDate);
         const { downloadTableSalesPdf } = await import("../../utils/tableSalesPdf");
         await downloadTableSalesPdf(report, config);
+      } else {
+        const report = await getRefundsSummary(startDate, endDate);
+        const { downloadRefundsSummaryPdf } = await import("../../utils/refundsSummaryPdf");
+        await downloadRefundsSummaryPdf(report, config);
       }
     } catch (e) {
       setError(`Could not prepare the download: ${(e as Error).message}`);
@@ -152,14 +161,18 @@ export function ExportButtons({
   };
 
   const printCurrentView = async () => {
-    setIsPrintingTables(true);
+    setIsPrintingCurrentView(true);
     setError(null);
     try {
-      await printTableSalesThermal(startDate, endDate);
+      if (view === "refunds") {
+        await printRefundsSummaryThermal(startDate, endDate);
+      } else {
+        await printTableSalesThermal(startDate, endDate);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setIsPrintingTables(false);
+      setIsPrintingCurrentView(false);
     }
   };
 
@@ -219,7 +232,18 @@ export function ExportButtons({
     }
   };
 
-  const currentViewTitle = view === "overview" ? "Overview (CSV)" : view === "products" ? "Product Wise Sales" : "Table Wise Sales";
+  const currentViewTitle =
+    view === "overview"
+      ? "Overview (CSV)"
+      : view === "products"
+        ? "Product Wise Sales"
+        : view === "tables"
+          ? "Table Wise Sales"
+          : "Refunds";
+
+  // Table Wise Sales' thermal print needs `tables` enabled; Refunds' print
+  // has no such module gate (refunds aren't a toggleable module).
+  const canPrintCurrentView = view === "refunds" || (view === "tables" && tablesEnabled);
 
   return (
     <div className="flex flex-col items-end gap-1.5">
@@ -229,8 +253,8 @@ export function ExportButtons({
           icon={view === "overview" ? Download : FileText}
           onDownload={() => void downloadCurrentView()}
           isDownloading={disabled || isDownloadingCurrent}
-          onPrint={view === "tables" && tablesEnabled ? () => void printCurrentView() : undefined}
-          isPrinting={isPrintingTables}
+          onPrint={canPrintCurrentView ? () => void printCurrentView() : undefined}
+          isPrinting={isPrintingCurrentView}
         />
 
         <ActionCard

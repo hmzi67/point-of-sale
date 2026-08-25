@@ -1,6 +1,7 @@
 /** Money fields cross IPC as integer minor units, matching the Rust side. */
 
 import type { DashboardSummary } from "./dashboard";
+import type { Refund } from "./refunds";
 
 export interface SalesSummary {
   startDate: string;
@@ -70,6 +71,18 @@ export interface TableSalesSummary {
   grandTotalMinor: number;
 }
 
+/** The "Refunds" report — every refund in the range (by refund date, not
+ * the date of the original sale), most recent first. Reuses the same
+ * `Refund` shape `refund_get`/the reprint flow already return, so this row
+ * and a single reprinted refund can never drift in shape. */
+export interface RefundsSummary {
+  startDate: string;
+  endDate: string;
+  /** Most recent first. */
+  refunds: Refund[];
+  grandTotalRefundedMinor: number;
+}
+
 export interface ProductSalesRow {
   itemId: number;
   itemName: string;
@@ -108,6 +121,9 @@ export interface FullReport {
   endDate: string;
   overview: DashboardSummary;
   averageSaleMinor: number;
+  /** Itemized refunds for the period, plus a grand total — never
+   * module-gated, so always present, unlike `tableSales` below. */
+  refunds: RefundsSummary;
   categorySales: CategorySalesReport;
   productSales: ProductSalesSummaryReport;
   tableSales: TableSalesSummary | null;

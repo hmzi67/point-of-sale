@@ -41,6 +41,7 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
   const { overview } = report;
   const stats: Array<[string, string]> = [
     ["Total sales", money(overview.totalSalesMinor)],
+    ["Refunds", money(overview.refundsMinor)],
     ["Transactions", String(overview.transactionCount)],
     ["Average sale", money(report.averageSaleMinor)],
     ["Net profit", money(overview.netProfitMinor)],
@@ -70,7 +71,47 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
     y += 8;
   }
 
+  // --- Refunds ------------------------------------------------------------
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("Refunds", margin, y);
+  y += 2;
+
+  if (report.refunds.refunds.length === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text("No refunds in this period", margin, y + 4);
+    doc.setTextColor(0);
+    y += 10;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [["Vno", "Item(s)", "Reason", "By", "Date", "Amount"]],
+      body: report.refunds.refunds.map((refund) => [
+        String(refund.originalSaleId),
+        refund.items.map((line) => `${line.itemName} x${line.qtyRefunded}`).join(", "),
+        refund.reason ?? "—",
+        refund.refundedByName ?? "—",
+        refund.createdAt,
+        money(refund.totalRefundAmountMinor),
+      ]),
+      styles: { fontSize: 8, cellPadding: 1.8 },
+      headStyles: { fillColor: [30, 41, 59] },
+      columnStyles: { 0: { cellWidth: 14 }, 5: { halign: "right" } },
+      theme: "striped",
+      foot: [["", "", "", "", "Total Refunded", money(report.refunds.grandTotalRefundedMinor)]],
+      footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+  }
+
   // --- Category Wise Sale ----------------------------------------------
+  if (y > 250) {
+    doc.addPage();
+    y = 18;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.text("Category Wise Sale", margin, y);

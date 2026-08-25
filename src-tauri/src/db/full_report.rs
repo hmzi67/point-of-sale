@@ -2,9 +2,9 @@
 //! everything the individual per-report exports (`reports::*`) show
 //! separately — the Overview summary (including net profit, reusing
 //! `dashboard::get_summary` rather than recomputing that math a second
-//! time), Category Wise Sale, Product Wise Sales, and Table Wise Sales
-//! (only when the `tables` module is enabled) — all for the same date
-//! range, assembled once here so the downloadable PDF and the
+//! time), itemized Refunds, Category Wise Sale, Product Wise Sales, and
+//! Table Wise Sales (only when the `tables` module is enabled) — all for
+//! the same date range, assembled once here so the downloadable PDF and the
 //! thermal-print version are built from the exact same numbers rather than
 //! two separate queries that could theoretically disagree.
 
@@ -14,7 +14,8 @@ use serde::Serialize;
 use crate::db::dashboard::{self, DashboardSummary};
 use crate::db::modules::{self, Platform};
 use crate::db::reports::{
-    self, CategorySalesReport, ProductSalesSummaryReport, ReportError, SalesSummary, TableSalesSummary, TopItemSort,
+    self, CategorySalesReport, ProductSalesSummaryReport, RefundsSummary, ReportError, SalesSummary,
+    TableSalesSummary, TopItemSort,
 };
 
 #[derive(Debug)]
@@ -67,6 +68,10 @@ pub struct FullReport {
     /// tab does, so this reuses `reports::get_sales_summary`'s rounding
     /// rather than recomputing an average a second, different way.
     pub average_sale_minor: i64,
+    /// Itemized refunds for the period, most recent first, plus a grand
+    /// total — never module-gated (same as `overview.refunds_minor`), so
+    /// this is always present, unlike `table_sales` below.
+    pub refunds: RefundsSummary,
     pub category_sales: CategorySalesReport,
     pub product_sales: ProductSalesSummaryReport,
     /// `None` when the `tables` module is disabled for this
@@ -87,6 +92,7 @@ pub fn get_full_report(
 ) -> Result<FullReport, FullReportError> {
     let overview = dashboard::get_summary(conn, start_date, end_date, platform)?;
     let SalesSummary { average_sale_minor, .. } = reports::get_sales_summary(conn, start_date, end_date)?;
+    let refunds = reports::get_refunds_summary(conn, start_date, end_date)?;
     let category_sales = reports::get_category_sales(conn, start_date, end_date)?;
     // Product Wise Sales isn't module-gated (unlike Table Wise Sales below)
     // — every installation has products to sell, ranked by revenue to
@@ -102,6 +108,7 @@ pub fn get_full_report(
         end_date: end_date.to_string(),
         overview,
         average_sale_minor,
+        refunds,
         category_sales,
         product_sales,
         table_sales,
