@@ -148,6 +148,10 @@ jobs:
     name: Build Android
     needs: create-release
     runs-on: ubuntu-latest
+    # Temporarily disabled — Android build is being fixed later; only
+    # Windows/macOS ship for now. Re-enable by deleting this line (and
+    # adding `android` back to finalize-release's `needs` below).
+    if: false
     steps:
       - uses: actions/checkout@v4
 
@@ -288,7 +292,7 @@ jobs:
   # actually landed on it, so the release page never shows an incomplete set.
   finalize-release:
     name: Publish release
-    needs: [create-release, windows, macos, android]
+    needs: [create-release, windows, macos]
     runs-on: ubuntu-latest
     steps:
       - name: Undraft release
