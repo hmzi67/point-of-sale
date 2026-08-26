@@ -45,7 +45,8 @@
     ],
     "windows": {
       "webviewInstallMode": {
-        "type": "offlineInstaller"
+        "type": "fixedRuntime",
+        "path": "./vendor/webview2-fixed-runtime-109/"
       },
       "nsis": {
         "installerHooks": "./windows/hooks.nsh"

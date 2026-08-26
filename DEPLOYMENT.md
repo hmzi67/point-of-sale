@@ -47,6 +47,68 @@ later — it's a small addition, not a rewrite, once you have an account.
 automatically by GitHub Actions for creating/updating the release; the
 workflow has `permissions: contents: write` so it can use it.
 
+**Required for the Windows job:** `WEBVIEW2_FIXED_RUNTIME_URL` — see
+"Windows 7 support" below. Without it, the `windows` job will fail: the
+Windows build now always needs this folder present (`fixedRuntime` mode in
+`tauri.conf.json` isn't conditional), not just for Win7 clients.
+
+## Windows 7 support (WebView2 Fixed Version)
+
+A confirmed client machine runs genuine Windows 7 SP1 (build 7601).
+Microsoft's WebView2 Runtime — what Tauri uses for the whole app UI on
+Windows — has had **no build newer than 109.0.1518.140 that runs on Windows
+7/8/8.1 at all** since January 2023; every later release refuses to start
+on those OSes. So `bundle.windows.webviewInstallMode` in `tauri.conf.json`
+is pinned to:
+
+```json
+"webviewInstallMode": { "type": "fixedRuntime", "path": "./vendor/webview2-fixed-runtime-109/" }
+```
+
+This bundles that exact runtime build into the installer instead of relying
+on whatever's on the target machine or downloading one at install time —
+which is also what avoids the original bootstrapper crash
+(`PackageIdFromFullName`/`KERNEL32.dll` entry-point error) entirely, on any
+OS. `src-tauri/windows/hooks.nsh` still runs a pre-install check, but the
+floor is now Windows 7 SP1, not Windows 10 — anything genuinely older
+(Vista, XP) is still turned away with a plain-language message instead of a
+cryptic failure partway through setup.
+
+**Deliberate, accepted tradeoffs** (see the fuller discussion in the PR/session
+this was added in if you need the full reasoning):
+- v109 has had zero security patches since Jan 2023 and never will — it's
+  permanently frozen for Win7 clients specifically.
+- It may not fully support every WebView2 API our Tauri version (2.11.5+)
+  expects; if something behaves oddly *only* on the Win7 build, this is the
+  first thing to suspect.
+- Every Windows build now bundles this (larger installer for all clients,
+  not just Win7 ones) — it wasn't split into a separate Win7-only build.
+
+### Where the runtime folder comes from
+
+Microsoft's official WebView2 download page only ever serves the *current*
+Fixed Version release — v109 has already aged off it and has no official
+download source any more. This repo does not (and should not) vendor a
+copy from an unverified third party. **You are responsible for sourcing
+`Microsoft.WebView2.FixedVersionRuntime.109.0.1518.140` yourself** from a
+channel you trust, for both `x64` and, if any client machine is 32-bit,
+`x86`.
+
+Once you have it:
+
+1. Decompress it with `expand {package} -F:* {dest}` (not File Explorer —
+   Microsoft's own docs warn that can produce the wrong folder structure).
+2. For **local dev builds**: place the decompressed folder at
+   `src-tauri/vendor/webview2-fixed-runtime-109/` (gitignored — never commit
+   it, it's a large third-party binary).
+3. For **CI builds**: zip that same folder and host it somewhere the
+   `windows-latest` runner can fetch over HTTPS with a single `curl` (a
+   private blob-storage URL with a long-lived SAS/presigned token, or a
+   private GitHub release asset's authenticated download URL). Put that
+   full URL in the `WEBVIEW2_FIXED_RUNTIME_URL` secret. The `windows` job
+   downloads and unzips it into `src-tauri/vendor/webview2-fixed-runtime-109/`
+   before the Tauri build step runs (see `release.yml`'s `windows` job).
+
 ## Cutting a release
 
 ```bash

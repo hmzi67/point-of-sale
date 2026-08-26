@@ -46,14 +46,19 @@ canonical doc for anyone (human or AI) working on this codebase.
 
 ## System requirements
 
-- **Windows** — 10 or later (64-bit). WebView2 Runtime, which Tauri relies
-  on for the app UI, dropped support for Windows 7/8/8.1 in January 2023
-  (v109 was the last runtime build to support them); the Windows installer
-  bundles the offline WebView2 installer (`webviewInstallMode:
-  offlineInstaller` in `tauri.conf.json`) and runs an NSIS preinstall check
-  (`src-tauri/windows/hooks.nsh`) that stops with a plain-language message
-  before touching anything if the target machine is below Windows 10 —
-  it never gets to the WebView2 step to fail cryptically.
+- **Windows** — 7 SP1 or later (64-bit; 32-bit needs a separate `x86` fixed
+  runtime, see below). WebView2 Runtime — what Tauri relies on for the app
+  UI — dropped support for Windows 7/8/8.1 for every release after
+  109.0.1518.140 (Jan 2023), so `bundle.windows.webviewInstallMode` in
+  `tauri.conf.json` is pinned to `fixedRuntime` with that exact build
+  bundled into the installer, rather than relying on whatever the target
+  machine has or downloading one at install time — see `DEPLOYMENT.md`'s
+  "Windows 7 support" section for the tradeoffs this accepts (a frozen,
+  unpatched-since-2023 engine, no official source for the binary any more)
+  and where the runtime folder has to come from. An NSIS preinstall check
+  (`src-tauri/windows/hooks.nsh`) still stops anything genuinely older than
+  Windows 7 SP1 with a plain-language message instead of a cryptic failure
+  partway through setup.
 - **macOS** — 10.15 (Catalina) or later, per Tauri/WKWebView's own floor.
 - **Android** — see `src-tauri/gen/android` / the Android build job in
   `.github/workflows/release.yml` for the target/min SDK once that build is

@@ -12,3 +12,12 @@
 # previous rebrand. Was previously (incorrectly) committed — see the Diwan
 # rebrand commit that removed it from tracking.
 /gen/android
+
+# WebView2 Fixed Version runtime, pinned to 109.0.1518.140 (the last build
+# Microsoft ever shipped for Windows 7/8/8.1) so the Windows installer can
+# support genuine Win7 machines via `fixedRuntime` in tauri.conf.json.
+# NOT committed: it's a large (~250MB) third-party binary with no official
+# download source any more (Microsoft's Fixed Version page now only serves
+# the current release) — see DEPLOYMENT.md's "Windows 7 support" section for
+# where this has to come from and how it's placed here for a build.
+/vendor/webview2-fixed-runtime-109/
