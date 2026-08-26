@@ -19,6 +19,14 @@
 #                                      generated src-tauri/gen/android project
 #                                      does not itself pin an NDK version
 #   - android-actions/setup-android@v4
+#
+# actions/checkout, actions/setup-node, actions/github-script and
+# actions/setup-java are pinned to the earliest major of each that runs on
+# Node 24 (checked 2026-08-26 — @v4/@v4/@v7/@v4 were still Node 20, which is
+# what the "Node 20 is being deprecated" warning in run logs was about;
+# Node 20 support is fully removed 2026-09-16). tauri-apps/tauri-action,
+# nttld/setup-ndk and android-actions/setup-android were already Node 24 at
+# their currently-pinned major and needed no change.
 # ---------------------------------------------------------------------------
 
 name: Release
@@ -28,11 +36,28 @@ on:
     tags:
       - "v*"
 
-# Re-pushing the same tag cancels any in-progress run for it instead of
-# racing duplicate builds / duplicate release uploads.
+# Re-pushing the same tag queues behind any run already in progress for it,
+# instead of racing duplicate builds / duplicate release uploads.
+#
+# cancel-in-progress is deliberately FALSE here, unlike a typical PR-CI
+# workflow. This is a release build: each platform job is a 10-45 minute
+# Rust compile, and killing one mid-build to start an identical rebuild from
+# scratch is pure waste, not a time-save — for a run that's already most of
+# the way done, cancelling it and starting over is strictly slower than
+# just letting it finish. (This was diagnosed directly: a re-push of the
+# same tag on 2026-08-26 cancelled a Windows build ~600 lines into `cargo
+# build`, seconds before a second run for the same ref started — with
+# cancel-in-progress true, that pattern repeats every time a tag is
+# re-pushed to work around a release conflict.) With it false, a re-push
+# still can't produce duplicate/racing uploads to the same release (the
+# queued run simply runs after, and create-release's find-or-create logic
+# reuses the same draft either way) — it just no longer destroys work in
+# progress to do it. A run that's genuinely stuck is still bounded by each
+# job's timeout-minutes below, and can always be cancelled by hand from the
+# Actions UI if needed.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -49,6 +74,7 @@ jobs:
   create-release:
     name: Create draft release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       release_id: ${{ steps.create-release.outputs.result }}
     steps:
@@ -63,7 +89,7 @@ jobs:
       # "already_exists" error when trying to undraft it.
       - name: Find or create release for this tag
         id: create-release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             try {
@@ -92,15 +118,29 @@ jobs:
     name: Build Windows
     needs: create-release
     runs-on: windows-latest
+    # Observed cold-build time (no Rust cache) is ~9-11 minutes end-to-end
+    # for this job; with Swatinem/rust-cache warm, expect roughly half
+    # that. 45 minutes gives real headroom over both without masking a
+    # genuinely stuck build behind an ambiguous cancellation.
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+
+      # Caches ~/.cargo and src-tauri/target keyed on Cargo.lock, so a
+      # release rebuild doesn't recompile every dependency from scratch —
+      # see the concurrency comment above for why builds staying fast also
+      # shrinks the window a re-pushed tag can clash in.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          cache-on-failure: true
 
       - name: Install frontend dependencies
         run: npm ci
@@ -119,10 +159,14 @@ jobs:
       fail-fast: false
       matrix:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    # Observed cold-build time is ~5-6 minutes per target; with the Rust
+    # cache warm this should drop further. 30 minutes gives headroom
+    # without masking a stuck build as an ambiguous cancellation.
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
@@ -130,6 +174,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      # Keyed by matrix.target too: both matrix jobs share the job id
+      # ("macos"), and without an explicit extra key Swatinem/rust-cache
+      # would key them the same despite compiling for different targets.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          key: ${{ matrix.target }}
+          cache-on-failure: true
 
       - name: Install frontend dependencies
         run: npm ci
@@ -173,10 +226,14 @@ jobs:
     # Windows/macOS ship for now. Re-enable by deleting this line (and
     # adding `android` back to finalize-release's `needs` below).
     if: false
+    # Untested cold-build estimate (four Rust targets + Gradle + NDK) —
+    # revisit once this job actually runs again; err generous rather than
+    # risk a false timeout on re-enable.
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
@@ -189,9 +246,17 @@ jobs:
             i686-linux-android,
             x86_64-linux-android
 
+      # Four targets share the job id ("android"); key on the target list
+      # so this doesn't collide with a future per-target matrix split the
+      # same way the macOS job's cache does.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          cache-on-failure: true
+
       # VERIFY: JDK version required by this repo's @tauri-apps/cli — see
       # the pin notes at the top of this file.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: zulu
           java-version: "17"
@@ -315,9 +380,10 @@ jobs:
     name: Publish release
     needs: [create-release, windows, macos]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Undraft release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const release_id = ${{ needs.create-release.outputs.release_id }};
