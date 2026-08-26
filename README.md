@@ -1,4 +1,4 @@
-# POS
+# Diwan
 
 A white-label, offline-first point of sale system for small retail and restaurant
 businesses, built with Tauri 2 (React + Rust). One codebase, configured per

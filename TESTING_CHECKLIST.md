@@ -186,7 +186,7 @@ until Settings' "Select printer" step has been used once):
 
 - [ ] Go to Settings → Printer. If `BLUETOOTH_CONNECT` is already granted
       from a previous run, revoke it first (Android system Settings → Apps →
-      POS → Permissions → Nearby devices → Don't allow), then reopen
+      Diwan → Permissions → Nearby devices → Don't allow), then reopen
       Settings → Printer in the app.
   - [ ] The screen shows "Grant Bluetooth permission" rather than an empty
         or broken device list.

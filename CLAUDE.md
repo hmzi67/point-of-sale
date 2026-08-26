@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Tauri 2 desktop app (`pos` — point of sale), white-label by design: one codebase configured per client, with modules toggled on/off rather than forked. Read `projectGoal.md` for the "why" and `buildPlan.md` for the phase-by-phase "how" — every change should fit somewhere in that plan.
+**Diwan** — a Tauri 2 desktop point-of-sale app, white-label by design: one codebase configured per client, with modules toggled on/off rather than forked. Read `projectGoal.md` for the "why" and `buildPlan.md` for the phase-by-phase "how" — every change should fit somewhere in that plan.
 
 Phases 0–4 are complete: the app shell, the module-configuration system, PIN auth, the full database schema with demo seed data, Inventory (CRUD, search/filter, low-stock flagging, product photos), and Billing/POS (search-and-scan cart, atomic sale transaction, discount/tax, dine-in table park-and-resume, PDF receipt, ESC/POS stub). The remaining feature modules are still placeholder pages.
 
@@ -78,4 +78,4 @@ src/utils/billingTotals.ts subtotal/discount/tax/total math, shared by the cart 
 - **Fixed dev port**: Vite is pinned to 1420 with `strictPort` because `tauri.conf.json` `devUrl` points there. Don't change one without the other.
 - `withGlobalTauri: true` and `csp: null` are template defaults; tighten the CSP before shipping.
 - Routing uses `HashRouter`: Tauri serves the bundle over a custom protocol in production, where a reload on a deep path would 404 under `BrowserRouter`.
-- `productName`/window title are `POS` and the identifier is `com.applr.pos`. The Cargo package is still named `tauri-app`, so the dev binary is `target/debug/tauri-app`.
+- `productName`/window title are `Diwan` and the identifier is `com.diwan.pos`. The Cargo package is still named `tauri-app`, so the dev binary is `target/debug/tauri-app`.

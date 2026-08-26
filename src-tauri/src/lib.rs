@@ -228,7 +228,7 @@ pub fn run() {
                         "main",
                         tauri::WebviewUrl::App("index.html".into()),
                     )
-                    .title("POS")
+                    .title("Diwan")
                     .inner_size(1280.0, 800.0);
                     // Desktop only: mobile has no splash *window* to reveal
                     // past (see `reveal_main_window`'s doc comment) —
@@ -391,7 +391,7 @@ pub fn run() {
             // there, which reaches `adb logcat`.
             #[cfg(not(target_os = "android"))]
             rfd::MessageDialog::new()
-                .set_title("POS failed to start")
+                .set_title("Diwan failed to start")
                 .set_description(&format!(
                     "{error}\n\nDetails were written to:\n{}",
                     startup_log::active_log_path().display()
@@ -400,7 +400,7 @@ pub fn run() {
                 .show();
             #[cfg(target_os = "android")]
             eprintln!(
-                "POS failed to start: {error}\n\nDetails were written to: {}",
+                "Diwan failed to start: {error}\n\nDetails were written to: {}",
                 startup_log::active_log_path().display()
             );
             std::process::exit(1);

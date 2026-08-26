@@ -60,7 +60,7 @@ force-pushing a corrected tag doesn't race a stale build.
 
 ## Where to find the artifacts
 
-GitHub → **Releases** → the release named after your tag (e.g. `POS
+GitHub → **Releases** → the release named after your tag (e.g. `Diwan
 v1.0.0`). It stays in draft until all three platform jobs finish
 successfully; once published it has the Windows installer, both macOS
 builds, and the Android APK/AAB attached together.

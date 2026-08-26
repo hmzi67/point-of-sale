@@ -130,7 +130,7 @@ pub fn list_printers() -> Result<Vec<WindowsPrinterInfo>, PrinterError> {
 /// macOS/Linux's raw-USB path.
 pub fn send(printer_name: &str, bytes: &[u8]) -> Result<(), PrinterError> {
     let printer_name_w = to_wide(printer_name);
-    let mut doc_name_w = to_wide("POS Receipt");
+    let mut doc_name_w = to_wide("Diwan Receipt");
     let mut datatype_w = to_wide("RAW");
 
     unsafe {

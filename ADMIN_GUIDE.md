@@ -1,6 +1,6 @@
-# POS — Owner's Guide
+# Diwan — Owner's Guide
 
-A simple guide to running your shop with POS. No technical knowledge needed.
+A simple guide to running your shop with Diwan. No technical knowledge needed.
 
 ---
 

@@ -50,7 +50,7 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
         }}
       >
         <div style={{ maxWidth: 480, textAlign: "center" }}>
-          <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>POS couldn't start</h1>
+          <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Diwan couldn't start</h1>
           <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16 }}>
             Something went wrong before the app could load. Restarting usually fixes this — if it keeps happening,
             share this message.

@@ -1,4 +1,4 @@
-# POS System — Project Goals
+# Diwan — Project Goals
 
 ## Overview
 A **generic, white-label-ready** Point of Sale (POS) system — not a single-shop tool, but a product that can be configured and sold to multiple clients, each with different needs (retail shop, restaurant, etc.). Built desktop-first, designed to run entirely offline and perform smoothly on low-spec hardware commonly found in small local businesses. An Android companion app is also planned so clients who want mobile access (e.g. owner checking sales on phone, or a lightweight mobile billing counter) can get one from the same core system.

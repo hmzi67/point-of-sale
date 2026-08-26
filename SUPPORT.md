@@ -30,9 +30,9 @@ manual, vendor-side procedure requiring access to that machine (in person,
 remote desktop, or an equivalent support channel a client grants you):
 
 1. Locate the app's SQLite database. Tauri's `app_data_dir()` for this app:
-   - Windows: `%APPDATA%\com.applr.pos\pos.db`
-   - macOS: `~/Library/Application Support/com.applr.pos/pos.db`
-   - Linux: `~/.local/share/com.applr.pos/pos.db`
+   - Windows: `%APPDATA%\com.diwan.pos\pos.db`
+   - macOS: `~/Library/Application Support/com.diwan.pos/pos.db`
+   - Linux: `~/.local/share/com.diwan.pos/pos.db`
    - Android: the app's private data directory (requires `adb` + a
      debuggable build, or asking the client to reinstall — see below).
 2. **Close the app first** (SQLite with an open connection can be locked;

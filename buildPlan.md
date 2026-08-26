@@ -1,4 +1,4 @@
-# POS System — Full Build Plan (Start to End)
+# Diwan — Full Build Plan (Start to End)
 
 This plan takes the project from empty repo to a shippable, multi-client, module-configurable POS system across Desktop (Tauri) and Android.
 

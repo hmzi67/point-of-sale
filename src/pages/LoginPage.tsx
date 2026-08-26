@@ -95,7 +95,7 @@ export function LoginPage() {
           <button
             type="button"
             onClick={onSecretTap}
-            aria-label="POS"
+            aria-label="Diwan"
             className="mb-3 flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-brand-50 shadow-soft transition-transform active:scale-95"
           >
             <img
