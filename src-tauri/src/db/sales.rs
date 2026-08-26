@@ -22,7 +22,11 @@ use super::tables;
 #[serde(rename_all = "camelCase")]
 pub struct CartLine {
     pub item_id: i64,
-    pub qty: i64,
+    /// `f64`, not `i64` — a `sold_by_amount` item's qty is usually
+    /// fractional (computed client-side as amount ÷ price). See
+    /// `schema.rs`'s module doc comment for why `sale_items.qty`'s
+    /// declared-type change needed no migration.
+    pub qty: f64,
     /// A cashier's free-text note on this line (e.g. "no onions") — purely
     /// informational, never affects pricing or stock. `#[serde(default)]` so
     /// existing callers that don't send it still deserialize fine.
@@ -55,7 +59,12 @@ pub struct CreateSaleInput {
 pub struct SaleLine {
     pub item_id: i64,
     pub item_name: String,
-    pub qty: i64,
+    pub qty: f64,
+    /// Denormalized from `items.unit` at read time (like `item_name`) —
+    /// display-only, for showing e.g. "0.77 kg" on a `sold_by_amount`
+    /// line's receipt row. `None` for a normal per-piece item, or if the
+    /// item was deleted/its unit cleared since this sale.
+    pub unit: Option<String>,
     pub price_at_sale_minor: i64,
     pub line_total_minor: i64,
     pub notes: Option<String>,
@@ -89,7 +98,7 @@ pub enum SaleError {
     InvalidQuantity,
     ItemNotFound(i64),
     ItemInactive(String),
-    InsufficientStock { name: String, available: i64, requested: i64 },
+    InsufficientStock { name: String, available: f64, requested: f64 },
     InvalidDiscount,
     InvalidPaymentMethod(String),
     NotFound,
@@ -148,7 +157,7 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
     // keeps exactly one sale_items row per item per sale.
     let mut merged: Vec<CartLine> = Vec::with_capacity(input.items.len());
     for line in &input.items {
-        if line.qty <= 0 {
+        if line.qty <= 0.0 {
             return Err(SaleError::InvalidQuantity);
         }
         match merged.iter_mut().find(|l: &&mut CartLine| l.item_id == line.item_id) {
@@ -168,10 +177,10 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
 
     let mut subtotal_minor: i64 = 0;
     // (item_id, name, qty, price_minor, notes)
-    let mut resolved: Vec<(i64, String, i64, i64, Option<String>)> = Vec::with_capacity(merged.len());
+    let mut resolved: Vec<(i64, String, f64, i64, Option<String>)> = Vec::with_capacity(merged.len());
 
     for line in &merged {
-        let row: Option<(String, i64, i64, i64)> = tx
+        let row: Option<(String, i64, f64, i64)> = tx
             .query_row(
                 "SELECT name, price_minor, stock_qty, is_active FROM items WHERE id = ?1",
                 params![line.item_id],
@@ -192,7 +201,11 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
             });
         }
 
-        subtotal_minor += price_minor * line.qty;
+        // price_minor (integer) × qty (possibly fractional) rounded back to
+        // whole minor units — the same "round straight back to whole minor
+        // units" convention CLAUDE.md documents for tax-percent-derived
+        // amounts, applied here because qty can now be fractional too.
+        subtotal_minor += (price_minor as f64 * line.qty).round() as i64;
         resolved.push((line.item_id, name, line.qty, price_minor, line.notes.clone()));
     }
 
@@ -239,7 +252,7 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
         if changed == 0 {
             return Err(SaleError::InsufficientStock {
                 name: name.clone(),
-                available: 0,
+                available: 0.0,
                 requested: *qty,
             });
         }
@@ -291,7 +304,7 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
     let Some(mut sale) = sale else { return Ok(None) };
 
     let mut stmt = conn.prepare(
-        "SELECT si.item_id, i.name, si.qty, si.price_at_sale_minor, si.notes
+        "SELECT si.item_id, i.name, si.qty, si.price_at_sale_minor, si.notes, i.unit
            FROM sale_items si
            JOIN items i ON i.id = si.item_id
           WHERE si.sale_id = ?1
@@ -299,14 +312,15 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
     )?;
     sale.items = stmt
         .query_map(params![id], |row| {
-            let qty: i64 = row.get(2)?;
+            let qty: f64 = row.get(2)?;
             let price_at_sale_minor: i64 = row.get(3)?;
             Ok(SaleLine {
                 item_id: row.get(0)?,
                 item_name: row.get(1)?,
                 qty,
+                unit: row.get(5)?,
                 price_at_sale_minor,
-                line_total_minor: price_at_sale_minor * qty,
+                line_total_minor: (price_at_sale_minor as f64 * qty).round() as i64,
                 notes: row.get(4)?,
             })
         })?
@@ -357,6 +371,7 @@ pub fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<SaleListItem>, r
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::items::{self, ItemInput};
     use crate::db::schema::test_conn;
 
     fn item_id(conn: &Connection, name: &str) -> i64 {
@@ -364,7 +379,7 @@ mod tests {
             .unwrap()
     }
 
-    fn stock(conn: &Connection, name: &str) -> i64 {
+    fn stock(conn: &Connection, name: &str) -> f64 {
         conn.query_row(
             "SELECT stock_qty FROM items WHERE name = ?1",
             params![name],
@@ -375,7 +390,7 @@ mod tests {
 
     fn basic_input(conn: &Connection) -> CreateSaleInput {
         CreateSaleInput {
-            items: vec![CartLine { item_id: item_id(conn, "Cola 500ml"), qty: 2, notes: None }],
+            items: vec![CartLine { item_id: item_id(conn, "Cola 500ml"), qty: 2.0, notes: None }],
             discount_minor: 0,
             tax_minor: 0,
             payment_method: "cash".into(),
@@ -392,7 +407,7 @@ mod tests {
         let input = CreateSaleInput {
             items: vec![CartLine {
                 item_id: item_id(&tx, "Cola 500ml"),
-                qty: 1,
+                qty: 1.0,
                 notes: Some("  extra cold, no straw  ".into()),
             }],
             ..basic_input(&tx)
@@ -411,11 +426,117 @@ mod tests {
         let mut conn = test_conn();
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 1, notes: Some("   ".into()) }],
+            items: vec![CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 1.0, notes: Some("   ".into()) }],
             ..basic_input(&tx)
         };
         let sale = create_sale(&tx, input).unwrap();
         assert_eq!(sale.items[0].notes, None);
+    }
+
+    /// A "sold by amount" line end to end: fractional qty, money rounded
+    /// back to whole minor units, stock decremented by exactly that
+    /// fraction — not rounded to a whole unit anywhere in the path.
+    #[test]
+    fn a_fractional_quantity_line_rounds_money_and_decrements_stock_precisely() {
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml"); // price_minor 8000
+        let cola_stock_before = stock(&conn, "Cola 500ml");
+
+        let tx = conn.transaction().unwrap();
+        // 100 (10000 minor) worth of an item priced at 8000/unit -> 1.25 units.
+        let input = CreateSaleInput {
+            items: vec![CartLine { item_id: cola, qty: 1.25, notes: None }],
+            ..basic_input(&tx)
+        };
+        let sale = create_sale(&tx, input).unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(sale.items[0].qty, 1.25);
+        assert_eq!(sale.items[0].line_total_minor, 10_000, "8000 * 1.25 = 10000 exactly");
+        assert_eq!(sale.subtotal_minor, 10_000);
+        assert_eq!(stock(&conn, "Cola 500ml"), cola_stock_before - 1.25, "stock must decrement by the exact fraction");
+
+        // A case that does NOT divide evenly, to prove the rounding is a
+        // real `.round()`, not truncation: 8000 * 0.333 = 2664.0 exactly
+        // already, so pick a rate that lands mid-paisa instead.
+        let noodles = item_id(&conn, "Instant Noodles");
+        let noodles_price_minor: i64 =
+            conn.query_row("SELECT price_minor FROM items WHERE id = ?1", params![noodles], |row| row.get(0)).unwrap();
+        let tx = conn.transaction().unwrap();
+        let input = CreateSaleInput {
+            items: vec![CartLine { item_id: noodles, qty: 0.333, notes: None }],
+            ..basic_input(&tx)
+        };
+        let sale = create_sale(&tx, input).unwrap();
+        let expected = (noodles_price_minor as f64 * 0.333).round() as i64;
+        assert_eq!(sale.items[0].line_total_minor, expected);
+    }
+
+    /// The full "sold by amount" acceptance scenario: mark an item eligible,
+    /// give it a per-unit price, sell it by a computed fractional qty, and
+    /// confirm the receipt data (qty, unit, line total) and stock
+    /// decrement are all correct. `db::items::` owns eligibility/unit;
+    /// this module never re-derives amount ÷ price itself — the frontend
+    /// computes qty client-side and sends it like any other cart line,
+    /// same trust boundary CLAUDE.md documents for every other qty.
+    #[test]
+    fn a_sold_by_amount_item_sells_at_a_computed_fractional_qty_with_its_unit_on_the_receipt() {
+        let mut conn = test_conn();
+        let item = items::add_item(
+            &conn,
+            ItemInput {
+                name: "Loose Channa".into(),
+                barcode: None,
+                description: None,
+                price_minor: 12_987, // PKR 129.87/kg
+                cost_minor: 10_000,
+                stock_qty: 50.0,
+                category_id: None,
+                low_stock_threshold: 2,
+                image_path: None,
+                sold_by_amount: true,
+                unit: Some("kg".into()),
+            },
+        )
+        .unwrap();
+        assert!(item.sold_by_amount);
+
+        // Customer asks for "100 rupees worth": 10000 / 12987 ≈ 0.7700...
+        let amount_minor = 10_000;
+        let qty = ((amount_minor as f64 / item.price_minor as f64) * 100.0).round() / 100.0;
+        assert_eq!(qty, 0.77);
+
+        let tx = conn.transaction().unwrap();
+        let sale = create_sale(
+            &tx,
+            CreateSaleInput {
+                items: vec![CartLine { item_id: item.id, qty, notes: None }],
+                discount_minor: 0,
+                tax_minor: 0,
+                payment_method: "cash".into(),
+                cashier_id: None,
+                table_id: None,
+                shift_id: None,
+            },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(sale.items[0].qty, 0.77);
+        assert_eq!(sale.items[0].unit.as_deref(), Some("kg"));
+        assert_eq!(
+            sale.items[0].line_total_minor,
+            (item.price_minor as f64 * 0.77).round() as i64,
+            "server re-derives price * qty, same as every other line"
+        );
+
+        let stock_after: f64 =
+            conn.query_row("SELECT stock_qty FROM items WHERE id = ?1", params![item.id], |row| row.get(0)).unwrap();
+        assert_eq!(stock_after, 50.0 - 0.77, "stock must decrement by the exact fractional qty");
+
+        // And it reloads correctly for a receipt reprint too, unit included.
+        let reloaded = get_sale(&conn, sale.id).unwrap();
+        assert_eq!(reloaded.items[0].unit.as_deref(), Some("kg"));
     }
 
     #[test]
@@ -428,10 +549,10 @@ mod tests {
         tx.commit().unwrap();
 
         assert_eq!(sale.items.len(), 1);
-        assert_eq!(sale.items[0].qty, 2);
+        assert_eq!(sale.items[0].qty, 2.0);
         assert_eq!(sale.subtotal_minor, 2 * 8000);
         assert_eq!(sale.total_minor, 2 * 8000);
-        assert_eq!(stock(&conn, "Cola 500ml"), cola_before - 2);
+        assert_eq!(stock(&conn, "Cola 500ml"), cola_before - 2.0);
 
         // And it can be read back for reprint.
         let reloaded = get_sale(&conn, sale.id).unwrap();
@@ -471,7 +592,7 @@ mod tests {
         let tx = conn.transaction().unwrap();
         let cola = item_id(&tx, "Cola 500ml");
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: cola, qty: 0, notes: None }],
+            items: vec![CartLine { item_id: cola, qty: 0.0, notes: None }],
             ..basic_input(&tx)
         };
         assert!(matches!(create_sale(&tx, input), Err(SaleError::InvalidQuantity)));
@@ -513,8 +634,8 @@ mod tests {
             // the whole transaction, not just its own line.
             let input = CreateSaleInput {
                 items: vec![
-                    CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 1, notes: None },
-                    CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: 999, notes: None },
+                    CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 1.0, notes: None },
+                    CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: 999.0, notes: None },
                 ],
                 discount_minor: 0,
                 tax_minor: 0,
@@ -551,7 +672,7 @@ mod tests {
         create_sale(&tx, input).unwrap();
         tx.commit().unwrap();
 
-        assert_eq!(stock(&conn, "Instant Noodles"), 0);
+        assert_eq!(stock(&conn, "Instant Noodles"), 0.0);
     }
 
     /// One unit past the boundary above: must be blocked, and — the point of
@@ -563,12 +684,12 @@ mod tests {
 
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: noodles_before + 1, notes: None }],
+            items: vec![CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: noodles_before + 1.0, notes: None }],
             ..basic_input(&tx)
         };
         let err = create_sale(&tx, input).unwrap_err();
         assert!(matches!(err, SaleError::InsufficientStock { available, requested, .. }
-            if available == noodles_before && requested == noodles_before + 1));
+            if available == noodles_before && requested == noodles_before + 1.0));
         drop(tx); // rolls back
 
         assert_eq!(stock(&conn, "Instant Noodles"), noodles_before, "stock must be untouched, not negative");
@@ -584,9 +705,9 @@ mod tests {
         conn.execute("UPDATE items SET stock_qty = 0 WHERE id = ?1", params![noodles]).unwrap();
 
         let tx = conn.transaction().unwrap();
-        let input = CreateSaleInput { items: vec![CartLine { item_id: noodles, qty: 1, notes: None }], ..basic_input(&tx) };
+        let input = CreateSaleInput { items: vec![CartLine { item_id: noodles, qty: 1.0, notes: None }], ..basic_input(&tx) };
         let err = create_sale(&tx, input).unwrap_err();
-        assert!(matches!(err, SaleError::InsufficientStock { available: 0, requested: 1, .. }));
+        assert!(matches!(err, SaleError::InsufficientStock { available, requested, .. } if available == 0.0 && requested == 1.0));
     }
 
     #[test]
@@ -628,7 +749,7 @@ mod tests {
 
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {
-            items: vec![CartLine { item_id: cola, qty: 1, notes: None }],
+            items: vec![CartLine { item_id: cola, qty: 1.0, notes: None }],
             discount_minor: 0,
             tax_minor: 0,
             payment_method: "cash".into(),
@@ -646,8 +767,8 @@ mod tests {
         let cola = item_id(&tx, "Cola 500ml");
         let input = CreateSaleInput {
             items: vec![
-                CartLine { item_id: cola, qty: 2, notes: None },
-                CartLine { item_id: cola, qty: 3, notes: None },
+                CartLine { item_id: cola, qty: 2.0, notes: None },
+                CartLine { item_id: cola, qty: 3.0, notes: None },
             ],
             discount_minor: 0,
             tax_minor: 0,
@@ -660,8 +781,8 @@ mod tests {
         tx.commit().unwrap();
 
         assert_eq!(sale.items.len(), 1, "one merged line, not two");
-        assert_eq!(sale.items[0].qty, 5);
-        assert_eq!(stock(&conn, "Cola 500ml"), 42 - 5);
+        assert_eq!(sale.items[0].qty, 5.0);
+        assert_eq!(stock(&conn, "Cola 500ml"), 42.0 - 5.0);
     }
 
     #[test]

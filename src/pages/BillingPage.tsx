@@ -4,6 +4,7 @@ import { CartPanel } from "../components/billing/CartPanel";
 import { CategoryPills } from "../components/billing/CategoryPills";
 import { DiscountControl } from "../components/billing/DiscountControl";
 import { EditNoteModal } from "../components/billing/EditNoteModal";
+import { ItemAmountEntryModal } from "../components/billing/ItemAmountEntryModal";
 import { ItemGrid } from "../components/billing/ItemGrid";
 import { ItemSearchBar } from "../components/billing/ItemSearchBar";
 import { MobileCategoryChips, type MobileCategorySelection } from "../components/billing/MobileCategoryChips";
@@ -13,7 +14,7 @@ import { PaymentMethodSelector } from "../components/billing/PaymentMethodSelect
 import { ReceiptModal } from "../components/billing/ReceiptModal";
 import { useBestSellerIds } from "../hooks/useBestSellerIds";
 import { useModules } from "../hooks/useModules";
-import { createSale, printReceiptThermal } from "../services/billingService";
+import { createSale } from "../services/billingService";
 import { getCategories, getItems } from "../services/inventoryService";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useAuthStore, useBillingStore, useShiftStore } from "../store";
@@ -103,28 +104,6 @@ export function BillingPage() {
   const cartLines = cartOrder.map((id) => cart[id]);
   const totals = computeCartTotals(cartLines, discountMode, discountValue, config.taxPercent);
 
-  // Fires automatically the instant a sale completes — no cashier click
-  // required. `billing_print_receipt_thermal` already sends *two* copies
-  // back to back (customer, then a condensed "MERCHANT COPY"-labeled one;
-  // see `printer::escpos::print_receipt`), so a successful thermal print
-  // here needs nothing further. When that fails — no printer configured or
-  // reachable — this used to fall back to auto-saving a PDF twin via the
-  // native "Save As" dialog, but that meant every single sale on a machine
-  // with no thermal printer attached popped a blocking OS file picker right
-  // after checkout. That auto-save is intentionally gone: `ReceiptModal`
-  // (already shown after every sale) offers a manual "Save as PDF" button
-  // instead, so the cashier can still get a PDF copy on demand without one
-  // firing unprompted on every sale. This never blocks or fails the sale
-  // itself, which is already committed by the time this runs.
-  const printReceiptAutomatically = async (sale: Sale) => {
-    try {
-      await printReceiptThermal(sale.id);
-    } catch {
-      setNotice("No thermal printer found — use \"Save as PDF\" below if you need a receipt copy.");
-      window.setTimeout(() => setNotice(null), 5000);
-    }
-  };
-
   const completeSale = async () => {
     if (cartOrder.length === 0) return;
     setIsSubmitting(true);
@@ -143,7 +122,6 @@ export function BillingPage() {
       clearCart();
       loadCatalog(); // stock just changed — the grid should reflect it
       reloadBestSellers(); // this sale may have moved the best-sellers ranking
-      void printReceiptAutomatically(sale);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -250,9 +228,12 @@ export function BillingPage() {
         <EditNoteModal
           itemName={editingEntry.name}
           initialNotes={editingEntry.notes}
+          amountEntry={
+            editingEntry.soldByAmount ? { qty: editingEntry.qty, unit: editingEntry.unit } : undefined
+          }
           onClose={() => setEditingItemId(null)}
-          onSave={(notes) => {
-            updateLine(editingItemId, editingEntry.qty, notes);
+          onSave={(notes, qty) => {
+            updateLine(editingItemId, qty ?? editingEntry.qty, notes);
             setEditingItemId(null);
           }}
         />
@@ -266,6 +247,8 @@ export function BillingPage() {
           onClose={() => setCompletedSale(null)}
         />
       )}
+
+      <ItemAmountEntryModal />
     </div>
   );
 }

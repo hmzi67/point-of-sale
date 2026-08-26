@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { formatMinor } from "./format";
+import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
 import type { AppConfig, FullReport } from "../types";
 
@@ -127,7 +127,7 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
       startY: y,
       margin: { left: margin, right: margin },
       head: [["Item", "Qty", "Revenue"]],
-      body: group.items.map((line) => [line.itemName, String(line.qtySold), money(line.revenueMinor)]),
+      body: group.items.map((line) => [line.itemName, formatQty(line.qtySold), money(line.revenueMinor)]),
       styles: { fontSize: 8, cellPadding: 1.8 },
       headStyles: { fillColor: [30, 41, 59] },
       columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
@@ -161,7 +161,7 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
       String(row.rank),
       row.itemName,
       row.categoryName,
-      String(row.qtySold),
+      formatQty(row.qtySold),
       money(row.revenueMinor),
     ]),
     styles: { fontSize: 8, cellPadding: 1.8 },

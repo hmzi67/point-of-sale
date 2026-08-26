@@ -1,6 +1,6 @@
 import { Flame, Minus, Plus } from "lucide-react";
 import { categoryColor } from "../../utils/categoryColor";
-import { formatMinor } from "../../utils/format";
+import { formatMinor, formatQty } from "../../utils/format";
 import { useBillingStore } from "../../store";
 import { ItemImage } from "./ItemImage";
 import type { Item } from "../../types";
@@ -28,6 +28,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
   const addItem = useBillingStore((state) => state.addItem);
   const setQty = useBillingStore((state) => state.setQty);
   const removeItem = useBillingStore((state) => state.removeItem);
+  const requestAmountEntry = useBillingStore((state) => state.requestAmountEntry);
 
   const decrement = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -99,7 +100,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
-            <span className="text-sm font-semibold text-slate-900">{qty}</span>
+            <span className="text-sm font-semibold text-slate-900">{formatQty(qty, item.unit)}</span>
             <button
               type="button"
               onClick={increment}
@@ -108,6 +109,31 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
               aria-label={`Increase quantity of ${item.name}`}
             >
               <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : item.soldByAmount ? (
+          <div className="mt-1 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!outOfStock) addItem(item);
+              }}
+              disabled={outOfStock}
+              className="rounded-xl border border-brand-200 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+            >
+              By Qty
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!outOfStock) requestAmountEntry(item);
+              }}
+              disabled={outOfStock}
+              className="rounded-xl bg-brand-600 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              By Amount
             </button>
           </div>
         ) : (

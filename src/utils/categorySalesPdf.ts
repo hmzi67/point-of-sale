@@ -1,5 +1,5 @@
 import type { jsPDF } from "jspdf";
-import { formatMinor } from "./format";
+import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
 import { drawFooter, drawHeader, drawSectionHeader, drawTable, newReceiptDoc, PAGE_WIDTH_MM } from "./printLayout";
 import type { AppConfig, CategorySalesReport } from "../types";
@@ -25,7 +25,7 @@ export function buildCategorySalesPdf(report: CategorySalesReport, config: AppCo
       doc,
       y,
       ["Item", "Qty", "Amount"],
-      group.items.map((line) => [line.itemName, String(line.qtySold), formatMinor(line.revenueMinor, config.currency)]),
+      group.items.map((line) => [line.itemName, formatQty(line.qtySold), formatMinor(line.revenueMinor, config.currency)]),
     );
 
     doc.setFont("helvetica", "bold");

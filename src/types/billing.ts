@@ -24,6 +24,9 @@ export interface SaleLine {
   itemId: number;
   itemName: string;
   qty: number;
+  /** Display unit ("kg"), for a `sold_by_amount` line — `null` for a
+   * normal per-piece item. */
+  unit: string | null;
   priceAtSaleMinor: number;
   lineTotalMinor: number;
   notes: string | null;

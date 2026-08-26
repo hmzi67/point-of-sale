@@ -88,7 +88,11 @@ pub struct Item {
     pub description: Option<String>,
     pub price_minor: i64,
     pub cost_minor: i64,
-    pub stock_qty: i64,
+    /// `f64`, not `i64` — a `sold_by_amount` item's stock decrements by a
+    /// fractional quantity (e.g. 0.4 kg). See `schema.rs`'s module doc
+    /// comment for why the declared SQL column type change this pairs with
+    /// needed no migration.
+    pub stock_qty: f64,
     pub category_id: Option<i64>,
     /// Denormalized for the list view so it doesn't need a client-side join.
     pub category_name: Option<String>,
@@ -100,6 +104,13 @@ pub struct Item {
     /// Filename under the product-image store (see `images.rs`), not a full
     /// path. `None` means no photo has been added yet.
     pub image_path: Option<String>,
+    /// Sold by typing a rupee amount rather than a quantity on the billing
+    /// screen (loose groceries — channa, rice, dry fruits) — see
+    /// `schema.sql`'s `items.sold_by_amount` doc comment.
+    pub sold_by_amount: bool,
+    /// Display unit for this item's quantity (e.g. "kg"), shown on the cart
+    /// line/receipt. `None` for a normal per-piece item.
+    pub unit: Option<String>,
 }
 
 /// Everything the add/edit form submits. Used for both create and update —
@@ -113,10 +124,12 @@ pub struct ItemInput {
     pub description: Option<String>,
     pub price_minor: i64,
     pub cost_minor: i64,
-    pub stock_qty: i64,
+    pub stock_qty: f64,
     pub category_id: Option<i64>,
     pub low_stock_threshold: i64,
     pub image_path: Option<String>,
+    pub sold_by_amount: bool,
+    pub unit: Option<String>,
 }
 
 /// Search/filter options for the list view.
@@ -164,12 +177,12 @@ impl From<rusqlite::Error> for ItemError {
 
 const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.description, i.price_minor, i.cost_minor,
        i.stock_qty, i.category_id, c.name AS category_name,
-       i.low_stock_threshold, i.is_active, i.image_path
+       i.low_stock_threshold, i.is_active, i.image_path, i.sold_by_amount, i.unit
   FROM items i
   LEFT JOIN categories c ON c.id = i.category_id";
 
 fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
-    let stock_qty: i64 = row.get("stock_qty")?;
+    let stock_qty: f64 = row.get("stock_qty")?;
     let low_stock_threshold: i64 = row.get("low_stock_threshold")?;
     Ok(Item {
         id: row.get("id")?,
@@ -183,8 +196,10 @@ fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
         category_name: row.get("category_name")?,
         low_stock_threshold,
         is_active: row.get::<_, i64>("is_active")? != 0,
-        is_low_stock: stock_qty <= low_stock_threshold,
+        is_low_stock: stock_qty <= low_stock_threshold as f64,
         image_path: row.get("image_path")?,
+        sold_by_amount: row.get::<_, i64>("sold_by_amount")? != 0,
+        unit: row.get("unit")?,
     })
 }
 
@@ -268,7 +283,7 @@ fn validate(conn: &Connection, input: &ItemInput) -> Result<(), ItemError> {
     if input.price_minor < 0 || input.cost_minor < 0 {
         return Err(ItemError::Validation("Price and cost cannot be negative".into()));
     }
-    if input.stock_qty < 0 {
+    if input.stock_qty < 0.0 {
         return Err(ItemError::Validation("Stock quantity cannot be negative".into()));
     }
     if input.low_stock_threshold < 0 {
@@ -306,11 +321,13 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
     let barcode = input.barcode.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let description = input.description.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
+    let unit = input.unit.as_deref().map(str::trim).filter(|s| !s.is_empty());
+
     conn.execute(
         "INSERT INTO items
              (name, barcode, description, price_minor, cost_minor, stock_qty, category_id,
-              low_stock_threshold, image_path)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+              low_stock_threshold, image_path, sold_by_amount, unit)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             name,
             barcode,
@@ -320,7 +337,9 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
             input.stock_qty,
             input.category_id,
             input.low_stock_threshold,
-            input.image_path
+            input.image_path,
+            input.sold_by_amount as i64,
+            unit,
         ],
     )
     .map_err(|err| map_barcode_conflict(err, &barcode.map(str::to_string)))?;
@@ -334,13 +353,16 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
     let barcode = input.barcode.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let description = input.description.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
+    let unit = input.unit.as_deref().map(str::trim).filter(|s| !s.is_empty());
+
     let changed = conn
         .execute(
             "UPDATE items
                 SET name = ?1, barcode = ?2, description = ?3, price_minor = ?4, cost_minor = ?5,
                     stock_qty = ?6, category_id = ?7, low_stock_threshold = ?8,
-                    image_path = ?9, updated_at = datetime('now', 'localtime')
-              WHERE id = ?10",
+                    image_path = ?9, sold_by_amount = ?10, unit = ?11,
+                    updated_at = datetime('now', 'localtime')
+              WHERE id = ?12",
             params![
                 name,
                 barcode,
@@ -351,6 +373,8 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
                 input.category_id,
                 input.low_stock_threshold,
                 input.image_path,
+                input.sold_by_amount as i64,
+                unit,
                 id
             ],
         )
@@ -406,10 +430,12 @@ mod tests {
             description: None,
             price_minor: 10000,
             cost_minor: 8000,
-            stock_qty: 5,
+            stock_qty: 5.0,
             category_id: None,
             low_stock_threshold: 2,
             image_path: None,
+            sold_by_amount: false,
+            unit: None,
         }
     }
 
@@ -588,6 +614,34 @@ mod tests {
     }
 
     #[test]
+    fn sold_by_amount_and_unit_round_trip_and_stock_qty_can_be_fractional() {
+        let conn = test_conn();
+        let mut input = basic_input("Loose Channa");
+        input.sold_by_amount = true;
+        input.unit = Some("  kg  ".into());
+        input.stock_qty = 12.4;
+        let created = add_item(&conn, input).unwrap();
+        assert!(created.sold_by_amount);
+        assert_eq!(created.unit.as_deref(), Some("kg"), "must be trimmed");
+        assert_eq!(created.stock_qty, 12.4);
+
+        // A normal per-piece item defaults to not-sold-by-amount, no unit —
+        // basic_input's default.
+        let piece = add_item(&conn, basic_input("Regular Piece Item")).unwrap();
+        assert!(!piece.sold_by_amount);
+        assert_eq!(piece.unit, None);
+    }
+
+    #[test]
+    fn blank_unit_is_stored_as_null() {
+        let conn = test_conn();
+        let mut input = basic_input("No Unit Really");
+        input.unit = Some("   ".into());
+        let created = add_item(&conn, input).unwrap();
+        assert_eq!(created.unit, None);
+    }
+
+    #[test]
     fn add_item_rejects_blank_name_and_negative_numbers() {
         let conn = test_conn();
         assert!(matches!(
@@ -625,16 +679,16 @@ mod tests {
         let categories = list_categories(&conn).unwrap();
         let mut patch = basic_input("Editable Renamed");
         patch.category_id = Some(categories[0].id);
-        patch.stock_qty = 42;
+        patch.stock_qty = 42.0;
         let updated = update_item(&conn, created.id, patch).unwrap();
         assert_eq!(updated.name, "Editable Renamed");
         assert_eq!(updated.category_id, Some(categories[0].id));
-        assert_eq!(updated.stock_qty, 42);
+        assert_eq!(updated.stock_qty, 42.0);
 
         // A second update with category_id: None must clear it, not leave it
         // unchanged — this is a full replace, not a partial patch.
         let mut clear_category = basic_input("Editable Renamed");
-        clear_category.stock_qty = 42;
+        clear_category.stock_qty = 42.0;
         let cleared = update_item(&conn, created.id, clear_category).unwrap();
         assert_eq!(cleared.category_id, None);
     }

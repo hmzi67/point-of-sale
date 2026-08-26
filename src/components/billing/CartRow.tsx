@@ -1,6 +1,6 @@
 import { Minus, NotebookPen, Plus, Trash2 } from "lucide-react";
 import { useBillingStore } from "../../store";
-import { formatMinor } from "../../utils/format";
+import { formatMinor, formatQty } from "../../utils/format";
 import { ItemImage } from "./ItemImage";
 
 interface CartRowProps {
@@ -48,14 +48,24 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
       <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
-          onClick={() => setQty(itemId, entry.qty - 1)}
-          disabled={entry.qty <= 1}
+          onClick={() =>
+            // A soldByAmount line rarely sits on a whole number (e.g.
+            // 0.77 kg) — subtracting a flat 1 would usually just hit the
+            // store's own 0.01 floor uselessly, so decrement removes the
+            // line outright below 1 instead, same as it already does for a
+            // normal item at qty 1. Fine-tuning a fractional qty down
+            // (without removing it) goes through the notes-pencil edit
+            // modal, which has a real decimal input.
+            entry.qty <= 1 ? removeItem(itemId) : setQty(itemId, entry.qty - 1)
+          }
           className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-30"
           aria-label={`Decrease quantity of ${entry.name}`}
         >
           <Minus className="h-3 w-3" />
         </button>
-        <span className="w-5 text-center text-sm font-medium text-slate-900">{entry.qty}</span>
+        <span className="min-w-5 text-center text-sm font-medium text-slate-900">
+          {formatQty(entry.qty, entry.unit)}
+        </span>
         <button
           type="button"
           onClick={() => setQty(itemId, entry.qty + 1)}

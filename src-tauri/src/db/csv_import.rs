@@ -153,7 +153,7 @@ pub fn import_csv(conn: &Connection, csv_content: &str) -> Result<ImportSummary,
             let name = field(name_col).ok_or("Missing name")?.to_string();
             let price_minor = parse_money(field(price_col).ok_or("Missing price")?)?;
             let cost_minor = cost_col.and_then(field).map(parse_money).transpose()?.unwrap_or(0);
-            let stock_qty = stock_col.and_then(field).map(parse_int).transpose()?.unwrap_or(0);
+            let stock_qty = stock_col.and_then(field).map(parse_int).transpose()?.unwrap_or(0) as f64;
             let low_stock_threshold =
                 threshold_col.and_then(field).map(parse_int).transpose()?.unwrap_or(0);
             let barcode = barcode_col.and_then(field).map(str::to_string);
@@ -177,6 +177,12 @@ pub fn import_csv(conn: &Connection, csv_content: &str) -> Result<ImportSummary,
                     category_id,
                     low_stock_threshold,
                     image_path: None,
+                    // Not CSV columns either (same reasoning as
+                    // `description` above) — off by default, set later via
+                    // the item edit form if this row turns out to be a
+                    // loose/weighed item.
+                    sold_by_amount: false,
+                    unit: None,
                 },
             )
             .map_err(|e| e.to_string())?;
@@ -258,14 +264,14 @@ Item Two,beverages,20
         let summary = import_csv(&conn, csv).unwrap();
         assert_eq!(summary.imported, 1);
 
-        let (stock, cost, threshold): (i64, i64, i64) = conn
+        let (stock, cost, threshold): (f64, i64, i64) = conn
             .query_row(
                 "SELECT stock_qty, cost_minor, low_stock_threshold FROM items WHERE name = 'Minimal Item'",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-        assert_eq!((stock, cost, threshold), (0, 0, 0));
+        assert_eq!((stock, cost, threshold), (0.0, 0, 0));
     }
 
     #[test]
@@ -298,13 +304,13 @@ Unique Item,,90
         let summary = import_csv(&conn, csv).unwrap();
         assert_eq!(summary.imported, 1);
 
-        let (price, stock): (i64, i64) = conn
+        let (price, stock): (i64, f64) = conn
             .query_row(
                 "SELECT price_minor, stock_qty FROM items WHERE name = 'Reordered Item'",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert_eq!((price, stock), (1550, 7));
+        assert_eq!((price, stock), (1550, 7.0));
     }
 }

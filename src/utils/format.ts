@@ -19,6 +19,18 @@ export function formatMinor(minor: number, currency = "PKR"): string {
   return formatCurrency(minorToDecimal(minor), currency);
 }
 
+/** A quantity -> a plain string, rounded to 2 decimal places with trailing
+ * zeros trimmed ("2" for a whole unit, "0.77" for a `soldByAmount` line),
+ * optionally suffixed with a unit ("0.77 kg"). Mirrors `printer::layout::
+ * format_qty` on the Rust/ESC-POS side, except this one *can* show the
+ * unit — the PDF/on-screen cart isn't squeezed into a fixed 42-character
+ * grid the way the thermal receipt is. */
+export function formatQty(qty: number, unit?: string | null): string {
+  const rounded = Math.round(qty * 100) / 100;
+  const number = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return unit ? `${number} ${unit}` : number;
+}
+
 export function formatDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
   return d.toLocaleDateString(undefined, {

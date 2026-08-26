@@ -14,6 +14,19 @@
 //! A future change that must genuinely *modify* an existing column (rename it,
 //! tighten a constraint) cannot be expressed this way — add a numbered,
 //! guarded step keyed off `user_version` for that, and bump `SCHEMA_VERSION`.
+//!
+//! One narrow exception that looks like a modification but isn't: `items.
+//! stock_qty`, `sale_items.qty` and `refund_items.qty_refunded` changed
+//! their *declared* type from INTEGER to REAL (for `sold_by_amount`
+//! items' fractional quantities) with no guarded migration step. This is
+//! safe because SQLite's columns are dynamically typed — an existing
+//! INTEGER-affinity column already stores a genuine fractional value as
+//! REAL rather than truncating it (verified directly: `INSERT INTO t
+//! (qty) VALUES (0.4)` into an `INTEGER`-declared column round-trips as
+//! `0.4`, not `0`). So an existing database's already-created columns keep
+//! working exactly the same regardless of what `schema.sql`'s text
+//! declares now; the type-declaration edit only changes what a *fresh*
+//! install's `CREATE TABLE` says, which is documentation, not behavior.
 
 use rusqlite::{params, Connection};
 
@@ -22,7 +35,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -199,6 +212,18 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // NULL until an owner/admin sets one via Settings' Store Identity
     // section; see `db::config::AppConfig::phone`.
     ("app_config", "phone", "TEXT"),
+    // Delivery/dispatch contact number — shown in Settings and printed on
+    // receipts only when set. NULL until an owner/admin sets one; see
+    // `db::config::AppConfig::delivery_number`.
+    ("app_config", "delivery_number", "TEXT"),
+    // "Sold by amount" (loose/weighed items) — see `db::items::Item::
+    // sold_by_amount`'s doc comment and `schema.sql`'s `items` table for
+    // the full reasoning, including why `stock_qty`/`qty`/`qty_refunded`
+    // changing declared type to REAL elsewhere in this file needs no
+    // migration entry here (SQLite already stores fractional values in
+    // those existing INTEGER-affinity columns without one).
+    ("items", "sold_by_amount", "INTEGER NOT NULL DEFAULT 0"),
+    ("items", "unit", "TEXT"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs

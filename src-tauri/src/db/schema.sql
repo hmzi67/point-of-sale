@@ -176,7 +176,17 @@ CREATE TABLE IF NOT EXISTS items (
     description         TEXT,
     price_minor         INTEGER NOT NULL CHECK (price_minor >= 0),
     cost_minor          INTEGER NOT NULL DEFAULT 0 CHECK (cost_minor >= 0),
-    stock_qty           INTEGER NOT NULL DEFAULT 0,
+    -- REAL, not INTEGER: a `sold_by_amount` item's stock decrements by a
+    -- fractional quantity (e.g. 0.4 kg). SQLite's dynamic typing already
+    -- stores a REAL correctly in an INTEGER-affinity column (verified: it
+    -- only coerces to INTEGER when the value is losslessly convertible), so
+    -- this declared-type change is purely documentation for fresh installs
+    -- — it does not require (and is not paired with) a migration step for
+    -- existing databases, whose already-created columns keep accepting
+    -- fractional values exactly the same way regardless of what's declared
+    -- here. See `schema.rs`'s module doc comment for the fuller version of
+    -- this reasoning.
+    stock_qty           REAL    NOT NULL DEFAULT 0,
     category_id         INTEGER REFERENCES categories (id) ON DELETE SET NULL,
     low_stock_threshold INTEGER NOT NULL DEFAULT 0 CHECK (low_stock_threshold >= 0),
     -- Retire an item rather than deleting it, so its sale history survives.
@@ -185,6 +195,18 @@ CREATE TABLE IF NOT EXISTS items (
     -- image store — see db/images.rs. Portable across reinstalls because it
     -- never encodes the app data directory itself.
     image_path           TEXT,
+    -- "Sold by amount": a loose/weighed item (channa, rice, dry fruits) a
+    -- cashier sells by typing a rupee amount rather than a quantity — the
+    -- billing screen divides that amount by `price_minor` to get the qty.
+    -- Not every item qualifies (a bottled soft drink doesn't), so this is
+    -- opt-in per item, set from the Inventory add/edit form. See
+    -- `db::items::Item::sold_by_amount`.
+    sold_by_amount      INTEGER NOT NULL DEFAULT 0 CHECK (sold_by_amount IN (0, 1)),
+    -- Display unit for a `sold_by_amount` item's quantity (e.g. "kg", "g",
+    -- "ltr") — purely presentational, shown on the cart line and receipt
+    -- ("0.77 kg"). NULL for a normal per-piece item, where a bare count
+    -- ("x2") needs no unit label.
+    unit                TEXT,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
@@ -276,7 +298,10 @@ CREATE TABLE IF NOT EXISTS sale_items (
     -- RESTRICT: an item that has ever been sold cannot be deleted out from
     -- under its history. Deactivate it instead.
     item_id              INTEGER NOT NULL REFERENCES items (id) ON DELETE RESTRICT,
-    qty                  INTEGER NOT NULL CHECK (qty > 0),
+    -- REAL, not INTEGER — a `sold_by_amount` line's qty is usually
+    -- fractional (see `items.stock_qty`'s comment above for why this
+    -- declared-type change needs no migration for existing databases).
+    qty                  REAL    NOT NULL CHECK (qty > 0),
     -- Price as of checkout — never read the live item price for an old bill.
     price_at_sale_minor  INTEGER NOT NULL CHECK (price_at_sale_minor >= 0),
     -- A cashier's free-text note on this line ("no onions"). Purely
@@ -320,7 +345,9 @@ CREATE TABLE IF NOT EXISTS refund_items (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
     refund_id              INTEGER NOT NULL REFERENCES refunds (id) ON DELETE CASCADE,
     sale_item_id           INTEGER NOT NULL REFERENCES sale_items (id) ON DELETE RESTRICT,
-    qty_refunded           INTEGER NOT NULL CHECK (qty_refunded > 0),
+    -- REAL to match `sale_items.qty` — a refund against a `sold_by_amount`
+    -- line refunds a fractional quantity too.
+    qty_refunded           REAL    NOT NULL CHECK (qty_refunded > 0),
     amount_refunded_minor  INTEGER NOT NULL CHECK (amount_refunded_minor >= 0)
 );
 

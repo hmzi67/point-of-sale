@@ -313,7 +313,7 @@ mod tests {
         let sale = create_sale(
             &tx,
             CreateSaleInput {
-                items: vec![CartLine { item_id, qty, notes: None }],
+                items: vec![CartLine { item_id, qty: qty as f64, notes: None }],
                 discount_minor: 0,
                 tax_minor: 0,
                 payment_method: method.into(),
@@ -371,7 +371,7 @@ mod tests {
                 &tx,
                 CreateRefundInput {
                     sale_id,
-                    items: vec![RefundLineInput { sale_item_id, qty: 1, amount_minor: 8000 }],
+                    items: vec![RefundLineInput { sale_item_id, qty: 1.0, amount_minor: 8000 }],
                     reason: None,
                     refunded_by: None,
                 },

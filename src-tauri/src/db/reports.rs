@@ -151,7 +151,11 @@ pub enum TopItemSort {
 pub struct TopItem {
     pub item_id: i64,
     pub item_name: String,
-    pub qty_sold: i64,
+    /// `f64`, not `i64` — a `sold_by_amount` item contributes a fractional
+    /// quantity to this sum. `revenue_minor` stays `i64` (money): the SQL
+    /// rounds it back to whole minor units, same convention as everywhere
+    /// else fractional qty meets integer-minor-unit money.
+    pub qty_sold: f64,
     pub revenue_minor: i64,
 }
 
@@ -173,7 +177,7 @@ pub fn get_top_items(
     };
     let sql = format!(
         "SELECT si.item_id, i.name, SUM(si.qty) AS qty_sold,
-                SUM(si.qty * si.price_at_sale_minor) AS revenue_minor
+                CAST(ROUND(SUM(si.qty * si.price_at_sale_minor)) AS INTEGER) AS revenue_minor
            FROM sale_items si
            JOIN sales s ON s.id = si.sale_id
            JOIN items i ON i.id = si.item_id
@@ -212,7 +216,7 @@ pub struct ProductSalesRow {
     pub item_name: String,
     pub category_id: Option<i64>,
     pub category_name: String,
-    pub qty_sold: i64,
+    pub qty_sold: f64,
     pub revenue_minor: i64,
     /// 1-based position under the requested `sort_by`, computed here so the
     /// frontend never has to re-derive it (and can't get it wrong once the
@@ -269,7 +273,8 @@ pub fn get_product_sales_summary(
     };
     let sql = format!(
         "SELECT si.item_id, i.name, i.category_id, COALESCE(c.name, 'Uncategorized') AS category_name,
-                SUM(si.qty) AS qty_sold, SUM(si.qty * si.price_at_sale_minor) AS revenue_minor
+                SUM(si.qty) AS qty_sold,
+                CAST(ROUND(SUM(si.qty * si.price_at_sale_minor)) AS INTEGER) AS revenue_minor
            FROM sale_items si
            JOIN sales s ON s.id = si.sale_id
            JOIN items i ON i.id = si.item_id
@@ -343,7 +348,7 @@ pub fn get_product_sales_summary(
 pub struct CategorySalesLine {
     pub item_id: i64,
     pub item_name: String,
-    pub qty_sold: i64,
+    pub qty_sold: f64,
     pub revenue_minor: i64,
 }
 
@@ -380,7 +385,7 @@ pub fn get_category_sales(
     let mut stmt = conn.prepare(
         "SELECT i.category_id, COALESCE(c.name, 'Uncategorized') AS category_name,
                 si.item_id, i.name, SUM(si.qty) AS qty_sold,
-                SUM(si.qty * si.price_at_sale_minor) AS revenue_minor
+                CAST(ROUND(SUM(si.qty * si.price_at_sale_minor)) AS INTEGER) AS revenue_minor
            FROM sale_items si
            JOIN sales s ON s.id = si.sale_id
            JOIN items i ON i.id = si.item_id
@@ -389,7 +394,7 @@ pub fn get_category_sales(
           GROUP BY i.category_id, si.item_id
           ORDER BY category_name, i.name",
     )?;
-    let rows: Vec<(Option<i64>, String, i64, String, i64, i64)> = stmt
+    let rows: Vec<(Option<i64>, String, i64, String, f64, i64)> = stmt
         .query_map(params![start_ts, end_ts], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
         })?
@@ -824,9 +829,10 @@ mod tests {
         let conn = test_conn();
         let items = get_top_items(&conn, &days_ago(30), &days_ago(0), 50, TopItemSort::Quantity).unwrap();
         for item in &items {
-            let (qty, revenue): (i64, i64) = conn
+            let (qty, revenue): (f64, i64) = conn
                 .query_row(
-                    "SELECT SUM(qty), SUM(qty * price_at_sale_minor) FROM sale_items WHERE item_id = ?1",
+                    "SELECT SUM(qty), CAST(ROUND(SUM(qty * price_at_sale_minor)) AS INTEGER)
+                       FROM sale_items WHERE item_id = ?1",
                     params![item.item_id],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
@@ -880,7 +886,7 @@ mod tests {
         let sale = create_sale(
             &tx,
             CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 2, notes: None }],
+                items: vec![CartLine { item_id: cola, qty: 2.0, notes: None }],
                 discount_minor: 0,
                 tax_minor: 0,
                 payment_method: "cash".into(),
@@ -911,7 +917,7 @@ mod tests {
                 &tx,
                 CreateRefundInput {
                     sale_id,
-                    items: vec![RefundLineInput { sale_item_id, qty: 1, amount_minor: 8000 }],
+                    items: vec![RefundLineInput { sale_item_id, qty: 1.0, amount_minor: 8000 }],
                     reason: None,
                     refunded_by: None,
                 },
@@ -953,7 +959,7 @@ mod tests {
                 &tx,
                 CreateRefundInput {
                     sale_id,
-                    items: vec![RefundLineInput { sale_item_id, qty: 1, amount_minor: price }],
+                    items: vec![RefundLineInput { sale_item_id, qty: 1.0, amount_minor: price }],
                     reason: None,
                     refunded_by: None,
                 },
@@ -1024,7 +1030,7 @@ mod tests {
         create_sale(
             &tx,
             CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 1, notes: None }],
+                items: vec![CartLine { item_id: cola, qty: 1.0, notes: None }],
                 discount_minor: 0,
                 tax_minor: 0,
                 payment_method: "cash".into(),
@@ -1167,7 +1173,7 @@ mod tests {
         // them are absent from a manual qty sum above the floor.
         let ids = get_best_selling_item_ids(&conn, 30, 5).unwrap();
         for id in &ids {
-            let qty: i64 = conn
+            let qty: f64 = conn
                 .query_row(
                     "SELECT COALESCE(SUM(si.qty), 0) FROM sale_items si
                        JOIN sales s ON s.id = si.sale_id
@@ -1176,7 +1182,12 @@ mod tests {
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert!(qty >= BEST_SELLER_MIN_QTY, "item {} only sold {} units, below the best-seller floor", id, qty);
+            assert!(
+                qty >= BEST_SELLER_MIN_QTY as f64,
+                "item {} only sold {} units, below the best-seller floor",
+                id,
+                qty
+            );
         }
     }
 
@@ -1215,7 +1226,7 @@ mod tests {
         let sale = create_sale(
             &tx,
             CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 2, notes: None }],
+                items: vec![CartLine { item_id: cola, qty: 2.0, notes: None }],
                 discount_minor: 0,
                 tax_minor: 0,
                 payment_method: "cash".into(),
@@ -1231,7 +1242,7 @@ mod tests {
             &tx,
             CreateRefundInput {
                 sale_id: sale.id,
-                items: vec![RefundLineInput { sale_item_id, qty: 1, amount_minor: 8000 }],
+                items: vec![RefundLineInput { sale_item_id, qty: 1.0, amount_minor: 8000 }],
                 reason: Some("Customer changed mind".into()),
                 refunded_by: Some(owner_id),
             },
@@ -1251,7 +1262,7 @@ mod tests {
 
         assert_eq!(refund.items.len(), 1);
         assert_eq!(refund.items[0].item_name, "Cola 500ml");
-        assert_eq!(refund.items[0].qty_refunded, 1);
+        assert_eq!(refund.items[0].qty_refunded, 1.0);
         assert_eq!(refund.reason.as_deref(), Some("Customer changed mind"));
         assert!(refund.refunded_by_name.is_some(), "refunded_by must resolve to a user name");
         assert_eq!(refund.total_refund_amount_minor, 8000);

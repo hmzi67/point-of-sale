@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Download, Printer, ReceiptText, Search, X } from "lucide-react";
 import { listRecentSales } from "../../services/billingService";
 import { createRefund, getSaleForRefund } from "../../services/refundsService";
-import { formatMinor } from "../../utils/format";
+import { formatMinor, formatQty } from "../../utils/format";
 import type { AppConfig, Refund, RefundableLine, RefundableSale, SaleListItem } from "../../types";
 
 interface RefundModalProps {
@@ -190,13 +190,14 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
                     </div>
                     <div className="mt-1.5 flex items-center justify-between gap-2">
                       <span className="text-xs text-slate-500">
-                        {line.qtyRefundable} of {line.qty} refundable
-                        {line.qtyAlreadyRefunded > 0 && ` (${line.qtyAlreadyRefunded} already refunded)`}
+                        {formatQty(line.qtyRefundable)} of {formatQty(line.qty)} refundable
+                        {line.qtyAlreadyRefunded > 0 && ` (${formatQty(line.qtyAlreadyRefunded)} already refunded)`}
                       </span>
                       <input
                         type="number"
                         min={0}
                         max={line.qtyRefundable}
+                        step="0.01"
                         value={qtyByLine[line.saleItemId] ?? 0}
                         onChange={(e) => setQty(line, Number(e.target.value) || 0)}
                         disabled={line.qtyRefundable === 0}

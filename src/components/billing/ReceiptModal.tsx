@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CheckCircle2, Download, Printer, X } from "lucide-react";
 import { printReceiptThermal } from "../../services/billingService";
-import { formatMinor } from "../../utils/format";
+import { formatMinor, formatQty } from "../../utils/format";
 import type { AppConfig, Sale } from "../../types";
 
 interface ReceiptModalProps {
@@ -11,20 +11,17 @@ interface ReceiptModalProps {
   onClose: () => void;
 }
 
-/** Shown right after a sale completes. Printing itself already happened
- * automatically the moment the sale went through — see `BillingPage.tsx`'s
- * `printReceiptAutomatically` — so the "Reprint (thermal)" button is a
- * manual *reprint*, for a second physical copy or after fixing a printer
- * that wasn't reachable the first time, not something the cashier has to
- * click to get the first copy out. Thermal print uses whatever printer this
- * installation has configured (USB auto-detected on desktop, Bluetooth
- * selected in Settings on Android) and fails gracefully — with a message —
- * if none is set up or reachable.
- *
- * "Save as PDF" is the on-demand equivalent for when there's no thermal
- * printer at all: it used to fire automatically (and pop a native "Save
- * As" dialog) the instant every such sale completed — now it only runs
- * when the cashier actually clicks it. */
+/** Shown right after a sale completes. Nothing prints automatically — the
+ * sale is already committed by the time this modal opens, and printing
+ * (thermal or PDF) only happens when the cashier explicitly clicks one of
+ * the buttons below, so a till with no printer attached (or one the
+ * cashier doesn't want to use for a given sale) never blocks or interrupts
+ * checkout. Thermal print uses whatever printer this installation has
+ * configured (USB auto-detected on desktop, Bluetooth selected in Settings
+ * on Android) and fails gracefully — with a message — if none is set up or
+ * reachable; "Save as PDF" is the fallback for when there's no thermal
+ * printer at all. Both buttons can be clicked more than once (e.g. a
+ * second physical copy), same handler either time. */
 export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptModalProps) {
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
@@ -85,7 +82,7 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
             {sale.items.map((line) => (
               <li key={line.itemId} className="flex justify-between py-1.5">
                 <span className="text-slate-700">
-                  {line.itemName} <span className="text-slate-400">×{line.qty}</span>
+                  {line.itemName} <span className="text-slate-400">×{formatQty(line.qty, line.unit)}</span>
                 </span>
                 <span className="text-slate-900">{formatMinor(line.lineTotalMinor, config.currency)}</span>
               </li>
@@ -130,7 +127,7 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
             className="flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
           >
             <Printer className="h-4 w-4" />
-            {isPrinting ? "Printing…" : "Reprint (thermal)"}
+            {isPrinting ? "Printing…" : "Print (thermal)"}
           </button>
           <button
             type="button"

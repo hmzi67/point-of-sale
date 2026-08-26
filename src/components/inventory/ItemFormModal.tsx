@@ -26,6 +26,12 @@ interface FormState {
    * if this item has no photo. Only ever set once an upload has completed —
    * never a pending/local-only value. */
   imagePath: string | null;
+  /** "Sold by amount" — a loose/weighed item (channa, rice, dry fruits) a
+   * cashier sells by typing a rupee amount rather than a quantity. */
+  soldByAmount: boolean;
+  /** Display unit for this item's quantity (e.g. "kg") — only meaningful
+   * when `soldByAmount` is set. */
+  unit: string;
 }
 
 function toFormState(item?: Item): FormState {
@@ -39,6 +45,8 @@ function toFormState(item?: Item): FormState {
     categoryId: item?.categoryId ?? null,
     lowStockThreshold: item ? String(item.lowStockThreshold) : "5",
     imagePath: item?.imagePath ?? null,
+    soldByAmount: item?.soldByAmount ?? false,
+    unit: item?.unit ?? "",
   };
 }
 
@@ -137,7 +145,12 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
     if (!form.name.trim()) return setError("Item name is required.");
     if (!Number.isFinite(price) || price < 0) return setError("Enter a valid price.");
     if (!Number.isFinite(cost) || cost < 0) return setError("Enter a valid cost.");
-    if (!Number.isInteger(stockQty) || stockQty < 0) return setError("Stock quantity must be a whole number.");
+    // A "sold by amount" item's stock is a fractional real-world quantity
+    // (kg, ltr) — only a normal per-piece item is required to be whole.
+    if (!Number.isFinite(stockQty) || stockQty < 0) return setError("Enter a valid stock quantity.");
+    if (!form.soldByAmount && !Number.isInteger(stockQty)) {
+      return setError("Stock quantity must be a whole number (or turn on \"Sold by amount\" for a weighed item).");
+    }
     if (!Number.isInteger(lowStockThreshold) || lowStockThreshold < 0) {
       return setError("Low-stock threshold must be a whole number.");
     }
@@ -152,6 +165,8 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
       categoryId: form.categoryId,
       lowStockThreshold,
       imagePath: form.imagePath,
+      soldByAmount: form.soldByAmount,
+      unit: form.unit.trim() || null,
     };
 
     setIsSaving(true);
@@ -333,8 +348,8 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 id="item-stock"
                 type="number"
                 min="0"
-                step="1"
-                inputMode="numeric"
+                step={form.soldByAmount ? "0.01" : "1"}
+                inputMode="decimal"
                 value={form.stockQty}
                 onChange={(e) => set("stockQty", e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
@@ -355,6 +370,40 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
+          </div>
+
+          <div className="rounded-md border border-slate-200 p-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.soldByAmount}
+                onChange={(e) => set("soldByAmount", e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400"
+              />
+              Sold by amount
+            </label>
+            <p className="mt-1 text-xs text-slate-500">
+              For loose/weighed items (channa, rice, dry fruits) — on the billing screen, a cashier can type a rupee
+              amount ("100 rupees worth") instead of a quantity, and the app works out how much that buys from this
+              item's price.
+            </p>
+            {form.soldByAmount && (
+              <div className="mt-2">
+                <label className="block text-xs font-medium text-slate-500" htmlFor="item-unit">
+                  Unit
+                </label>
+                <input
+                  id="item-unit"
+                  value={form.unit}
+                  onChange={(e) => set("unit", e.target.value)}
+                  placeholder="e.g. kg"
+                  className="mt-1 w-full max-w-[8rem] rounded-md border border-slate-300 px-3 py-2 text-sm"
+                />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Shown on the cart line and receipt, e.g. "0.77 kg". Optional.
+                </p>
+              </div>
+            )}
           </div>
 
           <div>

@@ -1,5 +1,5 @@
 import type { jsPDF } from "jspdf";
-import { formatMinor } from "./format";
+import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
 import { drawFooter, drawHeader, drawSectionHeader, drawTable, newReceiptDoc } from "./printLayout";
 import type { AppConfig, ProductSalesSummaryReport } from "../types";
@@ -26,7 +26,7 @@ export function buildProductSalesPdf(report: ProductSalesSummaryReport, config: 
     report.rows.map((row) => [
       `${row.rank}. ${row.itemName}`,
       row.categoryName,
-      String(row.qtySold),
+      formatQty(row.qtySold),
       formatMinor(row.revenueMinor, config.currency),
     ]),
   );

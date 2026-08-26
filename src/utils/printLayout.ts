@@ -21,11 +21,14 @@ export function newReceiptDoc(estimatedHeightMm: number): jsPDF {
   return new jsPDF({ unit: "mm", format: [PAGE_WIDTH_MM, Math.max(estimatedHeightMm, 90)] });
 }
 
-/** Max box a receipt logo is drawn into, aspect ratio preserved — a modest
- * mark at the top of the receipt, matching the reference receipt's small
- * logo, not a full-width banner. */
-export const LOGO_MAX_WIDTH_MM = 26;
-export const LOGO_MAX_HEIGHT_MM = 16;
+/** Max box a receipt logo is drawn into, aspect ratio preserved. Bumped up
+ * from a previous 26×16mm now that the receipt no longer prints the
+ * business name as text (see `receiptPdf.ts`'s `drawReceiptContent`) — the
+ * logo is the receipt's only brand mark now, so it reads as a real header
+ * rather than a small corner mark. Still well inside `PAGE_WIDTH_MM`'s
+ * 80mm, with margin either side. */
+export const LOGO_MAX_WIDTH_MM = 40;
+export const LOGO_MAX_HEIGHT_MM = 24;
 
 /** Resolves a `data:` URL's natural pixel dimensions — needed to draw it into
  * the PDF at the right aspect ratio instead of stretching/squashing it to a
@@ -74,16 +77,21 @@ export function drawLogo(
   return startY + height + 3;
 }
 
-/** Business name (bold, centered) plus `subtitleLines` centered underneath
- * it. Returns the y position to continue drawing from. */
-export function drawHeader(doc: jsPDF, businessName: string, subtitleLines: string[], startY = 8): number {
+/** Business name (bold, centered), if given, plus `subtitleLines` centered
+ * underneath it. Returns the y position to continue drawing from.
+ * `businessName` is `string | null` — the sale receipt (`receiptPdf.ts`)
+ * passes `null` deliberately (the logo is its brand mark now, not text);
+ * every other template (refund, reports) still passes the real name. */
+export function drawHeader(doc: jsPDF, businessName: string | null, subtitleLines: string[], startY = 8): number {
   const centerX = PAGE_WIDTH_MM / 2;
   let y = startY;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text(businessName, centerX, y, { align: "center" });
-  y += 6;
+  if (businessName) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text(businessName, centerX, y, { align: "center" });
+    y += 6;
+  }
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
@@ -103,17 +111,23 @@ export function drawSectionHeader(doc: jsPDF, y: number, title: string): number 
   return y + 4;
 }
 
-/** The tabular item/line list every template uses — same styling as the
- * original receipt table (dark header fill, grid theme), just parameterized
- * over columns/rows so a template can add a Rate column or drop Qty. */
+/** The tabular item/line list every template uses — a real, crisp grid
+ * (every cell bordered, header and body alike, Excel-style — not just an
+ * outer box) — parameterized over columns/rows so a template can add a
+ * Rate column or drop Qty. */
 export function drawTable(doc: jsPDF, startY: number, head: string[], body: string[][]): number {
   autoTable(doc, {
     startY,
     margin: { left: MARGIN_MM, right: MARGIN_MM },
     head: [head],
     body,
-    styles: { fontSize: 8, cellPadding: 1.2 },
-    headStyles: { fillColor: [30, 41, 59] },
+    styles: {
+      fontSize: 8,
+      cellPadding: 1.6,
+      lineWidth: 0.15,
+      lineColor: [100, 116, 139], // slate-500 — a real, visible grid line on every cell
+    },
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: "bold" },
     theme: "grid",
     // Right-align every numeric-looking column (all but the first) — the
     // "Description / Qty / Rate / Amount, right-aligned numbers" convention

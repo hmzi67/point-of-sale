@@ -1,5 +1,5 @@
 import { useReportsStore } from "../../store";
-import { formatMinor } from "../../utils/format";
+import { formatMinor, formatQty } from "../../utils/format";
 import type { TopItem, TopItemSort } from "../../types";
 
 interface TopItemsTableProps {
@@ -61,7 +61,7 @@ export function TopItemsTable({ items, currency, isLoading }: TopItemsTableProps
               <tr key={item.itemId}>
                 <td className="px-4 py-2 text-slate-400">{index + 1}</td>
                 <td className="px-4 py-2 font-medium text-slate-900">{item.itemName}</td>
-                <td className="px-4 py-2 text-right text-slate-700">{item.qtySold}</td>
+                <td className="px-4 py-2 text-right text-slate-700">{formatQty(item.qtySold)}</td>
                 <td className="px-4 py-2 text-right text-slate-900">{formatMinor(item.revenueMinor, currency)}</td>
               </tr>
             ))}

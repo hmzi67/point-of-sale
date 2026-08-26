@@ -27,7 +27,10 @@ export function buildReportCsv({ summary, topItems, series }: ReportData): strin
     buildCsv([
       ["Top-selling items"],
       ["Item", "Qty sold", "Revenue"],
-      ...topItems.map((item) => [item.itemName, item.qtySold, minorToDecimal(item.revenueMinor).toFixed(2)]),
+      // Rounded to 2dp, same as everywhere else a fractional (`soldByAmount`)
+      // qty is displayed — a raw sum straight from the database can carry
+      // floating-point noise (e.g. 12.499999999999998).
+      ...topItems.map((item) => [item.itemName, Math.round(item.qtySold * 100) / 100, minorToDecimal(item.revenueMinor).toFixed(2)]),
     ]),
   );
 

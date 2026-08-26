@@ -1,5 +1,5 @@
 import { Flame, Pencil, Trash2 } from "lucide-react";
-import { formatMinor } from "../../utils/format";
+import { formatMinor, formatQty } from "../../utils/format";
 import { ItemThumbnail } from "./ItemThumbnail";
 import type { Item } from "../../types";
 
@@ -113,7 +113,7 @@ export function ItemTable({
                     ].join(" ")}
                   >
                     {item.isLowStock && <span className="h-1.5 w-1.5 rounded-full bg-red-600" />}
-                    {item.stockQty}
+                    {formatQty(item.stockQty, item.unit)}
                   </span>
                 </td>
                 {!isReadOnly && (

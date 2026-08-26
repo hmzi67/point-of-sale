@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { formatMinor } from "./format";
+import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
 import type { ReportData } from "./reportCsv";
 
@@ -57,7 +57,7 @@ export function buildReportPdf({ summary, topItems, config }: ReportData): jsPDF
     body: topItems.map((item, index) => [
       String(index + 1),
       item.itemName,
-      String(item.qtySold),
+      formatQty(item.qtySold),
       formatMinor(item.revenueMinor, config.currency),
     ]),
     styles: { fontSize: 9, cellPadding: 2.5 },

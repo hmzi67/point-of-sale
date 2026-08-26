@@ -411,12 +411,12 @@ mod tests {
                 .map(|(_, qty)| qty)
                 .sum();
 
-            let stock: i64 = conn
+            let stock: f64 = conn
                 .query_row("SELECT stock_qty FROM items WHERE name = ?1", [name], |row| {
                     row.get(0)
                 })
                 .unwrap();
-            assert_eq!(stock, opening_stock - sold, "stock wrong for {}", name);
+            assert_eq!(stock, (opening_stock - sold) as f64, "stock wrong for {}", name);
         }
     }
 

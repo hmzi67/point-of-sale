@@ -16,6 +16,20 @@ export interface CartEntry {
   /** A cashier's free-text note on this line (e.g. "no onions"). Empty
    * string, not `null`, when unset — matches every text `<input>`'s value. */
   notes: string;
+  /** Copied from `Item.soldByAmount` at add time — lets the cart row and
+   * `setQty`/`updateLine`'s clamping tell a normal per-piece line (whole
+   * numbers only) from a loose/weighed one (fractional qty allowed). */
+  soldByAmount: boolean;
+  /** Copied from `Item.unit` — display only, e.g. "kg" on the cart row. */
+  unit: string | null;
+}
+
+/** The smallest a line's qty may ever clamp down to — 1 whole unit for a
+ * normal item, a token 0.01 for a `soldByAmount` line (there's no
+ * meaningful "1" for a fractional-quantity item, and a cashier must still
+ * be able to fine-tune it down after weighing on a scale). */
+function minQty(entry: Pick<CartEntry, "soldByAmount">): number {
+  return entry.soldByAmount ? 0.01 : 1;
 }
 
 export type DiscountMode = "flat" | "percent";
@@ -54,6 +68,14 @@ interface BillingState {
    * at qty 1. Used by the barcode-scan/search path and the item card's
    * "Add to Cart" button — no mouse, no modal. */
   addItem: (item: Item) => void;
+  /** "By Amount" entry for a `soldByAmount` item: computes qty from a
+   * rupee amount (amountMinor ÷ item.priceMinor, rounded to 2dp — see
+   * `ItemAmountEntryModal`) and adds it the same way `addItem` does
+   * (+existing qty if the item's already in the cart, a fresh line
+   * otherwise). Does nothing for an item that isn't `soldByAmount` — the
+   * caller (the amount-entry UI) only ever appears for one, but this is
+   * the same defensive floor `addItem` has via `item.stockQty <= 0`. */
+  addItemByAmount: (item: Item, amountMinor: number) => void;
   /** The cart row's notes-pencil "edit" flow: sets (not adds) qty and notes
    * to exactly the given values, since this is editing an existing line
    * rather than adding more of it. */
@@ -68,6 +90,18 @@ interface BillingState {
   /** Replaces the cart with a resumed table order's lines. */
   loadParkedCart: (lines: ParkedCartLine[], discountMinor: number, resolveItem: (id: number) => Item | undefined) => void;
   clearCart: () => void;
+
+  /** Which `soldByAmount` item's "By Amount" entry popup is currently open,
+   * if any. Transient UI state, not cart data — lives here (rather than as
+   * local state in whichever component triggered it) because both the item
+   * grid's card and the search bar's result list need to be able to open
+   * the same modal, and neither is an ancestor of the other; `BillingPage`
+   * mounts the one `ItemAmountEntryModal` that reads this. Same reasoning
+   * `tableId`/`customerName` above already established for billing-UI
+   * state that isn't itself a cart line. */
+  amountEntryItem: Item | null;
+  requestAmountEntry: (item: Item) => void;
+  cancelAmountEntry: () => void;
 }
 
 const initialCartState = {
@@ -83,6 +117,7 @@ export const useBillingStore = create<BillingState>((set) => ({
   ...initialCartState,
   paymentMethod: "cash",
   draftOrderNumber: 1,
+  amountEntryItem: null,
 
   addItem: (item) => {
     if (item.stockQty <= 0) return;
@@ -103,6 +138,46 @@ export const useBillingStore = create<BillingState>((set) => ({
         imagePath: item.imagePath,
         qty: 1,
         notes: "",
+        soldByAmount: item.soldByAmount,
+        unit: item.unit,
+      };
+      return {
+        cart: { ...state.cart, [item.id]: entry },
+        cartOrder: [...state.cartOrder, item.id],
+      };
+    });
+  },
+
+  addItemByAmount: (item, amountMinor) => {
+    if (!item.soldByAmount || item.priceMinor <= 0 || amountMinor <= 0 || item.stockQty <= 0) return;
+
+    // Rounded to 2 decimal places — the same rounding `printer::layout::
+    // format_qty` displays with, and what the server re-derives the actual
+    // charged total from (price × this qty, never the typed amount
+    // directly — see CLAUDE.md's "server re-derives price × qty" rule,
+    // which this doesn't bypass just because the cashier's input was an
+    // amount instead of a qty).
+    const rawQty = amountMinor / item.priceMinor;
+    const qty = Math.round(rawQty * 100) / 100;
+
+    set((state) => {
+      const existing = state.cart[item.id];
+      if (existing) {
+        const newQty = Math.min(existing.qty + qty, item.stockQty);
+        return { cart: { ...state.cart, [item.id]: { ...existing, qty: newQty } } };
+      }
+
+      const entry: CartEntry = {
+        itemId: item.id,
+        name: item.name,
+        barcode: item.barcode,
+        priceMinor: item.priceMinor,
+        stockQty: item.stockQty,
+        imagePath: item.imagePath,
+        qty: Math.min(qty, item.stockQty),
+        notes: "",
+        soldByAmount: item.soldByAmount,
+        unit: item.unit,
       };
       return {
         cart: { ...state.cart, [item.id]: entry },
@@ -115,7 +190,7 @@ export const useBillingStore = create<BillingState>((set) => ({
     set((state) => {
       const existing = state.cart[itemId];
       if (!existing) return state;
-      const clamped = Math.max(1, Math.min(qty, existing.stockQty));
+      const clamped = Math.max(minQty(existing), Math.min(qty, existing.stockQty));
       return { cart: { ...state.cart, [itemId]: { ...existing, qty: clamped, notes } } };
     });
   },
@@ -124,7 +199,7 @@ export const useBillingStore = create<BillingState>((set) => ({
     set((state) => {
       const existing = state.cart[itemId];
       if (!existing) return state;
-      const clamped = Math.max(1, Math.min(qty, existing.stockQty));
+      const clamped = Math.max(minQty(existing), Math.min(qty, existing.stockQty));
       return { cart: { ...state.cart, [itemId]: { ...existing, qty: clamped } } };
     });
   },
@@ -156,11 +231,13 @@ export const useBillingStore = create<BillingState>((set) => ({
         priceMinor: item.priceMinor,
         stockQty: item.stockQty,
         imagePath: item.imagePath,
-        qty: Math.min(line.qty, Math.max(item.stockQty, 1)),
+        qty: Math.min(line.qty, Math.max(item.stockQty, item.soldByAmount ? 0.01 : 1)),
         // A parked table order doesn't carry per-line notes today (see
         // `ParkedCartLine` on the Rust side) — resuming one just starts
         // each line with no note, same as before this feature existed.
         notes: "",
+        soldByAmount: item.soldByAmount,
+        unit: item.unit,
       };
       cartOrder.push(line.itemId);
     }
@@ -179,4 +256,7 @@ export const useBillingStore = create<BillingState>((set) => ({
       paymentMethod: state.paymentMethod,
       draftOrderNumber: state.draftOrderNumber + 1,
     })),
+
+  requestAmountEntry: (item) => set({ amountEntryItem: item }),
+  cancelAmountEntry: () => set({ amountEntryItem: null }),
 }));

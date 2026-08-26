@@ -24,6 +24,7 @@ const placeholderConfig: AppConfig = {
   taxPercent: 0,
   receiptFooter: "",
   phone: null,
+  deliveryNumber: null,
   workingDaysPerMonth: 26,
   // A conservative placeholder: `true` (not the real, usually-`false` value)
   // so the onboarding-gate check below never fires a redirect off a value

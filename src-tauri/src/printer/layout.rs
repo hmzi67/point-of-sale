@@ -109,6 +109,73 @@ pub fn bordered_line(widths: &[usize]) -> String {
     out
 }
 
+// --- CP437 box-drawing borders ------------------------------------------
+//
+// [`bordered_row`]/[`bordered_line`] above draw a "grid" out of plain
+// ASCII (`|`/`-`/`+`) — readable, but it reads as typed punctuation, not
+// an actual table. Real box-drawing lines (─│┌┬┐├┼┤└┴┘) are available on
+// virtually every ESC/POS thermal printer as part of the IBM/DOS CP437
+// character set, one byte each (0xB3/0xC4/0xDA/…) — but they are *not*
+// valid standalone UTF-8, so `str`/`String` can't hold them; these
+// functions build raw `Vec<u8>` instead of text, unlike everything above.
+// The printer must actually be in codepage CP437 for these bytes to render
+// as lines rather than accented-letter garbage — `escpos::init()` selects
+// it (`ESC t 0`) once at the start of every print job, which is harmless
+// for plain ASCII text too since CP437's low 128 codepoints are identical
+// to ASCII.
+const BOX_H: u8 = 0xC4; // ─
+const BOX_V: u8 = 0xB3; // │
+const BOX_TOP_LEFT: u8 = 0xDA; // ┌
+const BOX_TOP_MID: u8 = 0xC2; // ┬
+const BOX_TOP_RIGHT: u8 = 0xBF; // ┐
+const BOX_MID_LEFT: u8 = 0xC3; // ├
+const BOX_MID_MID: u8 = 0xC5; // ┼
+const BOX_MID_RIGHT: u8 = 0xB4; // ┤
+const BOX_BOTTOM_LEFT: u8 = 0xC0; // └
+const BOX_BOTTOM_MID: u8 = 0xC1; // ┴
+const BOX_BOTTOM_RIGHT: u8 = 0xD9; // ┘
+
+/// Which horizontal rule of a box-drawn table this is — the corner/junction
+/// glyphs differ by position (`┌┬┐` vs `├┼┤` vs `└┴┘`), unlike
+/// [`bordered_line`]'s single `+` used everywhere.
+pub enum BoxLinePosition {
+    Top,
+    Middle,
+    Bottom,
+}
+
+/// The CP437 equivalent of [`bordered_line`]: a real horizontal box-drawing
+/// rule matching [`box_row`]'s column widths. Call it with `Top` above the
+/// header row, `Middle` between the header and the first data row, and
+/// `Bottom` below the last data row — the same three call sites
+/// `bordered_line` used to cover with plain `+`/`-`.
+pub fn box_line(widths: &[usize], position: BoxLinePosition) -> Vec<u8> {
+    let (left, mid, right) = match position {
+        BoxLinePosition::Top => (BOX_TOP_LEFT, BOX_TOP_MID, BOX_TOP_RIGHT),
+        BoxLinePosition::Middle => (BOX_MID_LEFT, BOX_MID_MID, BOX_MID_RIGHT),
+        BoxLinePosition::Bottom => (BOX_BOTTOM_LEFT, BOX_BOTTOM_MID, BOX_BOTTOM_RIGHT),
+    };
+    let mut out = vec![left];
+    for (i, width) in widths.iter().enumerate() {
+        out.extend(std::iter::repeat(BOX_H).take(*width));
+        out.push(if i + 1 == widths.len() { right } else { mid });
+    }
+    out
+}
+
+/// The CP437 equivalent of [`bordered_row`]: `│` before the first column
+/// and after every column. Same `(text, width, right_align)` contract, and
+/// the same underlying [`pad`] (truncate-not-wrap, never panics on a
+/// multi-byte boundary) for each cell's content.
+pub fn box_row(cols: &[(&str, usize, bool)]) -> Vec<u8> {
+    let mut out = vec![BOX_V];
+    for (text, width, right_align) in cols {
+        out.extend(pad(text, *width, *right_align).into_bytes());
+        out.push(BOX_V);
+    }
+    out
+}
+
 /// Truncates `text` to at most [`LINE_WIDTH`] visible characters, exactly
 /// as it already is if it's shorter — for the handful of values that print
 /// as their own full-width line rather than a fixed-width column (business
@@ -120,6 +187,25 @@ pub fn bordered_line(widths: &[usize]) -> String {
 /// whole line instead of one column of one.
 pub fn truncate_line(text: &str) -> String {
     text.chars().take(LINE_WIDTH).collect()
+}
+
+/// A quantity -> a plain string, rounded to 2 decimal places and with
+/// trailing zeros trimmed ("2" for a whole unit, "0.77" for a
+/// `sold_by_amount` line) — the printed counterpart of the cart's own
+/// display rounding. Never shows a unit label (kg/g/…): that needs more
+/// horizontal room than this file's narrow, hardware-measured column
+/// budgets reliably have (see `LINE_WIDTH`'s doc comment on how little
+/// slack 42 columns actually leaves) — the PDF receipt shows the unit,
+/// this one doesn't.
+pub fn format_qty(qty: f64) -> String {
+    let rounded = (qty * 100.0).round() / 100.0;
+    if rounded.fract() == 0.0 {
+        format!("{rounded:.0}")
+    } else {
+        // Trim a trailing zero from e.g. "1.20" -> "1.2", never from "1.25".
+        let s = format!("{rounded:.2}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
 }
 
 /// Minor units -> a plain "12.34" string, without a currency symbol (every
@@ -138,6 +224,16 @@ mod tests {
         assert_eq!(line.chars().count(), LINE_WIDTH);
         assert!(line.ends_with("123.45"));
         assert!(line.starts_with("Subtotal"));
+    }
+
+    #[test]
+    fn format_qty_shows_whole_numbers_bare_and_fractions_to_two_places() {
+        assert_eq!(format_qty(2.0), "2");
+        assert_eq!(format_qty(0.4), "0.4");
+        assert_eq!(format_qty(0.77), "0.77");
+        assert_eq!(format_qty(1.2), "1.2");
+        assert_eq!(format_qty(1.257), "1.26", "rounds to 2 places");
+        assert_eq!(format_qty(10.0), "10");
     }
 
     #[test]

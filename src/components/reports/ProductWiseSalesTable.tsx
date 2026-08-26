@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { formatMinor } from "../../utils/format";
+import { formatMinor, formatQty } from "../../utils/format";
 import type { Category, ProductSalesSummaryReport, TopItemSort } from "../../types";
 
 interface ProductWiseSalesTableProps {
@@ -135,7 +135,7 @@ export function ProductWiseSalesTable({
                     <td className="px-4 py-2 text-slate-400">{row.rank}</td>
                     <td className="px-4 py-2 font-medium text-slate-900">{row.itemName}</td>
                     <td className="px-4 py-2 text-slate-600">{row.categoryName}</td>
-                    <td className="px-4 py-2 text-right text-slate-700">{row.qtySold}</td>
+                    <td className="px-4 py-2 text-right text-slate-700">{formatQty(row.qtySold)}</td>
                     <td className="px-4 py-2 text-right text-slate-900">{formatMinor(row.revenueMinor, currency)}</td>
                   </tr>
                 ))}

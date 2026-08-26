@@ -22,13 +22,15 @@ pub struct RefundableLine {
     pub sale_item_id: i64,
     pub item_id: i64,
     pub item_name: String,
-    pub qty: i64,
+    /// `f64`, not `i64` — matches `sale_items.qty` now that a
+    /// `sold_by_amount` line's original sale qty can be fractional.
+    pub qty: f64,
     pub price_at_sale_minor: i64,
     /// Summed from every previous refund against this line.
-    pub qty_already_refunded: i64,
+    pub qty_already_refunded: f64,
     /// `qty - qty_already_refunded` — never negative; the UI's upper bound
     /// on how much of this line can still be refunded.
-    pub qty_refundable: i64,
+    pub qty_refundable: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,7 +53,7 @@ pub enum RefundError {
     /// paired them correctly.
     SaleItemMismatch { sale_item_id: i64, expected_sale_id: i64 },
     InvalidQuantity,
-    OverRefund { sale_item_id: i64, refundable: i64, requested: i64 },
+    OverRefund { sale_item_id: i64, refundable: f64, requested: f64 },
     InvalidAmount { sale_item_id: i64, max_allowed_minor: i64, requested_minor: i64 },
     Sqlite(rusqlite::Error),
 }
@@ -92,7 +94,7 @@ impl From<rusqlite::Error> for RefundError {
 /// Sums already-refunded qty per `sale_item_id`, for the running "how much
 /// is left" check both `get_sale_for_refund` (display) and `create_refund`
 /// (validation) need.
-fn already_refunded(conn: &Connection, sale_item_id: i64) -> Result<i64, rusqlite::Error> {
+fn already_refunded(conn: &Connection, sale_item_id: i64) -> Result<f64, rusqlite::Error> {
     conn.query_row(
         "SELECT COALESCE(SUM(qty_refunded), 0) FROM refund_items WHERE sale_item_id = ?1",
         params![sale_item_id],
@@ -118,7 +120,7 @@ pub fn get_sale_for_refund(conn: &Connection, sale_id: i64) -> Result<Refundable
           WHERE si.sale_id = ?1
           ORDER BY si.id",
     )?;
-    let rows: Vec<(i64, i64, String, i64, i64)> = stmt
+    let rows: Vec<(i64, i64, String, f64, i64)> = stmt
         .query_map(params![sale_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         })?
@@ -134,7 +136,7 @@ pub fn get_sale_for_refund(conn: &Connection, sale_id: i64) -> Result<Refundable
             qty,
             price_at_sale_minor,
             qty_already_refunded,
-            qty_refundable: (qty - qty_already_refunded).max(0),
+            qty_refundable: (qty - qty_already_refunded).max(0.0),
         });
     }
 
@@ -156,7 +158,7 @@ pub fn get_sale_for_refund(conn: &Connection, sale_id: i64) -> Result<Refundable
 #[serde(rename_all = "camelCase")]
 pub struct RefundLineInput {
     pub sale_item_id: i64,
-    pub qty: i64,
+    pub qty: f64,
     pub amount_minor: i64,
 }
 
@@ -175,7 +177,7 @@ pub struct RefundLine {
     pub sale_item_id: i64,
     pub item_id: i64,
     pub item_name: String,
-    pub qty_refunded: i64,
+    pub qty_refunded: f64,
     pub amount_refunded_minor: i64,
 }
 
@@ -212,15 +214,15 @@ pub fn create_refund(tx: &Transaction, input: CreateRefundInput) -> Result<Refun
     }
 
     // (sale_item_id, item_id, item_name, qty_refunded, amount_refunded_minor)
-    let mut resolved: Vec<(i64, i64, String, i64, i64)> = Vec::with_capacity(input.items.len());
+    let mut resolved: Vec<(i64, i64, String, f64, i64)> = Vec::with_capacity(input.items.len());
     let mut total_refund_amount_minor: i64 = 0;
 
     for line in &input.items {
-        if line.qty <= 0 {
+        if line.qty <= 0.0 {
             return Err(RefundError::InvalidQuantity);
         }
 
-        let row: Option<(i64, i64, String, i64, i64)> = tx
+        let row: Option<(i64, i64, String, f64, i64)> = tx
             .query_row(
                 "SELECT si.sale_id, si.item_id, i.name, si.qty, si.price_at_sale_minor
                    FROM sale_items si
@@ -250,7 +252,9 @@ pub fn create_refund(tx: &Transaction, input: CreateRefundInput) -> Result<Refun
             });
         }
 
-        let max_allowed_minor = price_at_sale_minor * line.qty;
+        // Same round-trip-to-whole-minor-units rounding `create_sale` uses
+        // for a fractional qty × integer price.
+        let max_allowed_minor = (price_at_sale_minor as f64 * line.qty).round() as i64;
         if line.amount_minor < 0 || line.amount_minor > max_allowed_minor {
             return Err(RefundError::InvalidAmount {
                 sale_item_id: line.sale_item_id,
@@ -361,7 +365,7 @@ mod tests {
             .unwrap()
     }
 
-    fn stock(conn: &Connection, name: &str) -> i64 {
+    fn stock(conn: &Connection, name: &str) -> f64 {
         conn.query_row("SELECT stock_qty FROM items WHERE name = ?1", params![name], |row| row.get(0))
             .unwrap()
     }
@@ -374,7 +378,7 @@ mod tests {
         let sale = create_sale(
             &tx,
             CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 4, notes: None }],
+                items: vec![CartLine { item_id: cola, qty: 4.0, notes: None }],
                 discount_minor: 0,
                 tax_minor: 0,
                 payment_method: "cash".into(),
@@ -398,7 +402,7 @@ mod tests {
         let mut conn = test_conn();
         let cola_before_sale = stock(&conn, "Cola 500ml");
         let sale_id = seed_sale(&mut conn);
-        assert_eq!(stock(&conn, "Cola 500ml"), cola_before_sale - 4);
+        assert_eq!(stock(&conn, "Cola 500ml"), cola_before_sale - 4.0);
 
         let si = sale_item_id(&conn, sale_id);
         let tx = conn.transaction().unwrap();
@@ -406,7 +410,7 @@ mod tests {
             &tx,
             CreateRefundInput {
                 sale_id,
-                items: vec![RefundLineInput { sale_item_id: si, qty: 2, amount_minor: 2 * 8000 }],
+                items: vec![RefundLineInput { sale_item_id: si, qty: 2.0, amount_minor: 2 * 8000 }],
                 reason: Some("Customer changed mind".into()),
                 refunded_by: None,
             },
@@ -415,7 +419,7 @@ mod tests {
         tx.commit().unwrap();
 
         assert_eq!(refund.total_refund_amount_minor, 16000);
-        assert_eq!(stock(&conn, "Cola 500ml"), cola_before_sale - 4 + 2, "only the refunded qty comes back");
+        assert_eq!(stock(&conn, "Cola 500ml"), cola_before_sale - 4.0 + 2.0, "only the refunded qty comes back");
     }
 
     #[test]
@@ -430,7 +434,7 @@ mod tests {
                 &tx,
                 CreateRefundInput {
                     sale_id,
-                    items: vec![RefundLineInput { sale_item_id: si, qty: 1, amount_minor: 8000 }],
+                    items: vec![RefundLineInput { sale_item_id: si, qty: 1.0, amount_minor: 8000 }],
                     reason: None,
                     refunded_by: None,
                 },
@@ -441,9 +445,9 @@ mod tests {
 
         let refundable = get_sale_for_refund(&conn, sale_id).unwrap();
         assert_eq!(refundable.items.len(), 1);
-        assert_eq!(refundable.items[0].qty, 4);
-        assert_eq!(refundable.items[0].qty_already_refunded, 1);
-        assert_eq!(refundable.items[0].qty_refundable, 3, "3 of the original 4 remain refundable");
+        assert_eq!(refundable.items[0].qty, 4.0);
+        assert_eq!(refundable.items[0].qty_already_refunded, 1.0);
+        assert_eq!(refundable.items[0].qty_refundable, 3.0, "3 of the original 4 remain refundable");
     }
 
     #[test]
@@ -458,13 +462,13 @@ mod tests {
             &tx,
             CreateRefundInput {
                 sale_id,
-                items: vec![RefundLineInput { sale_item_id: si, qty: 5, amount_minor: 5 * 8000 }],
+                items: vec![RefundLineInput { sale_item_id: si, qty: 5.0, amount_minor: 5 * 8000 }],
                 reason: None,
                 refunded_by: None,
             },
         )
         .unwrap_err();
-        assert!(matches!(err, RefundError::OverRefund { refundable: 4, requested: 5, .. }));
+        assert!(matches!(err, RefundError::OverRefund { refundable, requested, .. } if refundable == 4.0 && requested == 5.0));
         drop(tx);
 
         assert_eq!(stock(&conn, "Cola 500ml"), stock_before, "a rejected refund must not touch stock");
@@ -482,7 +486,7 @@ mod tests {
                 &tx,
                 CreateRefundInput {
                     sale_id,
-                    items: vec![RefundLineInput { sale_item_id: si, qty: 3, amount_minor: 3 * 8000 }],
+                    items: vec![RefundLineInput { sale_item_id: si, qty: 3.0, amount_minor: 3 * 8000 }],
                     reason: None,
                     refunded_by: None,
                 },
@@ -497,13 +501,13 @@ mod tests {
             &tx,
             CreateRefundInput {
                 sale_id,
-                items: vec![RefundLineInput { sale_item_id: si, qty: 2, amount_minor: 2 * 8000 }],
+                items: vec![RefundLineInput { sale_item_id: si, qty: 2.0, amount_minor: 2 * 8000 }],
                 reason: None,
                 refunded_by: None,
             },
         )
         .unwrap_err();
-        assert!(matches!(err, RefundError::OverRefund { refundable: 1, requested: 2, .. }));
+        assert!(matches!(err, RefundError::OverRefund { refundable, requested, .. } if refundable == 1.0 && requested == 2.0));
     }
 
     #[test]
@@ -519,7 +523,7 @@ mod tests {
                 sale_id,
                 // 1 unit is worth 8000, not 999999 — a tampered/buggy client
                 // value must be rejected, never trusted onto the ledger.
-                items: vec![RefundLineInput { sale_item_id: si, qty: 1, amount_minor: 999_999 }],
+                items: vec![RefundLineInput { sale_item_id: si, qty: 1.0, amount_minor: 999_999 }],
                 reason: None,
                 refunded_by: None,
             },
@@ -542,7 +546,7 @@ mod tests {
                 // Claims to be against sale_a, but the line actually
                 // belongs to sale_b.
                 sale_id: sale_a,
-                items: vec![RefundLineInput { sale_item_id: si_from_b, qty: 1, amount_minor: 8000 }],
+                items: vec![RefundLineInput { sale_item_id: si_from_b, qty: 1.0, amount_minor: 8000 }],
                 reason: None,
                 refunded_by: None,
             },
@@ -582,7 +586,7 @@ mod tests {
                 &tx,
                 CreateRefundInput {
                     sale_id,
-                    items: vec![RefundLineInput { sale_item_id: si, qty: 1, amount_minor: 8000 }],
+                    items: vec![RefundLineInput { sale_item_id: si, qty: 1.0, amount_minor: 8000 }],
                     reason: Some("Wrong item".into()),
                     refunded_by: None,
                 },

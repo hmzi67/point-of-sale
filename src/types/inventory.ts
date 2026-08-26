@@ -27,6 +27,15 @@ export interface Item {
   /** Filename under the product-image store, or `null` if no photo is set.
    * Fetch the displayable data URL with `inventoryService.getItemImage`. */
   imagePath: string | null;
+  /** Sold by typing a rupee amount rather than a quantity on the billing
+   * screen (loose groceries — channa, rice, dry fruits) — the billing
+   * screen divides the amount by `priceMinor` to get the qty. Not every
+   * item qualifies (a bottled soft drink doesn't), so this is opt-in per
+   * item, set from this add/edit form. */
+  soldByAmount: boolean;
+  /** Display unit for this item's quantity (e.g. "kg"), shown on the cart
+   * line and receipt. `null` for a normal per-piece item. */
+  unit: string | null;
 }
 
 /** Everything the add/edit form submits — used for both create and update. */
@@ -40,6 +49,8 @@ export interface ItemInput {
   categoryId: number | null;
   lowStockThreshold: number;
   imagePath: string | null;
+  soldByAmount: boolean;
+  unit: string | null;
 }
 
 /** Result of a bulk CSV import — see `db::csv_import` on the Rust side. */

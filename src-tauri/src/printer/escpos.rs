@@ -57,7 +57,8 @@ use crate::db::refunds::Refund;
 use crate::db::sales::Sale;
 use crate::db::shifts::ShiftSummary;
 use crate::printer::layout::{
-    bordered_line, bordered_row, divider, double_divider, format_minor, row, truncate_line, two_col,
+    bordered_line, bordered_row, box_line, box_row, divider, double_divider, format_minor, format_qty, row,
+    truncate_line, two_col, BoxLinePosition,
 };
 #[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 use rusb::{Direction, TransferType};
@@ -87,8 +88,13 @@ fn wake_padding() -> [u8; 8] {
     [0; 8]
 }
 
-fn init() -> [u8; 2] {
-    [ESC, b'@'] // reset the printer to its power-on state
+fn init() -> [u8; 5] {
+    [
+        ESC, b'@', // reset the printer to its power-on state
+        ESC, b't', 0, // select codepage 0 (CP437) — needed for `layout::box_row`/`box_line`'s
+                      // real box-drawing bytes to render as lines rather than garbage; harmless
+                      // for plain ASCII text, since CP437's low 128 codepoints match ASCII.
+    ]
 }
 
 fn bold(on: bool) -> [u8; 3] {
@@ -140,10 +146,16 @@ pub struct LogoRaster {
     bitmap: Vec<u8>,
 }
 
-/// Widest a logo is allowed to print at, in dots — well under the ~576-dot
-/// printable width of 80mm paper at normal density, so a logo reads as a
-/// modest mark at the top of the receipt, not a banner.
-const LOGO_MAX_WIDTH_PX: u32 = 200;
+/// Widest a logo is allowed to print at, in dots. Bumped up from a
+/// previous 200 now that the business name is no longer printed as text
+/// (see `build_receipt_bytes`'s doc comment) — the logo is the receipt's
+/// only brand mark now, so it can afford to read as a real header rather
+/// than a small corner mark. Still comfortably under this printer family's
+/// *measured* real printable width (~504 dots — 42 columns × 12 dots/col
+/// at Font A, see `layout`'s module doc comment for how that 42 was
+/// measured off a real client receipt) rather than the nominal 576-dot
+/// spec-sheet number for 80mm paper, which already proved wrong once.
+const LOGO_MAX_WIDTH_PX: u32 = 350;
 
 /// Decodes `image_bytes` (PNG/JPEG — the only formats the `image` crate is
 /// built with here) and thresholds it to 1-bit black/white, scaling down to
@@ -198,20 +210,24 @@ fn print_logo(out: &mut Vec<u8>, logo: &LogoRaster) {
     out.extend(align_left());
 }
 
-/// Item-row column widths shared by every line-item table below: Item(18) /
-/// Qty(4) / Rate(8) / Amount(12) = 42 = `LINE_WIDTH`. A public const (not a
+/// Item-row column widths shared by every line-item table below: Item(17) /
+/// Qty(5) / Rate(8) / Amount(12) = 42 = `LINE_WIDTH`. A public const (not a
 /// magic number repeated per template) so the header row and every line
 /// stay in lockstep if this ever needs retuning for a differently-measured
 /// printer — see `layout`'s module doc comment for how 42 was arrived at.
-const ITEM_COLS: [usize; 4] = [18, 4, 8, 12];
+/// Qty widened from an original 4 to 5 (Item shrunk 18->17 to pay for it)
+/// to fit a `sold_by_amount` line's fractional quantity ("12.50") — see
+/// [`ITEM_TABLE_COLS`]'s doc comment for the fuller reasoning, which
+/// applies here identically.
+const ITEM_COLS: [usize; 4] = [17, 5, 8, 12];
 
 fn item_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
     row(&[(desc, ITEM_COLS[0], false), (qty, ITEM_COLS[1], true), (rate, ITEM_COLS[2], true), (amount, ITEM_COLS[3], true)])
 }
 
-/// Content-only column widths for the customer receipt's bordered item
-/// table (below): Item(18) / Qty(3) / Rate(7) / Amount(9) = 37, plus the
-/// 5 `|` separators [`bordered_row`]/[`bordered_line`] add = 42 =
+/// Content-only column widths for the customer receipt's box-drawn item
+/// table (below, [`box_row`]/[`box_line`]): Item(16) / Qty(5) / Rate(7) /
+/// Amount(9) = 37, plus the 5 vertical-rule separators add = 42 =
 /// `LINE_WIDTH` — same total budget as [`ITEM_COLS`] above, just split
 /// differently to leave room for the border characters. Rate(7) exactly
 /// fits "1300.00" with no padding; Amount(9) fits "3900.00" with 2 spaces
@@ -219,16 +235,16 @@ fn item_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
 /// build_receipt_bytes_fits_the_measured_42_column_regression_row`, the
 /// exact row a real client receipt showed wrapping mid-digit before this
 /// column budget was corrected from an assumed 48 down to a measured 42.
-const ITEM_TABLE_COLS: [usize; 4] = [18, 3, 7, 9];
-
-fn item_table_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
-    bordered_row(&[
-        (desc, ITEM_TABLE_COLS[0], false),
-        (qty, ITEM_TABLE_COLS[1], true),
-        (rate, ITEM_TABLE_COLS[2], true),
-        (amount, ITEM_TABLE_COLS[3], true),
-    ])
-}
+///
+/// Qty widened from an original 3 to 5 (Item shrunk 18->16 to pay for it,
+/// two characters truncated off whatever previously fit exactly) so a
+/// `sold_by_amount` line's fractional quantity ("0.77", "12.50" — see
+/// `layout::format_qty`) fits without itself overflowing onto another
+/// physical line, the exact bug this file spent real client-hardware
+/// testing fixing once already for plain integer quantities. There was no
+/// budget left to spare for a unit label too (kg/g/…) — see `layout::
+/// format_qty`'s doc comment for why that's PDF-only.
+const ITEM_TABLE_COLS: [usize; 4] = [16, 5, 7, 9];
 
 /// The header block every template shares: business name (bold, centered),
 /// then `subtitle_lines` centered underneath it, then a blank line.
@@ -282,24 +298,6 @@ fn close_out(out: &mut Vec<u8>, footer: &str) {
     out.extend(feed_and_cut());
 }
 
-/// A prominent bold banner between double rules — "MERCHANT COPY" printed
-/// right after the logo, before the business name, so the merchant's copy
-/// is never mistaken for the customer's at a glance. Same ASCII
-/// double-rule convention `double_divider` already uses elsewhere (above
-/// the grand total) — no new visual language introduced just for this.
-fn copy_label_banner(out: &mut Vec<u8>, label: &str) {
-    out.extend(align_center());
-    out.extend(double_divider().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(truncate_line(label).as_bytes());
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(double_divider().as_bytes());
-    out.push(b'\n');
-    out.extend(align_left());
-}
-
 /// Builds the full ESC/POS byte stream for one customer receipt. Pure and
 /// hardware-independent (the logo, if any, arrives pre-decoded as a
 /// [`LogoRaster`] — see that type's doc comment), so it is covered by tests
@@ -309,33 +307,19 @@ fn copy_label_banner(out: &mut Vec<u8>, label: &str) {
 /// `sale.table_name` is `None`: "Takeaway" if the shop uses tables at all
 /// (this sale just wasn't linked to one), "Counter Sale" if the `tables`
 /// module isn't in use for this installation.
+///
+/// The business name is deliberately *not* printed here — the logo is the
+/// receipt's brand mark now (see `LOGO_MAX_WIDTH_PX`); other templates
+/// (refund, reports) are untouched and still lead with `header_block`'s
+/// bold business-name line. There is also no merchant-copy banner or
+/// second condensed copy any more — this is the one and only bill printed,
+/// and printing it at all is always an explicit click (`print_receipt`),
+/// never automatic.
 pub fn build_receipt_bytes(
     sale: &Sale,
     config: &AppConfig,
     logo: Option<&LogoRaster>,
     tables_module_enabled: bool,
-) -> Vec<u8> {
-    build_receipt_bytes_for_copy(sale, config, logo, tables_module_enabled, None)
-}
-
-/// Same receipt as [`build_receipt_bytes`] — same header, business info,
-/// logo, totals block, and cut margin — with two differences when
-/// `copy_label` is `Some`: a bold banner (see [`copy_label_banner`]) appears
-/// right after the logo, and the itemized item table is skipped entirely —
-/// the merchant copy is a condensed totals-only slip, not a duplicate of
-/// the full customer receipt, so it prints shorter and faster. This is the
-/// *only* receipt template; [`print_receipt`] calls it twice (`None`, then
-/// `Some("MERCHANT COPY")`), which is what guarantees the merchant copy can
-/// never drift from the customer copy in shared content (header, totals
-/// math, footer) or in any of the print-quality fixes (borders, wake
-/// padding, cut feed) applied here — only the item table and banner differ,
-/// both explicitly gated on `copy_label`.
-fn build_receipt_bytes_for_copy(
-    sale: &Sale,
-    config: &AppConfig,
-    logo: Option<&LogoRaster>,
-    tables_module_enabled: bool,
-    copy_label: Option<&str>,
 ) -> Vec<u8> {
     let mut out = Vec::new();
     let currency = &config.currency;
@@ -347,19 +331,31 @@ fn build_receipt_bytes_for_copy(
         print_logo(&mut out, logo);
     }
 
-    if let Some(label) = copy_label {
-        copy_label_banner(&mut out, label);
-    }
-
+    // Centered subtitle block: phone, delivery number (both only if set),
+    // sale number, timestamp — everything `header_block` draws under the
+    // business name elsewhere, minus the business name itself (see this
+    // fn's doc comment). Not `header_block` — that always leads with a bold
+    // business-name line, which this receipt intentionally omits.
     let mut subtitle = Vec::new();
     if let Some(phone) = &config.phone {
         if !phone.trim().is_empty() {
             subtitle.push(phone.clone());
         }
     }
+    if let Some(delivery_number) = &config.delivery_number {
+        if !delivery_number.trim().is_empty() {
+            subtitle.push(format!("Delivery: {delivery_number}"));
+        }
+    }
     subtitle.push(format!("Sale #{}", sale.id));
     subtitle.push(sale.created_at.clone());
-    header_block(&mut out, &config.business_name, &subtitle);
+    out.extend(align_center());
+    for line in &subtitle {
+        out.extend(truncate_line(line).as_bytes());
+        out.push(b'\n');
+    }
+    out.push(b'\n');
+    out.extend(align_left());
 
     // Cashier / table-or-order-type — a left-aligned label/value block, same
     // alignment convention as the totals rows below, rather than folded into
@@ -374,32 +370,30 @@ fn build_receipt_bytes_for_copy(
     out.push(b'\n');
     out.push(b'\n');
 
-    // Merchant copy is a condensed totals-only slip — the itemized table is
-    // customer-copy-only (see this fn's doc comment).
-    if copy_label.is_none() {
-        out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
-        out.push(b'\n');
-        out.extend(bold(true));
-        out.extend(item_table_row("Item", "Qty", "Rate", "Amount").as_bytes());
-        out.push(b'\n');
-        out.extend(bold(false));
-        out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
-        out.push(b'\n');
-        for item in &sale.items {
-            out.extend(
-                item_table_row(
-                    &item.item_name,
-                    &item.qty.to_string(),
-                    &format_minor(item.price_at_sale_minor),
-                    &format_minor(item.line_total_minor),
-                )
-                .as_bytes(),
-            );
-            out.push(b'\n');
-        }
-        out.extend(bordered_line(&ITEM_TABLE_COLS).as_bytes());
+    // Real box-drawing borders (─│┌┬┐├┼┤└┴┘), not the ASCII `|`/`-`/`+`
+    // punctuation `bordered_row`/`bordered_line` draw — see `layout::
+    // box_row`/`box_line`'s doc comment for why this needs raw bytes
+    // instead of the `String`-based helpers every other bordered table in
+    // this file still uses.
+    out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top));
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(box_row(&[("Item", ITEM_TABLE_COLS[0], false), ("Qty", ITEM_TABLE_COLS[1], true), ("Rate", ITEM_TABLE_COLS[2], true), ("Amount", ITEM_TABLE_COLS[3], true)]));
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Middle));
+    out.push(b'\n');
+    for item in &sale.items {
+        out.extend(box_row(&[
+            (item.item_name.as_str(), ITEM_TABLE_COLS[0], false),
+            (&format_qty(item.qty), ITEM_TABLE_COLS[1], true),
+            (&format_minor(item.price_at_sale_minor), ITEM_TABLE_COLS[2], true),
+            (&format_minor(item.line_total_minor), ITEM_TABLE_COLS[3], true),
+        ]));
         out.push(b'\n');
     }
+    out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom));
+    out.push(b'\n');
 
     out.extend(two_col("Subtotal", &format!("{} {}", currency, format_minor(sale.subtotal_minor))).as_bytes());
     out.push(b'\n');
@@ -462,7 +456,7 @@ pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
         out.extend(
             item_row(
                 &item.item_name,
-                &item.qty_refunded.to_string(),
+                &format_qty(item.qty_refunded),
                 "",
                 &format_minor(item.amount_refunded_minor),
             )
@@ -596,7 +590,7 @@ fn write_category_sales_section(out: &mut Vec<u8>, report: &CategorySalesReport,
         out.push(b'\n');
         for item in &group.items {
             out.extend(
-                three_col_row(&item.item_name, &item.qty_sold.to_string(), &format_minor(item.revenue_minor))
+                three_col_row(&item.item_name, &format_qty(item.qty_sold), &format_minor(item.revenue_minor))
                     .as_bytes(),
             );
             out.push(b'\n');
@@ -713,7 +707,7 @@ fn write_refunds_section(out: &mut Vec<u8>, report: &RefundsSummary, currency: &
         out.push(b'\n');
         for item in &refund.items {
             out.extend(
-                three_col_row(&item.item_name, &item.qty_refunded.to_string(), &format_minor(item.amount_refunded_minor))
+                three_col_row(&item.item_name, &format_qty(item.qty_refunded), &format_minor(item.amount_refunded_minor))
                     .as_bytes(),
             );
             out.push(b'\n');
@@ -778,7 +772,7 @@ fn write_product_sales_section(out: &mut Vec<u8>, report: &ProductSalesSummaryRe
     out.push(b'\n');
     for item in &report.rows {
         let label = format!("{}. {}", item.rank, item.item_name);
-        out.extend(three_col_row(&label, &item.qty_sold.to_string(), &format_minor(item.revenue_minor)).as_bytes());
+        out.extend(three_col_row(&label, &format_qty(item.qty_sold), &format_minor(item.revenue_minor)).as_bytes());
         out.push(b'\n');
     }
     out.extend(three_col_border().as_bytes());
@@ -1063,25 +1057,18 @@ fn send_to_printer_usb(bytes: &[u8]) -> Result<(), PrinterError> {
     Err(PrinterError::NotConfigured)
 }
 
-/// Builds and sends **two** receipts for `sale`, back to back through the
-/// same printer in one write: the customer copy unchanged, immediately
-/// followed by a merchant copy carrying the "MERCHANT COPY" banner (see
-/// [`build_receipt_bytes_for_copy`]). Concatenating two complete,
-/// independently-cut byte streams — rather than printing twice via two
-/// separate calls — is what makes "back to back" literal: each copy still
-/// ends with its own full feed-and-cut command, so the cutter fires once
-/// per copy while the whole job goes out as a single transport write.
-/// Every fix applied to the shared builder (bordered item table, wake
-/// padding, pre-cut feed) automatically covers both copies, since both are
-/// built by the exact same function.
+/// Builds and sends the one receipt for `sale` (see [`build_receipt_bytes`])
+/// to this installation's configured printer. Always an explicit action —
+/// called only from `commands::billing_print_receipt_thermal`, which the
+/// frontend only ever invokes from a button click (see `ReceiptModal.tsx`),
+/// never automatically the moment a sale completes.
 pub fn print_receipt(
     sale: &Sale,
     config: &AppConfig,
     logo: Option<&LogoRaster>,
     tables_module_enabled: bool,
 ) -> Result<(), PrinterError> {
-    let mut bytes = build_receipt_bytes_for_copy(sale, config, logo, tables_module_enabled, None);
-    bytes.extend(build_receipt_bytes_for_copy(sale, config, logo, tables_module_enabled, Some("MERCHANT COPY")));
+    let bytes = build_receipt_bytes(sale, config, logo, tables_module_enabled);
     send_to_printer(&bytes, config)
 }
 
@@ -1190,6 +1177,7 @@ mod tests {
             tax_percent: 5.0,
             receipt_footer: "Thank you!".into(),
             phone: None,
+            delivery_number: None,
             working_days_per_month: 26,
             onboarding_completed: true,
             printer_connection_type: None,
@@ -1216,7 +1204,8 @@ mod tests {
             items: vec![SaleLine {
                 item_id: 1,
                 item_name: "Cola 500ml".into(),
-                qty: 2,
+                qty: 2.0,
+                unit: None,
                 price_at_sale_minor: 500,
                 line_total_minor: 1000,
                 notes: None,
@@ -1237,7 +1226,7 @@ mod tests {
                 sale_item_id: 1,
                 item_id: 1,
                 item_name: "Cola 500ml".into(),
-                qty_refunded: 1,
+                qty_refunded: 1.0,
                 amount_refunded_minor: 500,
             }],
         }
@@ -1314,7 +1303,7 @@ mod tests {
                 items: vec![CategorySalesLine {
                     item_id: 1,
                     item_name: "Cola 500ml".into(),
-                    qty_sold: 10,
+                    qty_sold: 10.0,
                     revenue_minor: 80_000,
                 }],
                 subtotal_minor: 80_000,
@@ -1382,72 +1371,46 @@ mod tests {
     }
 
     #[test]
-    fn build_receipt_bytes_for_copy_shows_the_merchant_copy_banner_when_labeled() {
-        let bytes = build_receipt_bytes_for_copy(&sample_sale(), &sample_config(), None, true, Some("MERCHANT COPY"));
-        let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("MERCHANT COPY"), "expected the banner: {text}");
-        // Condensed: totals shared with the customer copy, but the
-        // itemized table is intentionally dropped — see this fn's doc
-        // comment.
-        assert!(text.contains("TOTAL"));
-        assert!(!text.contains("Cola 500ml"), "merchant copy must not list line items: {text}");
-    }
-
-    #[test]
-    fn print_receipt_prints_two_copies_back_to_back_each_with_their_own_cut() {
+    fn print_receipt_sends_exactly_one_copy_with_one_cut() {
         // Reproduces print_receipt's own byte assembly — print_receipt
         // itself isn't unit-testable without a real printer attached
         // (send_to_printer needs hardware) — to prove the *shape* of what
-        // it actually sends: two complete, independently bordered/cut
-        // receipts concatenated into one transport write, second one
-        // merchant-labeled.
-        let sale = sample_sale();
-        let config = sample_config();
-        let customer = build_receipt_bytes_for_copy(&sale, &config, None, true, None);
-        let merchant = build_receipt_bytes_for_copy(&sale, &config, None, true, Some("MERCHANT COPY"));
-        let mut combined = customer.clone();
-        combined.extend(merchant.clone());
-
-        // One feed-and-cut command per copy, not one for the whole job —
-        // this is what makes it two receipts, not one long one.
+        // it actually sends: one complete receipt, one cut. There used to
+        // be a second "MERCHANT COPY"-labeled copy concatenated after it;
+        // removed — printing should never silently double a customer's
+        // paper, and a second copy (if ever wanted) is a second explicit
+        // click, not baked into every print.
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
         let cut = [GS, b'V', 66, CUT_FEED_LINES];
-        let cut_count = combined.windows(cut.len()).filter(|w| *w == cut).count();
-        assert_eq!(cut_count, 2, "each copy must end with its own feed-and-cut command");
-
-        assert!(!String::from_utf8_lossy(&customer).contains("MERCHANT COPY"), "first copy must be the plain customer copy");
-        assert!(String::from_utf8_lossy(&merchant).contains("MERCHANT COPY"), "second copy must carry the banner");
-
-        // The customer copy keeps the recent print-quality fixes —
-        // bordered item table and full item content; the merchant copy is
-        // deliberately condensed (totals only, no item table) — see
-        // `build_receipt_bytes_for_copy`'s doc comment.
-        let combined_text = String::from_utf8_lossy(&combined);
-        assert_eq!(combined_text.matches("Cola 500ml").count(), 1, "only the customer copy lists items");
-        assert_eq!(
-            combined_text.matches(bordered_line(&ITEM_TABLE_COLS).as_str()).count(),
-            3,
-            "only the customer copy draws the bordered item table (3 border lines)"
-        );
+        let cut_count = bytes.windows(cut.len()).filter(|w| *w == cut).count();
+        assert_eq!(cut_count, 1, "must print exactly one copy");
+        assert!(!String::from_utf8_lossy(&bytes).contains("MERCHANT COPY"));
     }
 
     #[test]
-    fn build_receipt_bytes_never_lets_a_long_business_name_or_phone_spill_onto_another_line() {
+    fn build_receipt_bytes_never_lets_a_long_phone_or_delivery_number_spill_onto_another_line() {
         use crate::printer::layout::{truncate_line, LINE_WIDTH};
 
-        let long_name = "A Very Long Business Name That Would Otherwise Wrap Onto A Second Physical Line";
         let long_phone = "+92 300 1234567 (also a needlessly long phone line to test with)";
-        assert!(long_name.len() > LINE_WIDTH && long_phone.len() > LINE_WIDTH, "fixture must actually be too long");
+        let long_delivery = "0300-9999999 (a needlessly long delivery contact line to test with)";
+        assert!(
+            long_phone.len() > LINE_WIDTH && format!("Delivery: {long_delivery}").len() > LINE_WIDTH,
+            "fixture must actually be too long"
+        );
 
         let mut config = sample_config();
-        config.business_name = long_name.into();
         config.phone = Some(long_phone.into());
+        config.delivery_number = Some(long_delivery.into());
 
         let bytes = build_receipt_bytes(&sample_sale(), &config, None, true);
         let text = String::from_utf8_lossy(&bytes);
-        assert!(!text.contains(long_name), "the untruncated business name must not appear at all");
         assert!(!text.contains(long_phone), "the untruncated phone must not appear at all");
-        assert!(text.contains(&truncate_line(long_name)), "the name must still appear, cut to one line's width");
+        assert!(!text.contains(long_delivery), "the untruncated delivery number must not appear at all");
         assert!(text.contains(&truncate_line(long_phone)), "the phone must still appear, cut to one line's width");
+        assert!(
+            text.contains(&truncate_line(&format!("Delivery: {long_delivery}"))),
+            "the delivery number must still appear (labeled), cut to one line's width"
+        );
     }
 
     #[test]
@@ -1470,10 +1433,10 @@ mod tests {
     }
 
     #[test]
-    fn build_receipt_bytes_includes_business_and_line_items() {
+    fn build_receipt_bytes_omits_the_business_name_but_includes_line_items() {
         let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
         let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("Demo Shop"));
+        assert!(!text.contains("Demo Shop"), "the business name must not be printed on the bill any more");
         assert!(text.contains("Sale #42"));
         assert!(text.contains("Cola 500ml"));
         assert!(text.contains("PKR 9.45"), "total must appear formatted with the currency: {text}");
@@ -1481,6 +1444,17 @@ mod tests {
         assert!(text.contains("Thank you!"));
         assert!(text.contains("Cashier"), "cashier row must appear");
         assert!(text.contains("Owner"), "sample_sale's cashier_name must appear");
+    }
+
+    #[test]
+    fn build_receipt_bytes_shows_the_delivery_number_only_when_set() {
+        let without = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        assert!(!String::from_utf8_lossy(&without).contains("Delivery:"), "no delivery number set, none must appear");
+
+        let mut config = sample_config();
+        config.delivery_number = Some("0300-1234567".into());
+        let with = build_receipt_bytes(&sample_sale(), &config, None, true);
+        assert!(String::from_utf8_lossy(&with).contains("Delivery: 0300-1234567"));
     }
 
     #[test]
@@ -1550,55 +1524,85 @@ mod tests {
     fn build_receipt_bytes_fits_the_measured_42_column_regression_row() {
         use crate::printer::layout::LINE_WIDTH;
         assert_eq!(LINE_WIDTH, 42, "this test's math is only valid against the measured 42-column width");
-        assert_eq!("mutton paye (full)".chars().count(), 18);
         assert_eq!("1300.00".chars().count(), 7);
         assert_eq!("3900.00".chars().count(), 7);
 
-        let row = item_table_row("mutton paye (full)", "3", "1300.00", "3900.00");
-        assert_eq!(row.chars().count(), LINE_WIDTH, "the row itself must be exactly one physical printed line");
-        assert_eq!(row, "|mutton paye (full)|  3|1300.00|  3900.00|");
+        // Same row, same measured 42-column width, but the desc/qty split
+        // changed since this test was first written: Qty widened from 3 to
+        // 5 (Item shrunk 18->16 to pay for it) to fit a `sold_by_amount`
+        // line's fractional quantity — see `ITEM_TABLE_COLS`'s doc comment.
+        // "mutton paye (full)" (19 chars) now truncates to the first 16,
+        // a disclosed tradeoff, not a regression of this test's original
+        // point (that the row stays exactly one physical printed line).
+        let row = box_row(&[
+            ("mutton paye (full)", ITEM_TABLE_COLS[0], false),
+            ("3", ITEM_TABLE_COLS[1], true),
+            ("1300.00", ITEM_TABLE_COLS[2], true),
+            ("3900.00", ITEM_TABLE_COLS[3], true),
+        ]);
+        assert_eq!(row.len(), LINE_WIDTH, "the row itself must be exactly one physical printed line");
+        let mut expected = vec![0xB3u8];
+        expected.extend(b"mutton paye (ful"); // truncated to 16
+        expected.push(0xB3);
+        expected.extend(b"    3"); // right-aligned in 5
+        expected.push(0xB3);
+        expected.extend(b"1300.00");
+        expected.push(0xB3);
+        expected.extend(b"  3900.00");
+        expected.push(0xB3);
+        assert_eq!(row, expected);
     }
 
     #[test]
     fn build_receipt_bytes_lines_up_the_item_table_columns() {
         use crate::printer::layout::LINE_WIDTH;
         let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        let text = String::from_utf8_lossy(&bytes);
-        // Every item row (and the header) must be exactly LINE_WIDTH
-        // characters, and bordered on both sides with `|` — that's what
-        // "columns line up" with visible grid lines actually verifies, not
-        // just that the right substrings appear somewhere.
-        for line in text.lines() {
-            if line.contains("Cola 500ml") || line.contains("|Item") {
-                // Strip any bold-toggle control bytes a formatting command
-                // may have left at the start of this line (no visible ink
-                // on the real printer, but real characters in this lossy
-                // string) — the pipe border is what should actually open
-                // and close the visible row.
-                let visible = &line[line.find('|').expect("row must be pipe-bordered")..];
-                assert_eq!(visible.chars().count(), LINE_WIDTH, "misaligned row: {:?}", visible);
-                assert!(visible.starts_with('|') && visible.ends_with('|'), "row must be pipe-bordered: {:?}", visible);
-            }
-        }
+        // Every item row (and the header) must be exactly LINE_WIDTH bytes,
+        // bordered by the CP437 vertical rule on both sides — that's what
+        // "columns line up" with a real visible grid verifies. Real
+        // box-drawing bytes aren't valid UTF-8, so this checks raw bytes in
+        // `bytes` directly rather than a lossy-decoded string.
+        let header_row = box_row(&[
+            ("Item", ITEM_TABLE_COLS[0], false),
+            ("Qty", ITEM_TABLE_COLS[1], true),
+            ("Rate", ITEM_TABLE_COLS[2], true),
+            ("Amount", ITEM_TABLE_COLS[3], true),
+        ]);
+        let item_row = box_row(&[
+            ("Cola 500ml", ITEM_TABLE_COLS[0], false),
+            ("2", ITEM_TABLE_COLS[1], true),
+            ("5.00", ITEM_TABLE_COLS[2], true),
+            ("10.00", ITEM_TABLE_COLS[3], true),
+        ]);
+        assert_eq!(header_row.len(), LINE_WIDTH);
+        assert_eq!(item_row.len(), LINE_WIDTH);
+        assert!(
+            bytes.windows(header_row.len()).any(|w| w == header_row.as_slice()),
+            "header row not found, or misaligned"
+        );
+        assert!(
+            bytes.windows(item_row.len()).any(|w| w == item_row.as_slice()),
+            "item row not found, or misaligned"
+        );
     }
 
     #[test]
-    fn build_receipt_bytes_draws_a_bordered_item_table() {
+    fn build_receipt_bytes_draws_a_real_box_drawn_item_table() {
         let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        let text = String::from_utf8_lossy(&bytes);
-        // A real ASCII grid — `+---+` rules top/bottom of the header and
-        // bottom of the last item, `|` column dividers on every row in
-        // between — not just floating text, since this has to read as a
-        // table on thermal paper with no CSS to fall back on. Matched as a
-        // substring (not per-line) since a bold-toggle command's raw bytes
-        // can sit right before a border line with no `\n` between them —
-        // invisible ink-wise on the real printer, but it would break a
-        // naive `line.starts_with('+')` check.
-        let expected_border = bordered_line(&ITEM_TABLE_COLS);
-        let border_count = text.matches(expected_border.as_str()).count();
-        assert!(border_count >= 3, "expected top/header/bottom border rules, got: {text}");
-        assert!(text.contains("|Item"), "header row must be pipe-bordered: {text}");
-        assert!(text.contains("|Cola 500ml"), "item row must be pipe-bordered: {text}");
+        // Real box-drawing rules (┌┬┐ / ├┼┤ / └┴┘), not ASCII `+---+` — this
+        // is the whole point of the change: it should read as an actual
+        // table, not typed punctuation.
+        let top = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top);
+        let middle = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Middle);
+        let bottom = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom);
+        for (name, rule) in [("top", &top), ("middle", &middle), ("bottom", &bottom)] {
+            assert!(
+                bytes.windows(rule.len()).any(|w| w == rule.as_slice()),
+                "expected the {name} box-drawing rule somewhere in the receipt"
+            );
+        }
+        assert!(!bytes.contains(&b'|'), "receipt item table must not use ASCII pipe borders any more");
+        assert!(!bytes.contains(&b'+'), "receipt item table must not use ASCII plus-corner borders any more");
     }
 
     #[test]
@@ -1662,7 +1666,7 @@ mod tests {
                 item_name: "Cola 500ml".into(),
                 category_id: Some(1),
                 category_name: "Beverages".into(),
-                qty_sold: 10,
+                qty_sold: 10.0,
                 revenue_minor: 80_000,
                 rank: 1,
             }],
