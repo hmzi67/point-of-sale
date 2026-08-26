@@ -4,6 +4,23 @@ A simple guide to running your shop with Diwan. No technical knowledge needed.
 
 ---
 
+## System requirements
+
+Before installing, make sure the computer meets these minimums:
+
+- **Windows** — Windows 10 or later (64-bit). Windows 7 and 8/8.1 are **not
+  supported** — Microsoft stopped updating the underlying browser component
+  our app relies on for those versions, so it cannot run there. If you try
+  to install on an older Windows machine, the installer will tell you this
+  up front instead of failing partway through.
+- **macOS** — macOS 10.15 (Catalina) or later.
+
+If a shop's computer is older than this, it will need a Windows 10 (or
+newer) machine to run Diwan — there's no way around this requirement, it
+comes from Microsoft, not from us.
+
+---
+
 ## Getting started
 
 ### Signing in

@@ -44,6 +44,21 @@ See [`CLAUDE.md`](./CLAUDE.md) for the full architecture reference (module
 system, IPC conventions, database invariants, permission model) — that's the
 canonical doc for anyone (human or AI) working on this codebase.
 
+## System requirements
+
+- **Windows** — 10 or later (64-bit). WebView2 Runtime, which Tauri relies
+  on for the app UI, dropped support for Windows 7/8/8.1 in January 2023
+  (v109 was the last runtime build to support them); the Windows installer
+  bundles the offline WebView2 installer (`webviewInstallMode:
+  offlineInstaller` in `tauri.conf.json`) and runs an NSIS preinstall check
+  (`src-tauri/windows/hooks.nsh`) that stops with a plain-language message
+  before touching anything if the target machine is below Windows 10 —
+  it never gets to the WebView2 step to fail cryptically.
+- **macOS** — 10.15 (Catalina) or later, per Tauri/WKWebView's own floor.
+- **Android** — see `src-tauri/gen/android` / the Android build job in
+  `.github/workflows/release.yml` for the target/min SDK once that build is
+  re-enabled; not yet finalized.
+
 ## Getting started
 
 ```bash
