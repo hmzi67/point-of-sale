@@ -165,6 +165,21 @@ CREATE TABLE IF NOT EXISTS categories (
     created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
+-- Kitchen/preparation counters (KOT tokens, Tables module) — physical
+-- stations ("Channa Counter", "Tandoor", "Drinks Counter"), NOT the same
+-- concept as `categories` above: categories group items for browsing on the
+-- billing screen, counters group items by where they're actually prepared.
+-- A client may serve one category from several counters or vice versa, so
+-- these are deliberately separate tables, never coupled. Defined here,
+-- before `items`, so `items.counter_id` (an `ADDED_COLUMNS` entry — see
+-- `schema.rs`) can reference it.
+CREATE TABLE IF NOT EXISTS counters (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE,
+    is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS items (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     name                TEXT    NOT NULL,
@@ -374,6 +389,78 @@ CREATE TABLE IF NOT EXISTS table_orders (
 CREATE INDEX IF NOT EXISTS idx_table_orders_table  ON table_orders (table_id);
 CREATE INDEX IF NOT EXISTS idx_table_orders_sale   ON table_orders (sale_id);
 CREATE INDEX IF NOT EXISTS idx_table_orders_status ON table_orders (status);
+
+-- ---------------------------------------------------------------------------
+-- KOT (Kitchen Order Ticket) tokens — a token is a kitchen/counter
+-- instruction printed when an order is taken, separate from and printed
+-- well before the bill (which happens at payment, via `sales`/`sale_items`
+-- as already existed). References `table_order_id`, not `table_id` —
+-- tokens belong to the *order*, so `tables::shift_table_order` moving an
+-- order to a different physical table carries its tokens along for free,
+-- with no extra code, since nothing here ever points at a table directly.
+--
+-- `token_items` deliberately does NOT reference `sale_items` — no such
+-- per-line row exists yet for an in-progress (unbilled) table order;
+-- `table_orders.cart_json` is still a JSON blob with no stable per-line
+-- identity (see that column's own comment above). Tracking "what's already
+-- been sent to the kitchen" is instead a per-*item* running total against
+-- `table_order_id`: `db::tokens::get_pending_token_items` sums
+-- `token_items.qty_on_token` per `item_id` for a table order and subtracts
+-- it from that item's current cart quantity, so a repeat order only tokens
+-- the newly-added amount. This is a deliberate, disclosed deviation from a
+-- literal per-line foreign key — it's simpler, and correct for what a
+-- kitchen ticket actually needs ("item X, qty Y"), without requiring the
+-- larger, riskier rearchitecture of promoting the parked cart to real
+-- relational line items just for this feature.
+--
+-- `table_order_id` is nullable: a Takeaway sale has no `table_orders` row
+-- at all (it's never parked the way a dine-in order is), so an "ad hoc"
+-- token printed for one (`db::tokens::ad_hoc_token_groups`/`commands::
+-- tokens_print_adhoc`) records with `table_order_id = NULL` — still
+-- consuming the same shared daily `token_number` sequence, just with
+-- nothing to attach to. (v9 installs had this column NOT NULL; see
+-- `db::schema::relax_tokens_table_order_id`'s guarded migration.)
+CREATE TABLE IF NOT EXISTS tokens (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Resets daily (see `db::tokens::next_token_number_for_today`) — unique
+    -- per calendar day across the whole install, not per counter, so staff
+    -- can say "token 14" unambiguously regardless of which counter it's for.
+    token_number   INTEGER NOT NULL,
+    table_order_id INTEGER REFERENCES table_orders (id) ON DELETE CASCADE,
+    -- RESTRICT: a counter with token history can't be deleted out from under
+    -- it — deactivate instead (`counters.is_active`), same convention as
+    -- `sale_items.item_id`'s own RESTRICT.
+    counter_id     INTEGER NOT NULL REFERENCES counters (id) ON DELETE RESTRICT,
+    printed_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    -- Kept even if the account is later removed — same rationale as
+    -- sales.cashier_id/refunds.refunded_by.
+    printed_by     INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    -- 'cancelled' is reserved for a future "void a token" action — nothing
+    -- in this feature sets it yet; every token this module creates is
+    -- 'printed' (the physical print already succeeded by the time the row
+    -- exists at all — see `get_pending_token_items`'s doc comment on why a
+    -- failed print never reaches this table).
+    status         TEXT    NOT NULL DEFAULT 'printed' CHECK (status IN ('printed', 'cancelled'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tokens_table_order ON tokens (table_order_id);
+-- `next_token_number_for_today` scans by date(printed_at) for today's max.
+CREATE INDEX IF NOT EXISTS idx_tokens_printed_at  ON tokens (printed_at);
+
+CREATE TABLE IF NOT EXISTS token_items (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_id      INTEGER NOT NULL REFERENCES tokens (id) ON DELETE CASCADE,
+    -- RESTRICT, matching sale_items.item_id — an item with token history
+    -- can't be hard-deleted, only archived.
+    item_id       INTEGER NOT NULL REFERENCES items (id) ON DELETE RESTRICT,
+    -- REAL, matching `sale_items.qty`/`items.stock_qty` — a `sold_by_amount`
+    -- item's token quantity is a real-world weight too (e.g. "0.77 kg"),
+    -- not necessarily a whole number.
+    qty_on_token  REAL    NOT NULL CHECK (qty_on_token > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_token_items_token ON token_items (token_id);
+CREATE INDEX IF NOT EXISTS idx_token_items_item  ON token_items (item_id);
 
 -- ---------------------------------------------------------------------------
 -- Staff, attendance and pay

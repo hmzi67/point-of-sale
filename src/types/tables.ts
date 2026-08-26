@@ -8,6 +8,11 @@ export interface TableSummary {
   seats: number;
   status: TableStatus;
   hasParkedOrder: boolean;
+  /** The open `table_orders.id` behind this table, if any — pass this (not
+   * the table id) to the `tokens_*` commands, since a token belongs to the
+   * order and follows it across a table shift. `null` exactly when
+   * `hasParkedOrder` is `false`. */
+  openOrderId: number | null;
 }
 
 export interface ParkedCartLine {

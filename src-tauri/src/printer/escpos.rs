@@ -56,9 +56,12 @@ use crate::db::reports::{CategorySalesReport, ProductSalesSummaryReport, Refunds
 use crate::db::refunds::Refund;
 use crate::db::sales::Sale;
 use crate::db::shifts::ShiftSummary;
+#[cfg(test)]
+use crate::db::tokens::TokenLine;
+use crate::db::tokens::TokenSummary;
 use crate::printer::layout::{
     bordered_line, bordered_row, box_line, box_row, divider, double_divider, format_minor, format_qty, row,
-    truncate_line, two_col, BoxLinePosition,
+    truncate_line, two_col, BoxLinePosition, LINE_WIDTH,
 };
 #[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 use rusb::{Direction, TransferType};
@@ -303,7 +306,7 @@ fn close_out(out: &mut Vec<u8>, footer: &str) {
 /// [`LogoRaster`] — see that type's doc comment), so it is covered by tests
 /// below without needing a printer, a serial port, or a Tauri app context.
 ///
-/// `tables_module_enabled` decides the label under "Order Type" when
+/// `tables_module_enabled` decides the value shown under "Type" when
 /// `sale.table_name` is `None`: "Takeaway" if the shop uses tables at all
 /// (this sale just wasn't linked to one), "Counter Sale" if the `tables`
 /// module isn't in use for this installation.
@@ -315,6 +318,15 @@ fn close_out(out: &mut Vec<u8>, footer: &str) {
 /// second condensed copy any more — this is the one and only bill printed,
 /// and printing it at all is always an explicit click (`print_receipt`),
 /// never automatic.
+///
+/// Deliberately compact: phone/delivery share one line, "Sale #N" and the
+/// timestamp share one line, Cashier and Table/Order Type share one line —
+/// every pair that can fit side by side does, and there are no spacer blank
+/// lines between sections, only the box-drawn table border and the
+/// `double_divider` above TOTAL doing that job. Less paper per sale, same
+/// information, still clearly organized (see `build_token_bytes`'s doc
+/// comment for the same instinct taken further on a KOT token, which has
+/// no such information to preserve).
 pub fn build_receipt_bytes(
     sale: &Sale,
     config: &AppConfig,
@@ -331,43 +343,44 @@ pub fn build_receipt_bytes(
         print_logo(&mut out, logo);
     }
 
-    // Centered subtitle block: phone, delivery number (both only if set),
-    // sale number, timestamp — everything `header_block` draws under the
-    // business name elsewhere, minus the business name itself (see this
-    // fn's doc comment). Not `header_block` — that always leads with a bold
-    // business-name line, which this receipt intentionally omits.
+    // Centered subtitle block: phone + delivery number share a line (only
+    // the ones actually set), "Sale #N" + timestamp share a line — half the
+    // line count of printing each on its own, with no loss of information.
     let mut subtitle = Vec::new();
+    let mut contact = Vec::new();
     if let Some(phone) = &config.phone {
         if !phone.trim().is_empty() {
-            subtitle.push(phone.clone());
+            contact.push(phone.clone());
         }
     }
     if let Some(delivery_number) = &config.delivery_number {
         if !delivery_number.trim().is_empty() {
-            subtitle.push(format!("Delivery: {delivery_number}"));
+            contact.push(format!("Delivery: {delivery_number}"));
         }
     }
-    subtitle.push(format!("Sale #{}", sale.id));
-    subtitle.push(sale.created_at.clone());
+    if !contact.is_empty() {
+        subtitle.push(contact.join("  |  "));
+    }
+    subtitle.push(format!("Sale #{}  {}", sale.id, sale.created_at));
     out.extend(align_center());
     for line in &subtitle {
         out.extend(truncate_line(line).as_bytes());
         out.push(b'\n');
     }
-    out.push(b'\n');
     out.extend(align_left());
 
-    // Cashier / table-or-order-type — a left-aligned label/value block, same
-    // alignment convention as the totals rows below, rather than folded into
-    // the centered masthead prose above.
+    // Cashier and table-or-order-type share one line, each half the width —
+    // same information `two_col` used to give two full-width rows to. "Type"
+    // rather than "Order Type" so "Type: Counter Sale" still fits its half
+    // without truncating (half the 42-column line is only 21 characters).
     let (order_label, order_value) = match &sale.table_name {
         Some(table_name) => ("Table", table_name.clone()),
-        None => ("Order Type", if tables_module_enabled { "Takeaway".to_string() } else { "Counter Sale".to_string() }),
+        None => ("Type", if tables_module_enabled { "Takeaway".to_string() } else { "Counter Sale".to_string() }),
     };
-    out.extend(two_col("Cashier", sale.cashier_name.as_deref().unwrap_or("—")).as_bytes());
-    out.push(b'\n');
-    out.extend(two_col(order_label, &order_value).as_bytes());
-    out.push(b'\n');
+    let cashier_field = format!("Cashier: {}", sale.cashier_name.as_deref().unwrap_or("—"));
+    let order_field = format!("{}: {}", order_label, order_value);
+    let half = LINE_WIDTH / 2;
+    out.extend(row(&[(&cashier_field, half, false), (&order_field, LINE_WIDTH - half, false)]).as_bytes());
     out.push(b'\n');
 
     // Real box-drawing borders (─│┌┬┐├┼┤└┴┘), not the ASCII `|`/`-`/`+`
@@ -484,6 +497,105 @@ pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
 
     close_out(&mut out, &config.receipt_footer);
     out
+}
+
+/// Builds the full ESC/POS byte stream for one KOT (Kitchen Order Ticket)
+/// token — a kitchen/counter instruction, deliberately separate from and
+/// visually distinct from a bill (see the "TOKEN" banner below): no
+/// prices, no totals, no payment info, since counter/kitchen staff only
+/// need to know what to prepare. Reuses this file's shared primitives
+/// (`header_block`, `two_col`, `divider`, `close_out`, the measured
+/// `LINE_WIDTH`) the same way every other template does, rather than a
+/// separate printing path — a token that wrapped or broke mid-line would
+/// be exactly as unusable as the receipt was before that got fixed.
+///
+/// `token` doubles as both "the record of an already-printed token" and,
+/// from `commands::tokens_print`, "the token about to be printed" — the
+/// caller builds a `TokenSummary` with the fields this ticket needs
+/// (`token_number`, `counter_name`, `table_name`, `items`, …) *before* the
+/// row exists in the database at all, since the physical print must
+/// succeed before anything is recorded (see `db::tokens`'s module doc
+/// comment). `token.id`/`table_order_id` are never printed, so a
+/// placeholder value in that draft is harmless.
+///
+/// Unlike the customer receipt's item table, a token has no Rate/Amount
+/// columns competing for space — `two_col`'s full value-column width is
+/// free for a quantity *and* its unit ("2 kg"), so this is the one place
+/// on the thermal path a `sold_by_amount` item's unit does show (contrast
+/// `layout::format_qty`'s doc comment, which explains why the bill's item
+/// table can't afford one).
+/// Deliberately stripped down to almost nothing — no logo, no business
+/// name, no phone, no counter/table/cashier line: just when it printed,
+/// which token it is, and what to prepare. A token is a scrap of paper
+/// handed to a counter and thrown away once the order's collected, not a
+/// record anyone needs to look back on, so every extra line here is just
+/// wasted paper on a kitchen printer that's producing dozens of these a
+/// shift. Counter/table identity — which physical station and which table
+/// this is for — is exactly what's been cut; if that turns out to be
+/// needed on the paper after all (a shared printer serving multiple
+/// counters, say), those are one `two_col` call each to bring back.
+pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
+    let mut out = Vec::new();
+
+    out.extend(wake_padding());
+    out.extend(init());
+    out.extend(align_center());
+
+    // Date and time on top, as two short centered lines rather than one
+    // long timestamp — `printed_at` is stored as "YYYY-MM-DD HH:MM:SS".
+    let (date_part, time_part) = token.printed_at.split_once(' ').unwrap_or((&token.printed_at, ""));
+    out.extend(truncate_line(date_part).as_bytes());
+    out.push(b'\n');
+    if !time_part.is_empty() {
+        out.extend(truncate_line(time_part).as_bytes());
+        out.push(b'\n');
+    }
+    out.push(b'\n');
+
+    // Token number, bold — a bill never looks like this, so no one at a
+    // glance confuses a kitchen ticket for a receipt.
+    out.extend(bold(true));
+    out.extend(truncate_line(&format!("TOKEN #{}", token.token_number)).as_bytes());
+    out.push(b'\n');
+    if is_reprint {
+        // A reprint must never look identical to the original — the whole
+        // point is the counter can tell "this was already prepared once,
+        // don't start it again from a lost/damaged copy" at a glance.
+        out.extend(truncate_line("*** REPRINT ***").as_bytes());
+        out.push(b'\n');
+    }
+    out.extend(bold(false));
+    out.extend(divider().as_bytes());
+    out.push(b'\n');
+    out.extend(align_left());
+
+    // Body: item + qty only — no rate, no amount, no total. A token is a
+    // working document, not a record; kitchen staff don't need money on it.
+    for line in &token.items {
+        let qty_text = match &line.unit {
+            Some(unit) => format!("{} {}", format_qty(line.qty), unit),
+            None => format_qty(line.qty),
+        };
+        out.extend(two_col(&line.item_name, &qty_text).as_bytes());
+        out.push(b'\n');
+    }
+
+    // No footer text, no counter/table/`Item`/`Qty` header row — `close_out`
+    // still gets the shared margin-before-cut/feed-and-cut every other
+    // template ends with.
+    close_out(&mut out, "");
+    out
+}
+
+/// Builds and sends one KOT token to this installation's configured
+/// printer. Called only from `commands::tokens_print`/`commands::tokens_
+/// reprint`, both of which own the "never claim success unless the
+/// physical print actually succeeded" ordering — this function itself is
+/// just the byte-building + transport call, same division of
+/// responsibility as `print_receipt`.
+pub fn print_token(token: &TokenSummary, config: &AppConfig, is_reprint: bool) -> Result<(), PrinterError> {
+    let bytes = build_token_bytes(token, is_reprint);
+    send_to_printer(&bytes, config)
 }
 
 /// The "Counter-N Sale Details" shift close-out receipt: opening balance,
@@ -1391,12 +1503,13 @@ mod tests {
     fn build_receipt_bytes_never_lets_a_long_phone_or_delivery_number_spill_onto_another_line() {
         use crate::printer::layout::{truncate_line, LINE_WIDTH};
 
+        // Phone and delivery number now share one line (see build_receipt_
+        // bytes's doc comment on the compact layout) — this fixture stays
+        // too long even combined, so truncation still has to kick in.
         let long_phone = "+92 300 1234567 (also a needlessly long phone line to test with)";
         let long_delivery = "0300-9999999 (a needlessly long delivery contact line to test with)";
-        assert!(
-            long_phone.len() > LINE_WIDTH && format!("Delivery: {long_delivery}").len() > LINE_WIDTH,
-            "fixture must actually be too long"
-        );
+        let combined = format!("{long_phone}  |  Delivery: {long_delivery}");
+        assert!(combined.chars().count() > LINE_WIDTH, "fixture must actually be too long");
 
         let mut config = sample_config();
         config.phone = Some(long_phone.into());
@@ -1406,10 +1519,9 @@ mod tests {
         let text = String::from_utf8_lossy(&bytes);
         assert!(!text.contains(long_phone), "the untruncated phone must not appear at all");
         assert!(!text.contains(long_delivery), "the untruncated delivery number must not appear at all");
-        assert!(text.contains(&truncate_line(long_phone)), "the phone must still appear, cut to one line's width");
         assert!(
-            text.contains(&truncate_line(&format!("Delivery: {long_delivery}"))),
-            "the delivery number must still appear (labeled), cut to one line's width"
+            text.contains(&truncate_line(&combined)),
+            "the combined phone/delivery line must still appear, cut to one line's width"
         );
     }
 
@@ -1798,5 +1910,77 @@ mod tests {
         let logo = build_logo_raster(&png_bytes).expect("a valid PNG must decode");
         assert_eq!(logo.width_px, LOGO_MAX_WIDTH_PX as usize);
         assert_eq!(logo.height_px, 50, "height must scale down proportionally with width");
+    }
+
+    fn sample_token() -> TokenSummary {
+        TokenSummary {
+            id: 1,
+            token_number: 14,
+            counter_id: 1,
+            counter_name: "Channa Counter".into(),
+            table_order_id: Some(1),
+            table_id: Some(1),
+            table_name: Some("Table 4".into()),
+            printed_at: "2026-01-01 13:00:00".into(),
+            printed_by: Some(1),
+            printed_by_name: Some("Ali".into()),
+            status: "printed".into(),
+            items: vec![
+                TokenLine { item_id: 1, item_name: "Channa".into(), qty: 2.0, unit: Some("kg".into()) },
+                TokenLine { item_id: 2, item_name: "Cola 500ml".into(), qty: 3.0, unit: None },
+            ],
+        }
+    }
+
+    #[test]
+    fn build_token_bytes_shows_the_date_time_token_number_and_items_with_unit_but_no_money() {
+        let bytes = build_token_bytes(&sample_token(), false);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("2026-01-01"), "date must appear");
+        assert!(text.contains("13:00:00"), "time must appear");
+        assert!(text.contains("TOKEN #14"));
+        assert!(!text.contains("REPRINT"), "a first print must not show the reprint banner");
+        assert!(text.contains("2 kg"), "a sold-by-amount line shows its unit on a token (unlike the bill)");
+        assert!(text.contains("Cola 500ml"));
+        // No prices/totals anywhere — this is a kitchen ticket, not a bill.
+        assert!(!text.contains(&config_currency_marker()), "must not print a currency-formatted amount");
+        // Stripped down deliberately — no business identity or per-order
+        // context on the paper itself, see `build_token_bytes`'s doc comment.
+        assert!(!text.contains("Demo Shop"), "business name must not appear — a token is minimal by design");
+        assert!(!text.contains("Channa Counter"), "counter name must not appear — reduced token format");
+        assert!(!text.contains("Table 4"), "table name must not appear — reduced token format");
+    }
+
+    /// `format_minor`'s currency prefix — asserting its exact absence is a
+    /// more useful "no money on this ticket" check than grepping for stray
+    /// digits, which item quantities/table numbers would also match.
+    fn config_currency_marker() -> String {
+        format!("{} ", sample_config().currency)
+    }
+
+    #[test]
+    fn build_token_bytes_marks_a_reprint_clearly() {
+        let bytes = build_token_bytes(&sample_token(), true);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("REPRINT"));
+        assert!(text.contains("TOKEN #14"), "a reprint still shows the original token number, not a new one");
+    }
+
+    #[test]
+    fn build_token_bytes_never_lets_a_long_item_name_spill_onto_another_line() {
+        // Same "check the truncated content appears, not a raw per-line
+        // byte scan" approach `build_receipt_bytes_never_lets_a_long_
+        // business_name_or_phone_spill_onto_another_line` uses — a naive
+        // scan over `.lines()` false-positives on a bold/align control
+        // sequence sitting right before a border line with no `\n`
+        // between them (invisible ink-wise on the real printer, but real
+        // characters in a lossy-decoded string).
+        let mut token = sample_token();
+        let long_name = "A Very Long Item Name That Would Otherwise Wrap Onto A Second Physical Line";
+        token.items = vec![TokenLine { item_id: 1, item_name: long_name.into(), qty: 1.0, unit: None }];
+
+        let bytes = build_token_bytes(&token, false);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains(long_name), "the untruncated item name must not appear at all");
     }
 }

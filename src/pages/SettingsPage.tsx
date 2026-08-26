@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Lock } from "lucide-react";
+import { CountersSection } from "../components/settings/CountersSection";
 import { PrinterSettingsSection } from "../components/settings/PrinterSettingsSection";
 import { StoreIdentitySection } from "../components/settings/StoreIdentitySection";
 import { ToggleSwitch } from "../components/ui/ToggleSwitch";
@@ -56,6 +57,10 @@ export function SettingsPage() {
       </div>
 
       <PrinterSettingsSection config={config} />
+
+      {/* KOT tokens are a restaurant/tables workflow, so counter management
+          only makes sense — and only appears — when Tables is enabled. */}
+      {modules.some((module) => module.key === "tables" && module.enabled) && <CountersSection />}
 
       <div className="rounded-lg border border-slate-200 bg-white">
         <div className="border-b border-slate-200 p-6">

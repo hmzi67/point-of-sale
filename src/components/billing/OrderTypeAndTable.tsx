@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { Ticket } from "lucide-react";
 import { getItems } from "../../services/inventoryService";
 import { attachCartToTable, getParkedCart, getTables } from "../../services/tablesService";
 import { useBillingStore } from "../../store";
 import { computeCartTotals } from "../../utils/billingTotals";
 import { DropdownSelect } from "../ui/DropdownSelect";
+import { TokenPrintDialog, type TokenPrintSource } from "./TokenPrintDialog";
 import type { TableSummary } from "../../types";
 
 interface OrderTypeAndTableProps {
@@ -40,6 +42,7 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tokenSource, setTokenSource] = useState<TokenPrintSource | null>(null);
 
   const tableId = useBillingStore((state) => state.tableId);
   const setTableId = useBillingStore((state) => state.setTableId);
@@ -49,15 +52,24 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
   const discountValue = useBillingStore((state) => state.discountValue);
   const loadParkedCart = useBillingStore((state) => state.loadParkedCart);
 
-  const reloadTables = () => {
+  const reloadTables = async (): Promise<TableSummary[]> => {
     setIsLoading(true);
-    getTables()
-      .then(setTables)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
+    try {
+      const list = await getTables();
+      setTables(list);
+      return list;
+    } catch (e) {
+      setError((e as Error).message);
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  useEffect(reloadTables, []);
+  useEffect(() => {
+    void reloadTables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selectedTable = tables.find((t) => t.id === tableId);
   const orderType = tableId !== null ? "dineIn" : "takeaway";
@@ -77,7 +89,7 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
       await attachCartToTable(tableId, lines, discountMinor);
       const tableName = selectedTable?.name ?? "the table";
       useBillingStore.getState().clearCart();
-      reloadTables();
+      void reloadTables();
       onParked(`Cart saved to ${tableName}.`);
     } catch (e) {
       setError((e as Error).message);
@@ -101,6 +113,51 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
     } finally {
       setIsBusy(false);
     }
+  };
+
+  // "Print Token" needs a `table_orders` row to hang tokens off of — the
+  // dialog reads pending items from `cart_json`, not the live billing cart.
+  // So opening it first syncs whatever's in the cart right now to the table
+  // (same write `saveToTable` does), but — unlike `saveToTable` — never
+  // clears the cart: the cashier is continuing to work this table live, not
+  // parking it away to bill later.
+  const openTableTokenDialog = async () => {
+    if (tableId === null) return;
+    setIsBusy(true);
+    setError(null);
+    try {
+      if (cartOrder.length > 0) {
+        const lines = cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty }));
+        const { discountMinor } = computeCartTotals(
+          cartOrder.map((id) => cart[id]),
+          discountMode,
+          discountValue,
+          taxPercent,
+        );
+        await attachCartToTable(tableId, lines, discountMinor);
+      }
+      const list = await reloadTables();
+      const openOrderId = list.find((t) => t.id === tableId)?.openOrderId ?? null;
+      if (openOrderId === null) {
+        setError("Nothing to token yet — add items to the cart first.");
+        return;
+      }
+      setTokenSource({ kind: "table", tableOrderId: openOrderId, tableName: selectedTable?.name ?? "the table" });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  // A Takeaway order has no table and so no `table_orders` row to sync to —
+  // the dialog reads straight off the live cart instead (see `TokenPrintDialog`'s
+  // "adhoc" source and `tokensService.getAdhocTokenGroups`'s doc comment for
+  // the trade-off that implies: no delta tracking, every print is the full
+  // cart's counter-eligible items).
+  const openTakeawayTokenDialog = () => {
+    if (cartOrder.length === 0) return;
+    setTokenSource({ kind: "adhoc", items: cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty })) });
   };
 
   return (
@@ -160,6 +217,37 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
           Save to table (bill later)
         </button>
       )}
+
+      {/* Kitchen instruction, printed as the order is taken — distinct from
+          "Complete Sale", which handles payment and prints the bill. Needs
+          either a cart in hand or an already-parked order to token. */}
+      {tableId !== null && (cartOrder.length > 0 || selectedTable?.hasParkedOrder) && (
+        <button
+          type="button"
+          onClick={() => void openTableTokenDialog()}
+          disabled={isBusy}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          <Ticket className="h-3.5 w-3.5" />
+          Print token
+        </button>
+      )}
+
+      {/* Same action for a Takeaway order — no table, no parked order, so
+          straight off the live cart (see `openTakeawayTokenDialog`). */}
+      {tableId === null && cartOrder.length > 0 && (
+        <button
+          type="button"
+          onClick={openTakeawayTokenDialog}
+          disabled={isBusy}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          <Ticket className="h-3.5 w-3.5" />
+          Print token
+        </button>
+      )}
+
+      {tokenSource && <TokenPrintDialog source={tokenSource} onClose={() => setTokenSource(null)} />}
     </div>
   );
 }

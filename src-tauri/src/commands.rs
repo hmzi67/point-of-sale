@@ -26,10 +26,12 @@ use crate::db::reports::{
 use crate::db::sales::{CreateSaleInput, Sale, SaleListItem};
 use crate::db::shifts::{Shift, ShiftSummary};
 use crate::db::tables::{ParkedCartLine, ParkedOrder, TableSummary};
+use crate::db::tokens::{CounterPrintResult, PendingCounterGroup, PrintOutcome, TokenSummary};
+use crate::db::counters::Counter;
 use crate::db::users::{ManagedUser, Role, User};
 use crate::db::{
-    attendance, config, csv_import, dashboard, expenses, full_report, items, modules, product_owner, refunds,
-    reports, salary, sales, shifts, tables, users, Db,
+    attendance, config, counters, csv_import, dashboard, expenses, full_report, items, modules, product_owner,
+    refunds, reports, salary, sales, shifts, tables, tokens, users, Db,
 };
 use crate::images;
 use crate::product_owner_session::{require_product_owner, ProductOwnerSession};
@@ -1352,6 +1354,333 @@ pub fn tables_shift_table_order(
     db.with_transaction(|tx| Ok(tables::shift_table_order(tx, from_table_id, to_table_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Counters (kitchen/prep stations for KOT tokens — only meaningful when the
+// `tables` module is enabled, same "no separate toggle" reasoning `shifts`
+// already documents for its own inline-in-Billing UI). Listing is open to
+// any signed-in role — a Cashier's "Print Token" dialog needs counter
+// names — but managing the list (Settings) is Owner/Admin only, like every
+// other small-entity management screen in this codebase.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn counters_get_counters(db: State<'_, Db>, include_inactive: bool) -> Result<Vec<Counter>, String> {
+    db.with_conn(|conn| counters::list_counters(conn, include_inactive)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn counters_add_counter(db: State<'_, Db>, session: State<'_, Session>, name: String) -> Result<Counter, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(counters::add_counter(conn, &name))).map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn counters_update_counter(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    name: String,
+) -> Result<Counter, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(counters::update_counter(conn, id, &name)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn counters_set_active(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    is_active: bool,
+) -> Result<Counter, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(counters::set_counter_active(conn, id, is_active)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// KOT tokens — kitchen/counter instructions, printed when an order is
+// taken, separate from and printed well before the bill. Cashier-reachable,
+// no role gate, same tier as `tables_attach_cart_to_table`/`billing_print_
+// receipt_thermal`: this is a normal step in taking an order, not a
+// Settings-level action. See `db::tokens`'s module doc comment for why
+// tokenization is tracked per-item against the order rather than against a
+// specific cart line.
+// ---------------------------------------------------------------------------
+
+/// What would print right now for `table_order_id`, grouped by counter —
+/// the "Print Token" dialog's contents, computed without printing or
+/// writing anything. An item with no counter assigned never appears, by
+/// design (see `db::tokens::get_pending_token_items`).
+#[tauri::command]
+pub fn tokens_get_pending_items(db: State<'_, Db>, table_order_id: i64) -> Result<Vec<PendingCounterGroup>, String> {
+    db.with_conn(|conn| Ok(tokens::get_pending_token_items(conn, table_order_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Every token ever printed for this table order, newest first — "tokens
+/// for this table", with a reprint option per row.
+#[tauri::command]
+pub fn tokens_get_for_order(db: State<'_, Db>, table_order_id: i64) -> Result<Vec<TokenSummary>, String> {
+    db.with_conn(|conn| Ok(tokens::list_tokens_for_order(conn, table_order_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Prints one counter's token, only recording it as printed if the
+/// physical print actually succeeded — see `db::tokens`'s module doc
+/// comment for why this ordering (print, *then* write) is the whole point,
+/// not an implementation detail. Runs inside one `with_transaction` per
+/// counter: every write in the success path (`insert_token`) happens after
+/// the print already succeeded, so a rolled-back transaction on failure
+/// never had anything real to lose — see the inline comments below for
+/// exactly where that guarantee comes from.
+fn print_one_counter_token(
+    db: &Db,
+    table_order_id: i64,
+    counter: &Counter,
+    printed_by: Option<i64>,
+    printed_by_name: Option<String>,
+    config: &AppConfig,
+) -> PrintOutcome {
+    let result = db.with_transaction(|tx| {
+        let pending = match tokens::pending_items_for_counter(tx, table_order_id, counter.id) {
+            Ok(p) => p,
+            Err(tokens::TokenError::Sqlite(e)) => return Err(e),
+            Err(other) => return Ok(Err(other.to_string())),
+        };
+        if pending.is_empty() {
+            return Ok(Ok(None));
+        }
+
+        let ctx = match tables::get_open_order_by_id(tx, table_order_id) {
+            Ok(Some(ctx)) => ctx,
+            Ok(None) => return Ok(Err("That table order is no longer open".to_string())),
+            Err(tables::TableError::Sqlite(e)) => return Err(e),
+            Err(other) => return Ok(Err(other.to_string())),
+        };
+
+        let token_number = tokens::next_token_number_for_today(tx)?;
+
+        // A draft, not-yet-persisted `TokenSummary` — everything the
+        // ticket itself needs to print, built *before* any row exists.
+        // `id`/`table_order_id` are never printed, so the placeholder `id`
+        // is harmless.
+        let draft = TokenSummary {
+            id: 0,
+            token_number,
+            counter_id: counter.id,
+            counter_name: counter.name.clone(),
+            table_order_id: Some(table_order_id),
+            table_id: Some(ctx.table_id),
+            table_name: Some(ctx.table_name),
+            printed_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            printed_by,
+            printed_by_name: printed_by_name.clone(),
+            status: "printed".to_string(),
+            items: pending.clone(),
+        };
+
+        // The critical ordering: if this fails, we return `Ok(Err(..))`
+        // with *no* `tx.execute` having run yet — an empty transaction
+        // commits harmlessly, and the items stay pending for a retry.
+        if let Err(print_err) = crate::printer::escpos::print_token(&draft, config, false) {
+            return Ok(Err(print_err.to_string()));
+        }
+
+        let token = match tokens::insert_token(tx, Some(table_order_id), counter.id, token_number, printed_by, &pending)
+        {
+            Ok(t) => t,
+            Err(tokens::TokenError::Sqlite(e)) => return Err(e),
+            Err(other) => return Ok(Err(other.to_string())),
+        };
+        Ok(Ok(Some(token)))
+    });
+
+    match result {
+        Ok(Ok(Some(token))) => PrintOutcome::Printed { token },
+        Ok(Ok(None)) => PrintOutcome::NothingPending,
+        Ok(Err(message)) => PrintOutcome::Failed { error: message },
+        Err(db_err) => PrintOutcome::Failed { error: db_err.to_string() },
+    }
+}
+
+/// Prints a token for each of `counter_ids` — every counter gets its own
+/// result (printed / nothing pending / failed) even if another one in the
+/// same call fails, so one unreachable printer never hides a successful
+/// print on a different counter. See `print_one_counter_token` for the
+/// per-counter print-then-record guarantee.
+#[tauri::command]
+pub fn tokens_print(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    table_order_id: i64,
+    counter_ids: Vec<i64>,
+) -> Result<Vec<CounterPrintResult>, String> {
+    let caller = session.current();
+    let printed_by = caller.as_ref().map(|u| u.id);
+    let printed_by_name = caller.map(|u| u.name);
+    let config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    let all_counters = db.with_conn(|conn| counters::list_counters(conn, true)).map_err(|e| e.to_string())?;
+
+    let mut results = Vec::with_capacity(counter_ids.len());
+    for counter_id in counter_ids {
+        let Some(counter) = all_counters.iter().find(|c| c.id == counter_id) else {
+            results.push(CounterPrintResult {
+                counter_id,
+                counter_name: format!("Counter {counter_id}"),
+                outcome: PrintOutcome::Failed { error: "Counter not found".to_string() },
+            });
+            continue;
+        };
+
+        let outcome =
+            print_one_counter_token(&db, table_order_id, counter, printed_by, printed_by_name.clone(), &config);
+        results.push(CounterPrintResult { counter_id: counter.id, counter_name: counter.name.clone(), outcome });
+    }
+
+    Ok(results)
+}
+
+/// Reprints an existing token exactly as originally recorded — no new
+/// token number, no change to what's tokenized, clearly marked "REPRINT"
+/// on the output (see `printer::escpos::build_token_bytes`) so the counter
+/// never mistakes it for a second, separate order. Writes nothing to the
+/// database; a failed reprint just means "try again", same as any other
+/// print.
+#[tauri::command]
+pub fn tokens_reprint(db: State<'_, Db>, token_id: i64) -> Result<(), String> {
+    let token = db
+        .with_conn(|conn| Ok(tokens::get_token(conn, token_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_token(&token, &config, true).map_err(|e| e.to_string())
+}
+
+/// What would print right now for an ad hoc (Takeaway) cart, grouped by
+/// counter — the Takeaway counterpart of `tokens_get_pending_items`. Unlike
+/// that one, this has no `table_order_id` to read history against, so it
+/// always reports the full quantity of every counter-eligible line in
+/// `items`, not a delta — see `db::tokens`'s module doc comment.
+#[tauri::command]
+pub fn tokens_get_adhoc_groups(
+    db: State<'_, Db>,
+    items: Vec<tokens::AdhocTokenLine>,
+) -> Result<Vec<PendingCounterGroup>, String> {
+    db.with_conn(|conn| Ok(tokens::ad_hoc_token_groups(conn, &items))).map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+}
+
+/// Prints a token per selected counter for a Takeaway cart that has no
+/// table (and so no `table_orders` row) behind it at all — same
+/// print-then-record ordering and per-counter independence as `tokens_
+/// print`, just fed from `items` (the live billing cart) instead of a
+/// parked order.
+///
+/// Deliberate trade-off, disclosed rather than silently accepted: because
+/// there is no persisted order to diff against, every call here prints the
+/// *entire* quantity of each counter-eligible line in `items`, not just
+/// what's new since the last print. Printing tokens for the same Takeaway
+/// cart twice in a row (before completing the sale) sends everything to
+/// the counter twice — reasonable for the common case (compose the order
+/// once, print once, pay), same as a QSR register printing a fresh ticket
+/// per "print" press, but unlike the dine-in table flow's delta tracking.
+#[tauri::command]
+pub fn tokens_print_adhoc(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    items: Vec<tokens::AdhocTokenLine>,
+    counter_ids: Vec<i64>,
+) -> Result<Vec<CounterPrintResult>, String> {
+    let caller = session.current();
+    let printed_by = caller.as_ref().map(|u| u.id);
+    let printed_by_name = caller.map(|u| u.name);
+    let config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    let all_counters = db.with_conn(|conn| counters::list_counters(conn, true)).map_err(|e| e.to_string())?;
+
+    let mut results = Vec::with_capacity(counter_ids.len());
+    for counter_id in counter_ids {
+        let Some(counter) = all_counters.iter().find(|c| c.id == counter_id) else {
+            results.push(CounterPrintResult {
+                counter_id,
+                counter_name: format!("Counter {counter_id}"),
+                outcome: PrintOutcome::Failed { error: "Counter not found".to_string() },
+            });
+            continue;
+        };
+
+        let outcome =
+            print_one_adhoc_counter_token(&db, &items, counter, printed_by, printed_by_name.clone(), &config);
+        results.push(CounterPrintResult { counter_id: counter.id, counter_name: counter.name.clone(), outcome });
+    }
+
+    Ok(results)
+}
+
+/// The ad hoc (Takeaway) counterpart of `print_one_counter_token` — same
+/// print-then-record-only-on-success discipline, just against `items`
+/// (the live cart) instead of a table order, and recording with
+/// `table_order_id: None`.
+fn print_one_adhoc_counter_token(
+    db: &Db,
+    items: &[tokens::AdhocTokenLine],
+    counter: &Counter,
+    printed_by: Option<i64>,
+    printed_by_name: Option<String>,
+    config: &AppConfig,
+) -> PrintOutcome {
+    let result = db.with_transaction(|tx| {
+        let pending = match tokens::ad_hoc_pending_for_counter(tx, items, counter.id) {
+            Ok(p) => p,
+            Err(tokens::TokenError::Sqlite(e)) => return Err(e),
+            Err(other) => return Ok(Err(other.to_string())),
+        };
+        if pending.is_empty() {
+            return Ok(Ok(None));
+        }
+
+        let token_number = tokens::next_token_number_for_today(tx)?;
+
+        let draft = TokenSummary {
+            id: 0,
+            token_number,
+            counter_id: counter.id,
+            counter_name: counter.name.clone(),
+            table_order_id: None,
+            table_id: None,
+            table_name: None,
+            printed_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            printed_by,
+            printed_by_name: printed_by_name.clone(),
+            status: "printed".to_string(),
+            items: pending.clone(),
+        };
+
+        // Same critical ordering as `print_one_counter_token`: nothing is
+        // written until the physical print has already succeeded.
+        if let Err(print_err) = crate::printer::escpos::print_token(&draft, config, false) {
+            return Ok(Err(print_err.to_string()));
+        }
+
+        let token = match tokens::insert_token(tx, None, counter.id, token_number, printed_by, &pending) {
+            Ok(t) => t,
+            Err(tokens::TokenError::Sqlite(e)) => return Err(e),
+            Err(other) => return Ok(Err(other.to_string())),
+        };
+        Ok(Ok(Some(token)))
+    });
+
+    match result {
+        Ok(Ok(Some(token))) => PrintOutcome::Printed { token },
+        Ok(Ok(None)) => PrintOutcome::NothingPending,
+        Ok(Err(message)) => PrintOutcome::Failed { error: message },
+        Err(db_err) => PrintOutcome::Failed { error: db_err.to_string() },
+    }
 }
 
 // ---------------------------------------------------------------------------

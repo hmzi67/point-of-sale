@@ -111,6 +111,14 @@ pub struct Item {
     /// Display unit for this item's quantity (e.g. "kg"), shown on the cart
     /// line/receipt. `None` for a normal per-piece item.
     pub unit: Option<String>,
+    /// Which kitchen/prep counter this item's KOT token belongs on.
+    /// `None` is meaningful, not "unset" — this item never appears on any
+    /// token at all (e.g. roti, if a client's kitchen doesn't token it).
+    /// See `schema.sql`'s `counters` table doc comment for why this is a
+    /// separate concept from `category_id`.
+    pub counter_id: Option<i64>,
+    /// Denormalized alongside `counter_id`, same reasoning as `category_name`.
+    pub counter_name: Option<String>,
 }
 
 /// Everything the add/edit form submits. Used for both create and update —
@@ -130,6 +138,7 @@ pub struct ItemInput {
     pub image_path: Option<String>,
     pub sold_by_amount: bool,
     pub unit: Option<String>,
+    pub counter_id: Option<i64>,
 }
 
 /// Search/filter options for the list view.
@@ -150,6 +159,7 @@ pub enum ItemError {
     NotFound,
     DuplicateBarcode(String),
     UnknownCategory(i64),
+    UnknownCounter(i64),
     Validation(String),
     /// The item has sale history, so it was archived instead of deleted.
     Sqlite(rusqlite::Error),
@@ -163,6 +173,7 @@ impl std::fmt::Display for ItemError {
                 write!(f, "Barcode \"{}\" is already used by another item", code)
             }
             ItemError::UnknownCategory(id) => write!(f, "Category {} does not exist", id),
+            ItemError::UnknownCounter(id) => write!(f, "Counter {} does not exist", id),
             ItemError::Validation(msg) => write!(f, "{}", msg),
             ItemError::Sqlite(err) => write!(f, "database error: {}", err),
         }
@@ -177,9 +188,11 @@ impl From<rusqlite::Error> for ItemError {
 
 const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.description, i.price_minor, i.cost_minor,
        i.stock_qty, i.category_id, c.name AS category_name,
-       i.low_stock_threshold, i.is_active, i.image_path, i.sold_by_amount, i.unit
+       i.low_stock_threshold, i.is_active, i.image_path, i.sold_by_amount, i.unit,
+       i.counter_id, k.name AS counter_name
   FROM items i
-  LEFT JOIN categories c ON c.id = i.category_id";
+  LEFT JOIN categories c ON c.id = i.category_id
+  LEFT JOIN counters   k ON k.id = i.counter_id";
 
 fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
     let stock_qty: f64 = row.get("stock_qty")?;
@@ -200,6 +213,8 @@ fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
         image_path: row.get("image_path")?,
         sold_by_amount: row.get::<_, i64>("sold_by_amount")? != 0,
         unit: row.get("unit")?,
+        counter_id: row.get("counter_id")?,
+        counter_name: row.get("counter_name")?,
     })
 }
 
@@ -301,6 +316,17 @@ fn validate(conn: &Connection, input: &ItemInput) -> Result<(), ItemError> {
         }
     }
 
+    if let Some(counter_id) = input.counter_id {
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM counters WHERE id = ?1)",
+            params![counter_id],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            return Err(ItemError::UnknownCounter(counter_id));
+        }
+    }
+
     Ok(())
 }
 
@@ -326,8 +352,8 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
     conn.execute(
         "INSERT INTO items
              (name, barcode, description, price_minor, cost_minor, stock_qty, category_id,
-              low_stock_threshold, image_path, sold_by_amount, unit)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+              low_stock_threshold, image_path, sold_by_amount, unit, counter_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             name,
             barcode,
@@ -340,6 +366,7 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
             input.image_path,
             input.sold_by_amount as i64,
             unit,
+            input.counter_id,
         ],
     )
     .map_err(|err| map_barcode_conflict(err, &barcode.map(str::to_string)))?;
@@ -360,9 +387,9 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
             "UPDATE items
                 SET name = ?1, barcode = ?2, description = ?3, price_minor = ?4, cost_minor = ?5,
                     stock_qty = ?6, category_id = ?7, low_stock_threshold = ?8,
-                    image_path = ?9, sold_by_amount = ?10, unit = ?11,
+                    image_path = ?9, sold_by_amount = ?10, unit = ?11, counter_id = ?12,
                     updated_at = datetime('now', 'localtime')
-              WHERE id = ?12",
+              WHERE id = ?13",
             params![
                 name,
                 barcode,
@@ -375,6 +402,7 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
                 input.image_path,
                 input.sold_by_amount as i64,
                 unit,
+                input.counter_id,
                 id
             ],
         )
@@ -436,6 +464,7 @@ mod tests {
             image_path: None,
             sold_by_amount: false,
             unit: None,
+            counter_id: None,
         }
     }
 
@@ -639,6 +668,35 @@ mod tests {
         input.unit = Some("   ".into());
         let created = add_item(&conn, input).unwrap();
         assert_eq!(created.unit, None);
+    }
+
+    #[test]
+    fn counter_id_round_trips_and_none_means_no_token() {
+        use crate::db::counters;
+
+        let conn = test_conn();
+        let counter = counters::add_counter(&conn, "Tandoor").unwrap();
+
+        let mut with_counter = basic_input("Naan");
+        with_counter.counter_id = Some(counter.id);
+        let created = add_item(&conn, with_counter).unwrap();
+        assert_eq!(created.counter_id, Some(counter.id));
+        assert_eq!(created.counter_name.as_deref(), Some("Tandoor"));
+
+        // No counter assigned — deliberately meaningful "never appears on a
+        // token", not just "not chosen yet".
+        let roti = add_item(&conn, basic_input("Roti")).unwrap();
+        assert_eq!(roti.counter_id, None);
+        assert_eq!(roti.counter_name, None);
+    }
+
+    #[test]
+    fn add_item_rejects_unknown_counter() {
+        let conn = test_conn();
+        let mut input = basic_input("New Item");
+        input.counter_id = Some(999_999);
+        let err = add_item(&conn, input).unwrap_err();
+        assert!(matches!(err, ItemError::UnknownCounter(999_999)));
     }
 
     #[test]

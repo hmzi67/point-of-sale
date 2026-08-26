@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Plus, X } from "lucide-react";
 import { useInventoryStore } from "../../store";
 import { uploadItemImage } from "../../services/inventoryService";
+import { useModules } from "../../hooks/useModules";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import { readImageFile } from "../../utils/image";
 import type { Item, ItemInput } from "../../types";
@@ -32,6 +33,9 @@ interface FormState {
   /** Display unit for this item's quantity (e.g. "kg") — only meaningful
    * when `soldByAmount` is set. */
   unit: string;
+  /** Counter this item's KOT token prints to — `null` means this item is
+   * intentionally token-less (e.g. roti). */
+  counterId: number | null;
 }
 
 function toFormState(item?: Item): FormState {
@@ -47,6 +51,7 @@ function toFormState(item?: Item): FormState {
     imagePath: item?.imagePath ?? null,
     soldByAmount: item?.soldByAmount ?? false,
     unit: item?.unit ?? "",
+    counterId: item?.counterId ?? null,
   };
 }
 
@@ -54,11 +59,17 @@ function toFormState(item?: Item): FormState {
  * product photo. */
 export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   const categories = useInventoryStore((state) => state.categories);
+  const counters = useInventoryStore((state) => state.counters);
   const addItem = useInventoryStore((state) => state.addItem);
   const updateItem = useInventoryStore((state) => state.updateItem);
   const addCategory = useInventoryStore((state) => state.addCategory);
   const imageCache = useInventoryStore((state) => state.imageCache);
   const ensureImage = useInventoryStore((state) => state.ensureImage);
+  const { modules } = useModules();
+  // KOT tokens are a restaurant/tables workflow — hide the counter field
+  // entirely for a client that doesn't have Tables enabled, same as
+  // BillingPage hides the table picker.
+  const tokensEnabled = modules.some((module) => module.key === "tables" && module.enabled);
 
   const [form, setForm] = useState<FormState>(() => toFormState(item));
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -167,6 +178,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
       imagePath: form.imagePath,
       soldByAmount: form.soldByAmount,
       unit: form.unit.trim() || null,
+      counterId: form.counterId,
     };
 
     setIsSaving(true);
@@ -470,6 +482,30 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               </div>
             )}
           </div>
+
+          {tokensEnabled && (
+            <div>
+              <label className="block text-xs font-medium text-slate-500" htmlFor="item-counter">
+                Counter <span className="text-slate-400">(optional — leave empty if this item doesn't need a token)</span>
+              </label>
+              <select
+                id="item-counter"
+                value={form.counterId ?? ""}
+                onChange={(e) => set("counterId", e.target.value ? Number(e.target.value) : null)}
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">No counter — never prints a token</option>
+                {counters.map((counter) => (
+                  <option key={counter.id} value={counter.id}>
+                    {counter.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                The kitchen/prep station this item's KOT token prints to when a cashier prints tokens for a table.
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
             <button

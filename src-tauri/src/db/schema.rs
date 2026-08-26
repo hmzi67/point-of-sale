@@ -35,7 +35,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 10;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -48,6 +48,7 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "product_owner_account",
     // Phase 2 — operations
     "categories",
+    "counters",
     "items",
     "tables",
     "sales",
@@ -56,6 +57,8 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "refund_items",
     "shifts",
     "table_orders",
+    "tokens",
+    "token_items",
     "employees",
     "attendance",
     "salary_payments",
@@ -133,6 +136,9 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
             missing_before.join(", ")
         );
     }
+
+    relax_tokens_table_order_id(conn)?;
+    crate::startup_log::log("db: v9->v10 tokens.table_order_id nullability migration checked");
 
     conn.execute_batch(SCHEMA_SQL)?;
     crate::startup_log::log("db: schema.sql applied (CREATE TABLE/INDEX IF NOT EXISTS)");
@@ -224,6 +230,13 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // those existing INTEGER-affinity columns without one).
     ("items", "sold_by_amount", "INTEGER NOT NULL DEFAULT 0"),
     ("items", "unit", "TEXT"),
+    // Which kitchen/prep counter (if any) this item's KOT token belongs on
+    // — NULL is meaningful, not "not set yet": an item with no counter
+    // never appears on any token at all (e.g. roti, if a client's kitchen
+    // workflow doesn't need one for it). See `schema.sql`'s `counters`
+    // table doc comment for why this is a separate concept from
+    // `category_id`.
+    ("items", "counter_id", "INTEGER REFERENCES counters (id) ON DELETE SET NULL"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs
@@ -266,6 +279,69 @@ fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
 
     Ok(())
+}
+
+/// v9 -> v10: `tokens.table_order_id` goes from `NOT NULL` to nullable, so a
+/// Takeaway sale (which has no `table_orders` row at all) can still record
+/// an ad hoc token — see `schema.sql`'s comment on that column, and `db::
+/// tokens`'s module doc comment for why. SQLite can't `ALTER ... DROP NOT
+/// NULL` in place, so this rebuilds the table: creates it fresh under a
+/// temporary name (with the new, nullable definition), copies every
+/// existing row across unchanged, drops the old table, then renames the new
+/// one into place.
+///
+/// Deliberately does *not* `ALTER TABLE tokens RENAME` (the more obvious
+/// order) — SQLite auto-rewrites any other table's foreign key clause that
+/// references a table being renamed (here, `token_items.token_id`'s FK
+/// would silently start pointing at the renamed-away copy), which would
+/// leave `token_items` referencing a table this migration is about to drop.
+/// Building the replacement under its own name and renaming *that* into the
+/// vacated `tokens` name instead avoids ever renaming the live, referenced
+/// table, so `token_items`'s FK clause (which has always just said
+/// `REFERENCES tokens`) keeps meaning the right table throughout.
+///
+/// A no-op on a fresh install (no `tokens` table exists yet — `schema.sql`
+/// creates the nullable shape directly) and a no-op if `tokens` already has
+/// the nullable shape (idempotent, safe to check on every launch).
+fn relax_tokens_table_order_id(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tokens'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        return Ok(());
+    }
+
+    let not_null: i64 = conn.query_row(
+        "SELECT \"notnull\" FROM pragma_table_info('tokens') WHERE name = 'table_order_id'",
+        [],
+        |row| row.get(0),
+    )?;
+    if not_null == 0 {
+        return Ok(()); // already migrated
+    }
+
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
+    let result = conn.execute_batch(
+        "CREATE TABLE tokens_v10 (
+             id             INTEGER PRIMARY KEY AUTOINCREMENT,
+             token_number   INTEGER NOT NULL,
+             table_order_id INTEGER REFERENCES table_orders (id) ON DELETE CASCADE,
+             counter_id     INTEGER NOT NULL REFERENCES counters (id) ON DELETE RESTRICT,
+             printed_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+             printed_by     INTEGER REFERENCES users (id) ON DELETE SET NULL,
+             status         TEXT    NOT NULL DEFAULT 'printed' CHECK (status IN ('printed', 'cancelled'))
+         );
+         INSERT INTO tokens_v10 (id, token_number, table_order_id, counter_id, printed_at, printed_by, status)
+             SELECT id, token_number, table_order_id, counter_id, printed_at, printed_by, status FROM tokens;
+         DROP TABLE tokens;
+         ALTER TABLE tokens_v10 RENAME TO tokens;",
+    );
+    // Restore enforcement before propagating either outcome — never leave
+    // the connection with foreign keys silently off for the rest of the run.
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    result
 }
 
 fn seed_app_config(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -334,6 +410,66 @@ pub(crate) fn test_conn() -> Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relax_tokens_table_order_id_upgrades_a_v9_install_and_preserves_existing_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        // Minimal v9-shaped schema: just enough for `tokens`'s own FKs to
+        // resolve, plus a seeded row (with a `token_items` child row) to
+        // prove the migration preserves existing data, not just the shape.
+        conn.execute_batch(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
+             CREATE TABLE tables (id INTEGER PRIMARY KEY, name TEXT);
+             CREATE TABLE table_orders (id INTEGER PRIMARY KEY, table_id INTEGER);
+             CREATE TABLE counters (id INTEGER PRIMARY KEY, name TEXT);
+             CREATE TABLE tokens (
+                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                 token_number   INTEGER NOT NULL,
+                 table_order_id INTEGER NOT NULL REFERENCES table_orders (id) ON DELETE CASCADE,
+                 counter_id     INTEGER NOT NULL REFERENCES counters (id) ON DELETE RESTRICT,
+                 printed_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                 printed_by     INTEGER,
+                 status         TEXT NOT NULL DEFAULT 'printed'
+             );
+             CREATE TABLE token_items (
+                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                 token_id     INTEGER NOT NULL REFERENCES tokens (id) ON DELETE CASCADE,
+                 item_id      INTEGER NOT NULL,
+                 qty_on_token REAL NOT NULL
+             );
+             INSERT INTO counters (id, name) VALUES (1, 'Kitchen');
+             INSERT INTO tables (id, name) VALUES (1, 'Table 1');
+             INSERT INTO table_orders (id, table_id) VALUES (1, 1);
+             INSERT INTO tokens (id, token_number, table_order_id, counter_id) VALUES (1, 5, 1, 1);
+             INSERT INTO token_items (id, token_id, item_id, qty_on_token) VALUES (1, 1, 1, 2.0);",
+        )
+        .unwrap();
+
+        relax_tokens_table_order_id(&conn).unwrap();
+
+        // The column must now accept NULL — this is the whole point.
+        conn.execute("INSERT INTO tokens (id, token_number, table_order_id, counter_id) VALUES (2, 6, NULL, 1)", [])
+            .expect("table_order_id must now be nullable");
+
+        // The pre-existing row must survive with its data untouched.
+        let (token_number, table_order_id): (i64, Option<i64>) = conn
+            .query_row("SELECT token_number, table_order_id FROM tokens WHERE id = 1", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(token_number, 5);
+        assert_eq!(table_order_id, Some(1));
+
+        // `token_items`'s foreign key must still resolve to the rebuilt
+        // `tokens` table, not a dangling reference to a renamed-away copy.
+        let item_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM token_items WHERE token_id = 1", [], |row| row.get(0)).unwrap();
+        assert_eq!(item_count, 1, "token_items must still resolve to the migrated tokens table");
+
+        // Idempotent — a second run (e.g. a second app launch) must be a no-op.
+        relax_tokens_table_order_id(&conn).unwrap();
+    }
 
     #[test]
     fn seeds_the_full_module_catalogue_once() {

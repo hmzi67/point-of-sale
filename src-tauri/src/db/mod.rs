@@ -5,6 +5,7 @@
 pub mod attendance;
 pub mod config;
 pub mod connection;
+pub mod counters;
 pub mod csv_import;
 pub mod dashboard;
 pub mod expenses;
@@ -20,6 +21,7 @@ pub mod schema;
 pub mod seed;
 pub mod shifts;
 pub mod tables;
+pub mod tokens;
 pub mod users;
 
 #[allow(unused_imports)]

@@ -183,6 +183,9 @@ pub fn import_csv(conn: &Connection, csv_content: &str) -> Result<ImportSummary,
                     // loose/weighed item.
                     sold_by_amount: false,
                     unit: None,
+                    // Not a CSV column either — set later via the item edit
+                    // form if this row turns out to need a KOT token.
+                    counter_id: None,
                 },
             )
             .map_err(|e| e.to_string())?;

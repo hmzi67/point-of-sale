@@ -36,6 +36,11 @@ export interface Item {
   /** Display unit for this item's quantity (e.g. "kg"), shown on the cart
    * line and receipt. `null` for a normal per-piece item. */
   unit: string | null;
+  /** The kitchen/prep counter this item's KOT token prints to, or `null` if
+   * this item doesn't need one (e.g. roti, in a client's workflow — see
+   * `Counter` and the Tables module's token feature). */
+  counterId: number | null;
+  counterName: string | null;
 }
 
 /** Everything the add/edit form submits — used for both create and update. */
@@ -51,6 +56,8 @@ export interface ItemInput {
   imagePath: string | null;
   soldByAmount: boolean;
   unit: string | null;
+  /** Counter this item's token prints to, or `null` for a token-less item. */
+  counterId: number | null;
 }
 
 /** Result of a bulk CSV import — see `db::csv_import` on the Rust side. */

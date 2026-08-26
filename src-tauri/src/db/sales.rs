@@ -496,6 +496,7 @@ mod tests {
                 image_path: None,
                 sold_by_amount: true,
                 unit: Some("kg".into()),
+                counter_id: None,
             },
         )
         .unwrap();

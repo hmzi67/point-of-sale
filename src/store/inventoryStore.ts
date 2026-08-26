@@ -8,11 +8,16 @@ import {
   getItems,
   updateItem as updateItemCommand,
 } from "../services/inventoryService";
-import type { Category, DeleteOutcome, Item, ItemInput } from "../types";
+import { getCounters } from "../services/countersService";
+import type { Category, Counter, DeleteOutcome, Item, ItemInput } from "../types";
 
 interface InventoryState {
   items: Item[];
   categories: Category[];
+  /** Active counters only — the item-form dropdown's source list. Loaded
+   * alongside items/categories; a management screen that needs inactive ones
+   * too calls `getCounters(true)` directly rather than through this store. */
+  counters: Counter[];
   isLoaded: boolean;
   isLoading: boolean;
   error: string | null;
@@ -50,6 +55,7 @@ interface InventoryState {
 export const useInventoryStore = create<InventoryState>((set, get) => ({
   items: [],
   categories: [],
+  counters: [],
   isLoaded: false,
   isLoading: false,
   error: null,
@@ -69,11 +75,12 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const { search, categoryId } = get();
-      const [items, categories] = await Promise.all([
+      const [items, categories, counters] = await Promise.all([
         getItems({ search: search || undefined, categoryId: categoryId ?? undefined }),
         getCategories(),
+        getCounters(),
       ]);
-      set({ items, categories, isLoaded: true, isLoading: false });
+      set({ items, categories, counters, isLoaded: true, isLoading: false });
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false, isLoaded: true });
     }

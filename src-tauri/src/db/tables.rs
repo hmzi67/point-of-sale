@@ -22,6 +22,11 @@ pub struct TableSummary {
     pub seats: i64,
     pub status: String,
     pub has_parked_order: bool,
+    /// The `table_orders.id` of this table's currently open order, if any —
+    /// what the billing screen needs to call the `tokens_*` commands, which
+    /// key off the order (not the table) so a shifted order carries its
+    /// tokens with it. `None` exactly when `has_parked_order` is `false`.
+    pub open_order_id: Option<i64>,
 }
 
 /// Both tables' post-shift state — the floor view updates both cards from
@@ -109,7 +114,9 @@ fn load_table(conn: &Connection, table_id: i64) -> Result<TableSummary, TableErr
     conn.query_row(
         "SELECT t.id, t.name, t.seats, t.status,
                 EXISTS (SELECT 1 FROM table_orders o
-                         WHERE o.table_id = t.id AND o.status = 'open') AS has_parked
+                         WHERE o.table_id = t.id AND o.status = 'open') AS has_parked,
+                (SELECT o.id FROM table_orders o
+                  WHERE o.table_id = t.id AND o.status = 'open' LIMIT 1) AS open_order_id
            FROM tables t
           WHERE t.id = ?1",
         params![table_id],
@@ -120,6 +127,7 @@ fn load_table(conn: &Connection, table_id: i64) -> Result<TableSummary, TableErr
                 seats: row.get(2)?,
                 status: row.get(3)?,
                 has_parked_order: row.get::<_, i64>(4)? != 0,
+                open_order_id: row.get(5)?,
             })
         },
     )
@@ -133,7 +141,9 @@ pub fn list_tables(conn: &Connection) -> Result<Vec<TableSummary>, rusqlite::Err
     let mut stmt = conn.prepare(
         "SELECT t.id, t.name, t.seats, t.status,
                 EXISTS (SELECT 1 FROM table_orders o
-                         WHERE o.table_id = t.id AND o.status = 'open') AS has_parked
+                         WHERE o.table_id = t.id AND o.status = 'open') AS has_parked,
+                (SELECT o.id FROM table_orders o
+                  WHERE o.table_id = t.id AND o.status = 'open' LIMIT 1) AS open_order_id
            FROM tables t
           ORDER BY t.name",
     )?;
@@ -144,6 +154,7 @@ pub fn list_tables(conn: &Connection) -> Result<Vec<TableSummary>, rusqlite::Err
             seats: row.get(2)?,
             status: row.get(3)?,
             has_parked_order: row.get::<_, i64>(4)? != 0,
+            open_order_id: row.get(5)?,
         })
     })?;
     rows.collect()
@@ -290,6 +301,48 @@ pub fn get_parked_cart(conn: &Connection, table_id: i64) -> Result<Option<Parked
         serde_json::from_str(&cart_json).map_err(|e| TableError::Corrupt(e.to_string()))?;
 
     Ok(Some(ParkedOrder { items: parsed.items, discount_minor: parsed.discount_minor }))
+}
+
+/// An open order's table identity plus its current cart — everything
+/// `db::tokens` needs about a `table_order_id` in one query.
+pub struct OpenOrderContext {
+    pub table_id: i64,
+    pub table_name: String,
+    pub cart: ParkedOrder,
+}
+
+/// Looks up an open order by the `table_orders.id` itself rather than by
+/// table — this is the lookup `db::tokens` needs, since a token belongs to
+/// the *order* (so `shift_table_order` moving it to a different table
+/// carries its tokens along automatically), never to a table directly.
+/// `None` if the order doesn't exist or is no longer `open`
+/// (already billed/cancelled — nothing to token against).
+pub fn get_open_order_by_id(
+    conn: &Connection,
+    table_order_id: i64,
+) -> Result<Option<OpenOrderContext>, TableError> {
+    let row: Option<(i64, String, Option<String>)> = conn
+        .query_row(
+            "SELECT o.table_id, t.name, o.cart_json
+               FROM table_orders o
+               JOIN tables t ON t.id = o.table_id
+              WHERE o.id = ?1 AND o.status = 'open'",
+            params![table_order_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+
+    let Some((table_id, table_name, cart_json)) = row else { return Ok(None) };
+    let cart = match cart_json {
+        None => ParkedOrder { items: Vec::new(), discount_minor: 0 },
+        Some(json) => {
+            let parsed: ParkedCart =
+                serde_json::from_str(&json).map_err(|e| TableError::Corrupt(e.to_string()))?;
+            ParkedOrder { items: parsed.items, discount_minor: parsed.discount_minor }
+        }
+    };
+
+    Ok(Some(OpenOrderContext { table_id, table_name, cart }))
 }
 
 /// Manually releases a table: cancels any open order for it and frees the
@@ -702,6 +755,55 @@ mod tests {
 
         let tx = conn.transaction().unwrap();
         assert!(matches!(shift_table_order(&tx, t1, t1), Err(TableError::SameTable)));
+    }
+
+    #[test]
+    fn get_open_order_by_id_resolves_table_identity_and_cart() {
+        let conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let t2 = table_id(&conn, "Table 2");
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 3 }], 0).unwrap();
+
+        let order_id: i64 = conn
+            .query_row("SELECT id FROM table_orders WHERE table_id = ?1", params![t2], |row| row.get(0))
+            .unwrap();
+
+        let ctx = get_open_order_by_id(&conn, order_id).unwrap().unwrap();
+        assert_eq!(ctx.table_id, t2);
+        assert_eq!(ctx.table_name, "Table 2");
+        assert_eq!(ctx.cart.items.len(), 1);
+        assert_eq!(ctx.cart.items[0].item_id, cola);
+
+        assert!(get_open_order_by_id(&conn, 999_999).unwrap().is_none(), "unknown order id");
+    }
+
+    #[test]
+    fn get_open_order_by_id_returns_none_once_billed() {
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let t2 = table_id(&conn, "Table 2");
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+        let order_id: i64 = conn
+            .query_row("SELECT id FROM table_orders WHERE table_id = ?1", params![t2], |row| row.get(0))
+            .unwrap();
+
+        let tx = conn.transaction().unwrap();
+        sales::create_sale(
+            &tx,
+            CreateSaleInput {
+                items: vec![CartLine { item_id: cola, qty: 1.0, notes: None }],
+                discount_minor: 0,
+                tax_minor: 0,
+                payment_method: "cash".into(),
+                cashier_id: None,
+                table_id: Some(t2),
+                shift_id: None,
+            },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert!(get_open_order_by_id(&conn, order_id).unwrap().is_none(), "a billed order is no longer 'open'");
     }
 
     #[test]
