@@ -13,6 +13,7 @@ export function buildRefundPdf(refund: Refund, config: AppConfig): jsPDF {
 
   const subtitle = ["REFUND", `Refund #${refund.id}`, `Vno: ${refund.originalSaleId}`, refund.createdAt];
   if (refund.refundedByName) subtitle.push(`By: ${refund.refundedByName}`);
+  if (config.phone) subtitle.unshift(config.phone);
   let y = drawHeader(doc, config.businessName, subtitle);
 
   y = drawTable(

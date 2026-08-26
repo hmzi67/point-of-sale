@@ -29,6 +29,12 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
 
   useEffect(() => setNameDraft(config.businessName), [config.businessName]);
 
+  const [phoneDraft, setPhoneDraft] = useState(config.phone ?? "");
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+
+  useEffect(() => setPhoneDraft(config.phone ?? ""), [config.phone]);
+
   const logoDataUrl = useLogoDataUrl(config.logoPath);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
@@ -49,6 +55,29 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
       setNameDraft(config.businessName);
     } finally {
       setIsSavingName(false);
+    }
+  };
+
+  const savePhoneIfChanged = async () => {
+    const trimmed = phoneDraft.trim();
+    const current = config.phone ?? "";
+    if (trimmed === current) {
+      setPhoneDraft(current);
+      return;
+    }
+    setIsSavingPhone(true);
+    setPhoneError(null);
+    try {
+      // An empty value is saved as "" (not omitted) so clearing a
+      // previously-set number actually clears it — `AppConfigUpdate`'s
+      // COALESCE-based patch treats `null`/omitted as "leave as-is", so
+      // there's no other way to unset this field once set.
+      await save({ phone: trimmed });
+    } catch (e) {
+      setPhoneError((e as Error).message);
+      setPhoneDraft(current);
+    } finally {
+      setIsSavingPhone(false);
     }
   };
 
@@ -122,6 +151,22 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
           />
           {isSavingName && <p className="mt-1 text-xs text-slate-400">Saving…</p>}
           {nameError && <p className="mt-1 text-xs text-red-600">{nameError}</p>}
+        </label>
+
+        <label className="block flex-1">
+          <span className="mb-1.5 block text-xs font-medium text-slate-500">Business phone</span>
+          <input
+            type="tel"
+            value={phoneDraft}
+            onChange={(e) => setPhoneDraft(e.target.value)}
+            onBlur={() => void savePhoneIfChanged()}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+            disabled={isSavingPhone}
+            placeholder="e.g. 0300 1234567"
+            className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:opacity-50"
+          />
+          {isSavingPhone && <p className="mt-1 text-xs text-slate-400">Saving…</p>}
+          {phoneError && <p className="mt-1 text-xs text-red-600">{phoneError}</p>}
         </label>
       </div>
     </div>

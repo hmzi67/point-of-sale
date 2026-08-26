@@ -22,7 +22,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -195,6 +195,10 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // `printer::windows_spool`. Same "NULL until chosen" convention as the
     // Bluetooth fields above.
     ("app_config", "printer_windows_name", "TEXT"),
+    // Business contact phone — shown in Settings and printed on receipts.
+    // NULL until an owner/admin sets one via Settings' Store Identity
+    // section; see `db::config::AppConfig::phone`.
+    ("app_config", "phone", "TEXT"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs

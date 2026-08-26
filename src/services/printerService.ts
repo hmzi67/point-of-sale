@@ -28,3 +28,14 @@ export function bluetoothPermissionGranted(): Promise<boolean> {
 export function requestBluetoothPermission(): Promise<void> {
   return call<void>("printer_request_bluetooth_permission");
 }
+
+/** Prints a ruler + rows of known length at several candidate widths to
+ * whichever printer is currently selected — the direct-measurement tool
+ * for a printer's real character-per-line width, since that number has
+ * turned out to vary by printer model rather than match a datasheet (see
+ * `printer::layout`'s module doc comment on the Rust side). Read the
+ * printout back: the widest "N=.." line that still prints on one physical
+ * line is this printer's real width. */
+export function printDiagnostic(): Promise<void> {
+  return call<void>("printer_print_diagnostic");
+}

@@ -1,4 +1,4 @@
-import type { ParkedCartLine, ParkedOrder, TableSummary } from "../types";
+import type { ParkedCartLine, ParkedOrder, ShiftTableResult, TableSummary } from "../types";
 import { call } from "./tauriClient";
 
 /** Every table with status, for the floor view and the billing table picker. */
@@ -39,4 +39,13 @@ export function attachCartToTable(
 /** The cart parked on a table, if any — used to resume billing it. */
 export function getParkedCart(tableId: number): Promise<ParkedOrder | null> {
   return call<ParkedOrder | null>("tables_get_parked_cart", { tableId });
+}
+
+/** Moves an in-progress order from `fromTableId` to `toTableId` — the cart
+ * (items, quantities, discount) is untouched, only which table it's parked
+ * on changes. Rejects if `fromTableId` has no active order or `toTableId`
+ * isn't free (see `tables::shift_table_order`'s doc comment on the Rust
+ * side) — never silently merges two tables' orders. */
+export function shiftTableOrder(fromTableId: number, toTableId: number): Promise<ShiftTableResult> {
+  return call<ShiftTableResult>("tables_shift_table_order", { fromTableId, toTableId });
 }

@@ -7,6 +7,7 @@ interface TableCardProps {
   onResume: () => void;
   onRelease: () => void;
   onReserve: () => void;
+  onShift: () => void;
 }
 
 /** Color-codes a table by status: free = green, occupied = red, reserved =
@@ -33,7 +34,7 @@ const STATUS_LABEL: Record<TableSummary["status"], string> = {
  * (starts a new order) and opens billing; tapping an occupied table resumes
  * its in-progress cart. Both go through the same primary action button so
  * the whole card is one big, cashier-friendly tap target. */
-export function TableCard({ table, busy, onSeat, onResume, onRelease, onReserve }: TableCardProps) {
+export function TableCard({ table, busy, onSeat, onResume, onRelease, onReserve, onShift }: TableCardProps) {
   const primaryAction = table.status === "occupied" ? onResume : onSeat;
 
   return (
@@ -75,6 +76,16 @@ export function TableCard({ table, busy, onSeat, onResume, onRelease, onReserve 
             className="rounded border border-slate-300 bg-white/60 px-2 py-1 font-medium text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             Clear table
+          </button>
+        )}
+        {table.status === "occupied" && (
+          <button
+            type="button"
+            onClick={onShift}
+            disabled={busy}
+            className="rounded border border-slate-300 bg-white/60 px-2 py-1 font-medium text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Shift table
           </button>
         )}
       </div>

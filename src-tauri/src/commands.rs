@@ -809,6 +809,20 @@ pub fn printer_list_windows_printers() -> Result<Vec<crate::db::config::WindowsP
     }
 }
 
+/// Prints a ruler + rows of known length at several candidate widths to
+/// whatever printer transport is currently configured — the direct-
+/// measurement tool for a printer's real character-per-line width instead
+/// of trusting a datasheet number (see `printer::escpos::build_diagnostic_
+/// bytes`'s doc comment for why this exists: `LINE_WIDTH` has already been
+/// wrong once). Owner/Admin only, same tier as the rest of Settings'
+/// printer controls.
+#[tauri::command]
+pub fn printer_print_diagnostic(db: State<'_, Db>, session: State<'_, Session>) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    let config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_diagnostic(&config).map_err(|e| e.to_string())
+}
+
 /// The most recent sales — the refund flow's "pick the original sale" list.
 /// Owner/Admin only, same as the refund commands below it.
 #[tauri::command]
@@ -1313,6 +1327,29 @@ pub fn tables_attach_cart_to_table(
 #[tauri::command]
 pub fn tables_get_parked_cart(db: State<'_, Db>, table_id: i64) -> Result<Option<ParkedOrder>, String> {
     db.with_conn(|conn| Ok(tables::get_parked_cart(conn, table_id)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Moves an in-progress table's order to a different, currently-free table
+/// (a customer who moves seats) — the cart itself (items, quantities,
+/// discount) is untouched, only which table it's parked on changes. Rejects
+/// a source with no active order, or a destination that isn't free, rather
+/// than silently merging/overwriting (see `tables::shift_table_order`'s doc
+/// comment). Two tables' `status` flip together — transactional for the
+/// same reason as `tables_clear_table`/`tables_assign_order_to_table`.
+/// Owner/Admin only, same tier as the rest of the floor-management commands
+/// above (unlike `tables_attach_cart_to_table`, which Cashiers reach from
+/// Billing) — the floor view itself is Owner/Admin territory.
+#[tauri::command]
+pub fn tables_shift_table_order(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    from_table_id: i64,
+    to_table_id: i64,
+) -> Result<tables::ShiftTableResult, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_transaction(|tx| Ok(tables::shift_table_order(tx, from_table_id, to_table_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }

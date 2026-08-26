@@ -12,6 +12,9 @@ pub struct AppConfig {
     pub currency: String,
     pub tax_percent: f64,
     pub receipt_footer: String,
+    /// Business contact number, shown in Settings and printed on receipts.
+    /// `None` until an owner/admin sets one.
+    pub phone: Option<String>,
     /// Divisor for salary calculation — see `db/salary.rs`.
     pub working_days_per_month: i64,
     /// Set once the first-time setup wizard finishes. `false` is what tells
@@ -82,6 +85,7 @@ pub struct AppConfigUpdate {
     pub currency: Option<String>,
     pub tax_percent: Option<f64>,
     pub receipt_footer: Option<String>,
+    pub phone: Option<String>,
     pub working_days_per_month: Option<i64>,
     pub onboarding_completed: Option<bool>,
     pub printer_connection_type: Option<String>,
@@ -98,6 +102,7 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
         currency: row.get("currency")?,
         tax_percent: row.get("tax_percent")?,
         receipt_footer: row.get("receipt_footer")?,
+        phone: row.get("phone")?,
         working_days_per_month: row.get("working_days_per_month")?,
         onboarding_completed: row.get::<_, i64>("onboarding_completed")? != 0,
         printer_connection_type: row.get("printer_connection_type")?,
@@ -110,7 +115,7 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
 pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
     conn.query_row(
         "SELECT business_name, business_type, logo_path, currency, tax_percent, receipt_footer,
-                working_days_per_month, onboarding_completed,
+                phone, working_days_per_month, onboarding_completed,
                 printer_connection_type, printer_bluetooth_address, printer_bluetooth_name,
                 printer_windows_name
            FROM app_config WHERE id = 1",
@@ -130,12 +135,13 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
                 currency       = COALESCE(?4, currency),
                 tax_percent    = COALESCE(?5, tax_percent),
                 receipt_footer = COALESCE(?6, receipt_footer),
-                working_days_per_month = COALESCE(?7, working_days_per_month),
-                onboarding_completed = COALESCE(?8, onboarding_completed),
-                printer_connection_type = COALESCE(?9, printer_connection_type),
-                printer_bluetooth_address = COALESCE(?10, printer_bluetooth_address),
-                printer_bluetooth_name = COALESCE(?11, printer_bluetooth_name),
-                printer_windows_name = COALESCE(?12, printer_windows_name)
+                phone          = COALESCE(?7, phone),
+                working_days_per_month = COALESCE(?8, working_days_per_month),
+                onboarding_completed = COALESCE(?9, onboarding_completed),
+                printer_connection_type = COALESCE(?10, printer_connection_type),
+                printer_bluetooth_address = COALESCE(?11, printer_bluetooth_address),
+                printer_bluetooth_name = COALESCE(?12, printer_bluetooth_name),
+                printer_windows_name = COALESCE(?13, printer_windows_name)
           WHERE id = 1",
         params![
             patch.business_name,
@@ -144,6 +150,7 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
             patch.currency,
             patch.tax_percent,
             patch.receipt_footer,
+            patch.phone,
             patch.working_days_per_month,
             patch.onboarding_completed,
             patch.printer_connection_type,

@@ -56,7 +56,9 @@ use crate::db::reports::{CategorySalesReport, ProductSalesSummaryReport, Refunds
 use crate::db::refunds::Refund;
 use crate::db::sales::Sale;
 use crate::db::shifts::ShiftSummary;
-use crate::printer::layout::{bordered_line, bordered_row, divider, double_divider, format_minor, row, two_col};
+use crate::printer::layout::{
+    bordered_line, bordered_row, divider, double_divider, format_minor, row, truncate_line, two_col,
+};
 #[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 use rusb::{Direction, TransferType};
 #[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
@@ -196,22 +198,28 @@ fn print_logo(out: &mut Vec<u8>, logo: &LogoRaster) {
     out.extend(align_left());
 }
 
-/// Item-row column widths shared by every line-item table below: Item(22) /
-/// Qty(6) / Rate(8) / Amount(12) = 48 = `LINE_WIDTH`. A public const (not a
+/// Item-row column widths shared by every line-item table below: Item(18) /
+/// Qty(4) / Rate(8) / Amount(12) = 42 = `LINE_WIDTH`. A public const (not a
 /// magic number repeated per template) so the header row and every line
-/// stay in lockstep if this ever needs retuning for a 58mm target.
-const ITEM_COLS: [usize; 4] = [22, 6, 8, 12];
+/// stay in lockstep if this ever needs retuning for a differently-measured
+/// printer — see `layout`'s module doc comment for how 42 was arrived at.
+const ITEM_COLS: [usize; 4] = [18, 4, 8, 12];
 
 fn item_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
     row(&[(desc, ITEM_COLS[0], false), (qty, ITEM_COLS[1], true), (rate, ITEM_COLS[2], true), (amount, ITEM_COLS[3], true)])
 }
 
 /// Content-only column widths for the customer receipt's bordered item
-/// table (below): Item(20) / Qty(4) / Rate(8) / Amount(11) = 43, plus the
-/// 5 `|` separators [`bordered_row`]/[`bordered_line`] add = 48 =
+/// table (below): Item(18) / Qty(3) / Rate(7) / Amount(9) = 37, plus the
+/// 5 `|` separators [`bordered_row`]/[`bordered_line`] add = 42 =
 /// `LINE_WIDTH` — same total budget as [`ITEM_COLS`] above, just split
-/// differently to leave room for the border characters.
-const ITEM_TABLE_COLS: [usize; 4] = [20, 4, 8, 11];
+/// differently to leave room for the border characters. Rate(7) exactly
+/// fits "1300.00" with no padding; Amount(9) fits "3900.00" with 2 spaces
+/// to spare — both come from `escpos::tests::
+/// build_receipt_bytes_fits_the_measured_42_column_regression_row`, the
+/// exact row a real client receipt showed wrapping mid-digit before this
+/// column budget was corrected from an assumed 48 down to a measured 42.
+const ITEM_TABLE_COLS: [usize; 4] = [18, 3, 7, 9];
 
 fn item_table_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
     bordered_row(&[
@@ -227,11 +235,11 @@ fn item_table_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
 fn header_block(out: &mut Vec<u8>, business_name: &str, subtitle_lines: &[String]) {
     out.extend(align_center());
     out.extend(bold(true));
-    out.extend(business_name.as_bytes());
+    out.extend(truncate_line(business_name).as_bytes());
     out.push(b'\n');
     out.extend(bold(false));
     for line in subtitle_lines {
-        out.extend(line.as_bytes());
+        out.extend(truncate_line(line).as_bytes());
         out.push(b'\n');
     }
     out.push(b'\n');
@@ -242,16 +250,16 @@ fn footer_block(out: &mut Vec<u8>, footer: &str) {
     if !footer.trim().is_empty() {
         out.push(b'\n');
         out.extend(align_center());
-        out.extend(footer.as_bytes());
+        out.extend(truncate_line(footer).as_bytes());
         out.push(b'\n');
     }
 }
 
 /// Content-only column widths for a generic 3-column bordered table —
 /// "label / count / amount" — shared by the Category Wise Sale (Item / Qty
-/// / Revenue) and Table Wise Sales (Table / Txns / Amount) reports: 26 + 6
-/// + 12 = 44, plus the 4 `|` separators = 48 = `LINE_WIDTH`.
-const THREE_COL_TABLE: [usize; 3] = [26, 6, 12];
+/// / Revenue) and Table Wise Sales (Table / Txns / Amount) reports: 22 + 6
+/// + 10 = 38, plus the 4 `|` separators = 42 = `LINE_WIDTH`.
+const THREE_COL_TABLE: [usize; 3] = [22, 6, 10];
 
 fn three_col_row(a: &str, b: &str, c: &str) -> String {
     bordered_row(&[(a, THREE_COL_TABLE[0], false), (b, THREE_COL_TABLE[1], true), (c, THREE_COL_TABLE[2], true)])
@@ -284,7 +292,7 @@ fn copy_label_banner(out: &mut Vec<u8>, label: &str) {
     out.extend(double_divider().as_bytes());
     out.push(b'\n');
     out.extend(bold(true));
-    out.extend(label.as_bytes());
+    out.extend(truncate_line(label).as_bytes());
     out.push(b'\n');
     out.extend(bold(false));
     out.extend(double_divider().as_bytes());
@@ -343,7 +351,14 @@ fn build_receipt_bytes_for_copy(
         copy_label_banner(&mut out, label);
     }
 
-    let subtitle = vec![format!("Sale #{}", sale.id), sale.created_at.clone()];
+    let mut subtitle = Vec::new();
+    if let Some(phone) = &config.phone {
+        if !phone.trim().is_empty() {
+            subtitle.push(phone.clone());
+        }
+    }
+    subtitle.push(format!("Sale #{}", sale.id));
+    subtitle.push(sale.created_at.clone());
     header_block(&mut out, &config.business_name, &subtitle);
 
     // Cashier / table-or-order-type — a left-aligned label/value block, same
@@ -404,7 +419,8 @@ fn build_receipt_bytes_for_copy(
     out.extend(two_col("TOTAL", &format!("{} {}", currency, format_minor(sale.total_minor))).as_bytes());
     out.push(b'\n');
     out.extend(bold(false));
-    out.extend(format!("Paid by: {}\n", sale.payment_method).as_bytes());
+    out.extend(truncate_line(&format!("Paid by: {}", sale.payment_method)).as_bytes());
+    out.push(b'\n');
 
     close_out(&mut out, &config.receipt_footer);
     out
@@ -421,12 +437,16 @@ pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
     out.extend(wake_padding());
     out.extend(init());
 
-    let mut subtitle = vec![
-        "REFUND".to_string(),
-        format!("Refund #{}", refund.id),
-        format!("Vno: {}", refund.original_sale_id),
-        refund.created_at.clone(),
-    ];
+    let mut subtitle = Vec::new();
+    if let Some(phone) = &config.phone {
+        if !phone.trim().is_empty() {
+            subtitle.push(phone.clone());
+        }
+    }
+    subtitle.push("REFUND".to_string());
+    subtitle.push(format!("Refund #{}", refund.id));
+    subtitle.push(format!("Vno: {}", refund.original_sale_id));
+    subtitle.push(refund.created_at.clone());
     if let Some(name) = &refund.refunded_by_name {
         subtitle.push(format!("By: {}", name));
     }
@@ -454,7 +474,8 @@ pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
     out.push(b'\n');
 
     if let Some(reason) = &refund.reason {
-        out.extend(format!("Reason: {}\n", reason).as_bytes());
+        out.extend(truncate_line(&format!("Reason: {}", reason)).as_bytes());
+        out.push(b'\n');
     }
 
     out.extend(double_divider().as_bytes());
@@ -561,7 +582,7 @@ pub fn build_category_sales_bytes(report: &CategorySalesReport, config: &AppConf
 fn write_category_sales_section(out: &mut Vec<u8>, report: &CategorySalesReport, currency: &str) {
     for group in &report.groups {
         out.extend(bold(true));
-        out.extend(group.category_name.as_bytes());
+        out.extend(truncate_line(&group.category_name).as_bytes());
         out.push(b'\n');
         out.extend(bold(false));
 
@@ -672,13 +693,14 @@ fn write_refunds_section(out: &mut Vec<u8>, report: &RefundsSummary, currency: &
         }
 
         out.extend(bold(true));
-        out.extend(format!("Refund #{}  Vno: {}", refund.id, refund.original_sale_id).as_bytes());
+        out.extend(truncate_line(&format!("Refund #{}  Vno: {}", refund.id, refund.original_sale_id)).as_bytes());
         out.push(b'\n');
         out.extend(bold(false));
-        out.extend(refund.created_at.as_bytes());
+        out.extend(truncate_line(&refund.created_at).as_bytes());
         out.push(b'\n');
         if let Some(name) = &refund.refunded_by_name {
-            out.extend(format!("By: {}\n", name).as_bytes());
+            out.extend(truncate_line(&format!("By: {}", name)).as_bytes());
+            out.push(b'\n');
         }
 
         out.extend(three_col_border().as_bytes());
@@ -700,7 +722,8 @@ fn write_refunds_section(out: &mut Vec<u8>, report: &RefundsSummary, currency: &
         out.push(b'\n');
 
         if let Some(reason) = &refund.reason {
-            out.extend(format!("Reason: {}\n", reason).as_bytes());
+            out.extend(truncate_line(&format!("Reason: {}", reason)).as_bytes());
+            out.push(b'\n');
         }
 
         out.extend(
@@ -799,7 +822,7 @@ fn write_overview_section(out: &mut Vec<u8>, overview: &DashboardSummary, averag
 /// etc. — separating [`build_full_report_bytes`]'s sections from each other.
 fn section_banner(out: &mut Vec<u8>, title: &str) {
     out.extend(bold(true));
-    out.extend(title.as_bytes());
+    out.extend(truncate_line(title).as_bytes());
     out.push(b'\n');
     out.extend(bold(false));
     out.extend(divider().as_bytes());
@@ -1098,6 +1121,59 @@ pub fn print_full_report(report: &FullReport, config: &AppConfig) -> Result<(), 
     send_to_printer(&bytes, config)
 }
 
+/// Candidate line widths the diagnostic print checks — spans comfortably
+/// either side of [`layout::LINE_WIDTH`] (42) so a printer that turns out
+/// to genuinely be a 32-column or a 48-column model still shows a clean
+/// line somewhere in the list, not just a wall of wrapped ones.
+const DIAGNOSTIC_WIDTHS: [usize; 7] = [28, 32, 36, 40, 42, 44, 48];
+
+/// A printable ruler + a row of digits at each width in [`DIAGNOSTIC_WIDTHS`]
+/// — exists because this file's `LINE_WIDTH` has already been wrong once
+/// (48, the Epson TM-series datasheet number) and been corrected once (42,
+/// measured off a real client receipt); if a *third* printer needs a *third*
+/// number, this prints the evidence directly rather than inferring it from
+/// a photo of a wrapped row again. Read it off the physical paper: every
+/// "N=.." line up to and including the widest one that does NOT wrap is a
+/// candidate for the real `LINE_WIDTH`; the first one that *does* wrap
+/// confirms the ceiling. `printer_print_diagnostic` (`commands.rs`) is the
+/// command Settings' printer section calls to send this.
+fn build_diagnostic_bytes() -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(wake_padding());
+    out.extend(init());
+    out.extend(align_left());
+
+    out.extend(bold(true));
+    out.extend(b"DIWAN PRINTER WIDTH TEST\n");
+    out.extend(bold(false));
+    out.extend(b"Read the widest line below that\n");
+    out.extend(b"prints on ONE physical line only.\n\n");
+
+    let ruler: String = (0..60).map(|i| std::char::from_digit((i % 10) as u32, 10).unwrap()).collect();
+    out.extend(ruler.as_bytes());
+    out.push(b'\n');
+    out.push(b'\n');
+
+    for width in DIAGNOSTIC_WIDTHS {
+        out.extend(format!("N={width}\n").as_bytes());
+        let fill: String = "1234567890".chars().cycle().take(width).collect();
+        out.extend(fill.as_bytes());
+        out.push(b'\n');
+        out.push(b'\n');
+    }
+
+    out.extend(feed_and_cut());
+    out
+}
+
+/// Sends the diagnostic print to whatever printer transport is currently
+/// configured — same dispatch every real receipt goes through
+/// ([`send_to_printer`]), so this measures the actual print path, not a
+/// simulation of it.
+pub fn print_diagnostic(config: &AppConfig) -> Result<(), PrinterError> {
+    send_to_printer(&build_diagnostic_bytes(), config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1113,6 +1189,7 @@ mod tests {
             currency: "PKR".into(),
             tax_percent: 5.0,
             receipt_footer: "Thank you!".into(),
+            phone: None,
             working_days_per_month: 26,
             onboarding_completed: true,
             printer_connection_type: None,
@@ -1354,6 +1431,45 @@ mod tests {
     }
 
     #[test]
+    fn build_receipt_bytes_never_lets_a_long_business_name_or_phone_spill_onto_another_line() {
+        use crate::printer::layout::{truncate_line, LINE_WIDTH};
+
+        let long_name = "A Very Long Business Name That Would Otherwise Wrap Onto A Second Physical Line";
+        let long_phone = "+92 300 1234567 (also a needlessly long phone line to test with)";
+        assert!(long_name.len() > LINE_WIDTH && long_phone.len() > LINE_WIDTH, "fixture must actually be too long");
+
+        let mut config = sample_config();
+        config.business_name = long_name.into();
+        config.phone = Some(long_phone.into());
+
+        let bytes = build_receipt_bytes(&sample_sale(), &config, None, true);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains(long_name), "the untruncated business name must not appear at all");
+        assert!(!text.contains(long_phone), "the untruncated phone must not appear at all");
+        assert!(text.contains(&truncate_line(long_name)), "the name must still appear, cut to one line's width");
+        assert!(text.contains(&truncate_line(long_phone)), "the phone must still appear, cut to one line's width");
+    }
+
+    #[test]
+    fn build_refund_bytes_never_lets_a_long_reason_spill_onto_another_line() {
+        use crate::printer::layout::{truncate_line, LINE_WIDTH};
+
+        let long_reason = "A very long refund reason that would otherwise wrap onto a second physical line";
+        assert!(long_reason.len() > LINE_WIDTH, "fixture must actually be too long");
+
+        let mut refund = sample_refund();
+        refund.reason = Some(long_reason.into());
+
+        let bytes = build_refund_bytes(&refund, &sample_config());
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains(long_reason), "the untruncated reason must not appear at all");
+        assert!(
+            text.contains(&truncate_line(&format!("Reason: {long_reason}"))),
+            "the reason must still appear, cut to one line's width"
+        );
+    }
+
+    #[test]
     fn build_receipt_bytes_includes_business_and_line_items() {
         let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
         let text = String::from_utf8_lossy(&bytes);
@@ -1396,6 +1512,51 @@ mod tests {
         // GS v 0 with m=0 — the raster command this test asserts got emitted.
         let needle = [GS, b'v', b'0', 0];
         assert!(bytes.windows(needle.len()).any(|w| w == needle), "expected a GS v 0 raster command in the output");
+    }
+
+    /// The exact row a real client receipt showed physically wrapping
+    /// mid-digit — `3900.00` split into `39` / `00.00` — proving the
+    /// printer's true width was 42 columns, not the 48 this file used to
+    /// assume. Char-count math, spelled out explicitly per-column rather
+    /// than trusted to just add up:
+    ///   - desc:   "mutton paye (full)" is exactly 18 chars,
+    ///     ITEM_TABLE_COLS[0]=18 → exact fit, 0 padding, nothing truncated.
+    ///   - qty:    "3" is 1 char, right-padded into 3 → "  3".
+    ///   - rate:   "1300.00" is exactly 7 chars, ITEM_TABLE_COLS[2]=7 →
+    ///     0 padding, exact fit.
+    ///   - amount: "3900.00" is exactly 7 chars, ITEM_TABLE_COLS[3]=9 →
+    ///     2 spaces padding, fits with room to spare.
+    ///   - total printed row: 1 (`|`) + 18 + 1 (`|`) + 3 + 1 (`|`) + 7 +
+    ///     1 (`|`) + 9 + 1 (`|`) = 42 = `LINE_WIDTH` exactly — the real,
+    ///     measured printer width. The exact string is asserted below
+    ///     rather than just its length, so this can't silently drift; every
+    ///     substring's length is verified independently in the test body
+    ///     too, not just eyeballed in this comment.
+    #[test]
+    fn build_diagnostic_bytes_contains_a_fill_line_of_exactly_each_candidate_width() {
+        let bytes = build_diagnostic_bytes();
+        let text = String::from_utf8_lossy(&bytes);
+        for width in DIAGNOSTIC_WIDTHS {
+            assert!(text.contains(&format!("N={width}")), "missing the N={width} label");
+            let expected_fill: String = "1234567890".chars().cycle().take(width).collect();
+            assert!(
+                text.contains(&expected_fill),
+                "missing a fill line of exactly {width} characters for N={width}"
+            );
+        }
+    }
+
+    #[test]
+    fn build_receipt_bytes_fits_the_measured_42_column_regression_row() {
+        use crate::printer::layout::LINE_WIDTH;
+        assert_eq!(LINE_WIDTH, 42, "this test's math is only valid against the measured 42-column width");
+        assert_eq!("mutton paye (full)".chars().count(), 18);
+        assert_eq!("1300.00".chars().count(), 7);
+        assert_eq!("3900.00".chars().count(), 7);
+
+        let row = item_table_row("mutton paye (full)", "3", "1300.00", "3900.00");
+        assert_eq!(row.chars().count(), LINE_WIDTH, "the row itself must be exactly one physical printed line");
+        assert_eq!(row, "|mutton paye (full)|  3|1300.00|  3900.00|");
     }
 
     #[test]

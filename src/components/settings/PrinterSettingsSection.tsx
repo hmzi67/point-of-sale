@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Bluetooth, CheckCircle2, Loader2, Printer, RefreshCw, Usb } from "lucide-react";
+import { Bluetooth, CheckCircle2, Loader2, Printer, Ruler, RefreshCw, Usb } from "lucide-react";
 import {
   bluetoothPermissionGranted,
   listBluetoothDevices,
   listWindowsPrinters,
+  printDiagnostic,
   requestBluetoothPermission,
 } from "../../services/printerService";
 import { useAppStore } from "../../store";
@@ -44,6 +45,59 @@ function SectionShell({ description, children }: { description: string; children
         <p className="mt-1 text-sm text-slate-600">{description}</p>
       </div>
       {children}
+      <DiagnosticPrintButton />
+    </div>
+  );
+}
+
+/**
+ * "Print width test" — sends a ruler + rows of known length at several
+ * candidate widths to whichever printer is currently selected, so a real
+ * printer's character-per-line width can be read directly off the paper
+ * instead of assumed. Exists because that assumption has already been
+ * wrong once (a datasheet's 48 vs. a real printer's measured 42 — see
+ * `printer::layout`'s doc comment on the Rust side); if a *different*
+ * printer needs a *different* number, this is how to find it without
+ * another round of "it printed wrong, send me a photo."
+ */
+function DiagnosticPrintButton() {
+  const [status, setStatus] = useState<"idle" | "printing" | "done" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setStatus("printing");
+    setError(null);
+    try {
+      await printDiagnostic();
+      setStatus("done");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("error");
+    }
+  };
+
+  return (
+    <div className="border-t border-slate-200 px-6 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-slate-700">Print width test</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Prints a ruler and rows of known length so you can see exactly how many characters this printer fits on
+            one line — read off the widest "N=…" line that does <em>not</em> wrap.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={status === "printing"}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {status === "printing" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ruler className="h-3.5 w-3.5" />}
+          Print width test
+        </button>
+      </div>
+      {status === "done" && <p className="mt-2 text-xs text-emerald-600">Sent — check the printout.</p>}
+      {status === "error" && error && <p className="mt-2 text-xs text-red-600">{error}</p>}
     </div>
   );
 }

@@ -7,6 +7,9 @@ export interface AppConfig {
   currency: string;
   taxPercent: number;
   receiptFooter: string;
+  /** Business contact number, shown in Settings and printed on receipts.
+   * `null` until an owner/admin sets one. */
+  phone: string | null;
   /** Divisor for salary calculation — see `db/salary.rs`. */
   workingDaysPerMonth: number;
   /** Set once the first-time setup wizard finishes. `false` on a brand-new

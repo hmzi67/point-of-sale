@@ -2,9 +2,18 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { AddTableForm } from "../components/tables/AddTableForm";
+import { ShiftTableModal } from "../components/tables/ShiftTableModal";
 import { TableCard } from "../components/tables/TableCard";
 import { getItems } from "../services/inventoryService";
-import { addTable, assignOrderToTable, clearTable, getParkedCart, getTables, updateTableStatus } from "../services/tablesService";
+import {
+  addTable,
+  assignOrderToTable,
+  clearTable,
+  getParkedCart,
+  getTables,
+  shiftTableOrder,
+  updateTableStatus,
+} from "../services/tablesService";
 import { useBillingStore } from "../store";
 import type { TableSummary } from "../types";
 
@@ -21,8 +30,10 @@ export function TablesPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [shiftingTable, setShiftingTable] = useState<TableSummary | null>(null);
   const navigate = useNavigate();
 
+  const billingTableId = useBillingStore((state) => state.tableId);
   const setTableId = useBillingStore((state) => state.setTableId);
   const loadParkedCart = useBillingStore((state) => state.loadParkedCart);
   const clearCart = useBillingStore((state) => state.clearCart);
@@ -91,6 +102,21 @@ export function TablesPage() {
     reload();
   };
 
+  /** Confirmed from the Shift Table picker: moves `shiftingTable`'s order
+   * onto `toTableId`. If the Billing screen currently has `shiftingTable`
+   * selected (the cashier had it open, or just navigated away and back),
+   * repoint it at the new table too — otherwise Billing would keep pointing
+   * at a table that's now free and showing someone else's stale order. */
+  const confirmShift = async (toTableId: number) => {
+    if (!shiftingTable) return;
+    await shiftTableOrder(shiftingTable.id, toTableId);
+    if (billingTableId === shiftingTable.id) {
+      setTableId(toTableId);
+    }
+    setShiftingTable(null);
+    reload();
+  };
+
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -133,9 +159,19 @@ export function TablesPage() {
               onResume={() => void resumeTable(table)}
               onRelease={() => void releaseTable(table)}
               onReserve={() => void reserveTable(table)}
+              onShift={() => setShiftingTable(table)}
             />
           ))}
         </div>
+      )}
+
+      {shiftingTable && (
+        <ShiftTableModal
+          fromTable={shiftingTable}
+          freeTables={tables.filter((t) => t.status === "free")}
+          onClose={() => setShiftingTable(null)}
+          onConfirm={confirmShift}
+        />
       )}
     </section>
   );

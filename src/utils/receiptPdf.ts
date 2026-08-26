@@ -75,7 +75,10 @@ async function drawReceiptContent(
 ): Promise<void> {
   let y = logo ? drawLogo(doc, logo.dataUrl, logo.width, logo.height) : 6;
   if (copyLabel) y = drawCopyLabelBanner(doc, y, copyLabel);
-  y = drawHeader(doc, config.businessName, [`Sale #${sale.id}`, sale.createdAt], y);
+  const subtitleLines = config.phone
+    ? [config.phone, `Sale #${sale.id}`, sale.createdAt]
+    : [`Sale #${sale.id}`, sale.createdAt];
+  y = drawHeader(doc, config.businessName, subtitleLines, y);
 
   // Cashier / table-or-order-type — a clean label/value row block, same
   // alignment convention `drawTotalsBlock` uses further down, rather than

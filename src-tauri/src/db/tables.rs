@@ -24,6 +24,15 @@ pub struct TableSummary {
     pub has_parked_order: bool,
 }
 
+/// Both tables' post-shift state — the floor view updates both cards from
+/// this one response instead of re-fetching the whole table list.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShiftTableResult {
+    pub from: TableSummary,
+    pub to: TableSummary,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParkedCartLine {
@@ -55,6 +64,16 @@ pub enum TableError {
     InvalidStatus(String),
     Corrupt(String),
     Sqlite(rusqlite::Error),
+    /// Shift-table source: `from_table_id` has no open order to move — either
+    /// genuinely free, or `occupied` with no order behind it (possible via
+    /// `update_table_status` setting status by hand — see its doc comment).
+    NoActiveOrder(String),
+    /// Shift-table destination: `to_table_id` isn't `free` (name, its actual
+    /// status) — merging two tables' orders into one is a different, bigger
+    /// feature, so this is a hard reject, never a silent merge/overwrite.
+    DestinationNotFree(String, String),
+    /// Shift-table: `from_table_id == to_table_id` — nothing to move.
+    SameTable,
 }
 
 impl std::fmt::Display for TableError {
@@ -68,6 +87,11 @@ impl std::fmt::Display for TableError {
             TableError::InvalidStatus(status) => write!(f, "Unknown table status: {}", status),
             TableError::Corrupt(msg) => write!(f, "Could not read the parked order: {}", msg),
             TableError::Sqlite(err) => write!(f, "database error: {}", err),
+            TableError::NoActiveOrder(name) => write!(f, "{} doesn't have an active order to shift", name),
+            TableError::DestinationNotFree(name, status) => {
+                write!(f, "{} is already {} — choose a free table", name, status)
+            }
+            TableError::SameTable => write!(f, "Choose a different table to shift the order to"),
         }
     }
 }
@@ -290,6 +314,58 @@ pub fn clear_table(conn: &Connection, table_id: i64) -> Result<TableSummary, Tab
     )?;
     conn.execute("UPDATE tables SET status = 'free' WHERE id = ?1", params![table_id])?;
     load_table(conn, table_id)
+}
+
+/// Moves an in-progress order from one table to another — a customer who
+/// gets up and sits somewhere else shouldn't force staff to start the bill
+/// over. Only re-points the existing open `table_orders` row's `table_id`;
+/// `cart_json` (items, quantities, discount) is never read or rewritten, so
+/// nothing on the order is lost or reset by the move itself. Takes a
+/// `&Transaction`, not a `&Connection`, like `close_table_order_for_sale`
+/// below — this flips two tables' `status` and must not leave one freed
+/// while the other fails to become occupied.
+///
+/// Rejects (never silently merges/overwrites):
+/// - `from_table_id == to_table_id` (`SameTable`)
+/// - `from_table_id` has no open order — `status != "occupied"` or no
+///   `table_orders` row with `status = 'open'` (`NoActiveOrder`)
+/// - `to_table_id` isn't `free` (`DestinationNotFree`) — a destination
+///   already carrying its own order is a different, bigger feature
+///   (merging two orders into one), out of scope here.
+pub fn shift_table_order(
+    tx: &Transaction,
+    from_table_id: i64,
+    to_table_id: i64,
+) -> Result<ShiftTableResult, TableError> {
+    if from_table_id == to_table_id {
+        return Err(TableError::SameTable);
+    }
+
+    let from = load_table(tx, from_table_id)?;
+    if from.status != "occupied" || !from.has_parked_order {
+        return Err(TableError::NoActiveOrder(from.name));
+    }
+
+    let to = load_table(tx, to_table_id)?;
+    if to.status != "free" {
+        return Err(TableError::DestinationNotFree(to.name, to.status));
+    }
+
+    let changed = tx.execute(
+        "UPDATE table_orders SET table_id = ?1 WHERE table_id = ?2 AND status = 'open'",
+        params![to_table_id, from_table_id],
+    )?;
+    if changed == 0 {
+        // Shouldn't happen given the has_parked_order check above (nothing
+        // else can close an open order mid-transaction) — but never claim
+        // success at moving nothing.
+        return Err(TableError::NoActiveOrder(from.name));
+    }
+
+    tx.execute("UPDATE tables SET status = 'free' WHERE id = ?1", params![from_table_id])?;
+    tx.execute("UPDATE tables SET status = 'occupied' WHERE id = ?1", params![to_table_id])?;
+
+    Ok(ShiftTableResult { from: load_table(tx, from_table_id)?, to: load_table(tx, to_table_id)? })
 }
 
 /// Called from inside `sales::create_sale` when the completed sale has a
@@ -542,6 +618,90 @@ mod tests {
             .query_row("SELECT table_id FROM sales WHERE id = ?1", params![sale.id], |row| row.get(0))
             .unwrap();
         assert_eq!(linked_table_id, Some(t2), "sales.table_id must point at the table that was billed");
+    }
+
+    #[test]
+    fn shift_table_order_moves_the_order_and_flips_both_statuses() {
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let t1 = table_id(&conn, "Table 1"); // seeded occupied
+        let t2 = table_id(&conn, "Table 2"); // seeded free
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 3 }], 500).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let result = shift_table_order(&tx, t1, t2).unwrap();
+        assert_eq!(result.from.status, "free");
+        assert!(!result.from.has_parked_order);
+        assert_eq!(result.to.status, "occupied");
+        assert!(result.to.has_parked_order);
+        tx.commit().unwrap();
+
+        // The cart itself — items, qty, discount — must carry over untouched:
+        // same open order, just re-pointed, not rebuilt.
+        let parked = get_parked_cart(&conn, t2).unwrap().unwrap();
+        assert_eq!(parked.items.len(), 1);
+        assert_eq!(parked.items[0].item_id, cola);
+        assert_eq!(parked.items[0].qty, 3);
+        assert_eq!(parked.discount_minor, 500);
+        assert!(get_parked_cart(&conn, t1).unwrap().is_none(), "old table must have no order left");
+
+        let order_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM table_orders WHERE table_id = ?1", params![t2], |row| row.get(0))
+            .unwrap();
+        assert_eq!(order_count, 1, "must move the existing order, not create a second one");
+    }
+
+    #[test]
+    fn shift_table_order_rejects_a_source_with_no_active_order() {
+        let mut conn = test_conn();
+        let t2 = table_id(&conn, "Table 2"); // seeded free, no order
+        let t3 = table_id(&conn, "Table 3"); // seeded free
+
+        let tx = conn.transaction().unwrap();
+        assert!(matches!(shift_table_order(&tx, t2, t3), Err(TableError::NoActiveOrder(_))));
+    }
+
+    #[test]
+    fn shift_table_order_rejects_an_occupied_status_with_no_backing_order() {
+        // `update_table_status` can mark a table "occupied" by hand with no
+        // `table_orders` row behind it — `shift_table_order` must not trust
+        // `status` alone.
+        let mut conn = test_conn();
+        let t2 = table_id(&conn, "Table 2");
+        update_table_status(&conn, t2, "occupied").unwrap();
+        let t3 = table_id(&conn, "Table 3");
+
+        let tx = conn.transaction().unwrap();
+        assert!(matches!(shift_table_order(&tx, t2, t3), Err(TableError::NoActiveOrder(_))));
+    }
+
+    #[test]
+    fn shift_table_order_rejects_a_destination_that_is_not_free() {
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let t1 = table_id(&conn, "Table 1"); // seeded occupied
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+        let t4 = table_id(&conn, "Table 4"); // seeded reserved
+
+        let tx = conn.transaction().unwrap();
+        let err = shift_table_order(&tx, t1, t4).unwrap_err();
+        assert!(matches!(err, TableError::DestinationNotFree(_, _)));
+        assert!(err.to_string().contains("already reserved"));
+
+        // Nothing must have moved or changed status on a rejected shift.
+        let still_at_t1 = get_parked_cart(&tx, t1).unwrap();
+        assert!(still_at_t1.is_some(), "order must stay on the source table when the shift is rejected");
+    }
+
+    #[test]
+    fn shift_table_order_rejects_shifting_a_table_to_itself() {
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let t1 = table_id(&conn, "Table 1");
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        assert!(matches!(shift_table_order(&tx, t1, t1), Err(TableError::SameTable)));
     }
 
     #[test]

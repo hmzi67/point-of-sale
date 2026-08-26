@@ -105,21 +105,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # Windows 7 support: bundle.windows.webviewInstallMode in
-      # tauri.conf.json is pinned to fixedRuntime, which needs this folder
-      # present at build time — see DEPLOYMENT.md's "Windows 7 support"
-      # section for what it is and why (WebView2 Fixed Version 109, the
-      # last build that runs on Windows 7/8/8.1) and where the URL below
-      # comes from.
-      - name: Fetch pinned WebView2 Fixed Version runtime (Windows 7 support)
-        shell: pwsh
-        run: |
-          $dest = "src-tauri/vendor/webview2-fixed-runtime-109"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Invoke-WebRequest -Uri "${{ secrets.WEBVIEW2_FIXED_RUNTIME_URL }}" -OutFile runtime.zip
-          Expand-Archive -Path runtime.zip -DestinationPath $dest -Force
-          Remove-Item runtime.zip
-
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

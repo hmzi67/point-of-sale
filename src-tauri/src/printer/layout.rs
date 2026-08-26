@@ -4,19 +4,40 @@
 //! only has to describe *what* goes in each row, not re-derive how to pad a
 //! column to line up on 80mm paper.
 //!
-//! `LINE_WIDTH` (48) is the standard character count for Font A on 80mm
-//! thermal paper (Epson's own TM-series default) — `receiptPdf.ts`'s
-//! `PAGE_WIDTH_MM = 80` on the PDF side targets the same physical paper
-//! width, just via millimeters instead of character columns, since a PDF
-//! lays out proportionally rather than in a fixed character grid.
+//! `LINE_WIDTH` — the character columns per line at Font A on 80mm thermal
+//! paper — used to be 48, the number genuine Epson TM-series printers use
+//! and the one every ESC/POS spec sheet quotes. It was wrong for real
+//! client hardware: a generic/clone 80mm thermal printer (common on the
+//! low-spec, local-market hardware this app targets — see `projectGoal.md`)
+//! physically prints fewer columns at its default font, because its
+//! margins eat more of the 80mm width than the spec implies. 48 was never
+//! measured against real hardware; it was copied from a datasheet.
+//!
+//! The current value, 42, *was* measured — against a physical receipt from
+//! an affected client printer where every row (four independently-built
+//! layouts: a `two_col` row, a bordered table header, a bordered table
+//! data row, another `two_col` row) broke at the exact same column, cutting
+//! `3900.00` into `39` / `00.00` mid-digit — proof the printer was hard-
+//! wrapping at a fixed dot position, not word-wrapping. `printer::escpos`'s
+//! test suite includes that exact row (item "mutton paye (full)", qty 3,
+//! rate 1300.00, amount 3900.00) as a regression case so this can't quietly
+//! drift back to an unmeasured number. See `printer::escpos::send` for the
+//! diagnostic-print command that exists so a *different* printer's real
+//! width can be measured the same way instead of guessed at again.
+//!
+//! `receiptPdf.ts`'s `PAGE_WIDTH_MM = 80` on the PDF side is unaffected —
+//! it lays out proportionally in millimeters, not a fixed character grid,
+//! so it has no equivalent hardcoded-columns assumption to get wrong.
 
-/// Character columns per line at normal size on 80mm paper, Font A.
-pub const LINE_WIDTH: usize = 48;
+/// Character columns per line — see the module doc comment above for where
+/// this number actually comes from (a measured printer, not a datasheet).
+pub const LINE_WIDTH: usize = 42;
 
 /// Right-hand column width used by [`two_col`] — wide enough for
-/// `"1,234,567.89"`-scale amounts with a couple of characters of breathing
-/// room, without eating too much of the line back from the label.
-const VALUE_WIDTH: usize = 16;
+/// `"PKR 123456.78"`-scale amounts with a couple of characters of breathing
+/// room, without eating too much of the line back from the label. Shrunk
+/// alongside `LINE_WIDTH`'s 48→42 correction, proportionally.
+const VALUE_WIDTH: usize = 14;
 
 /// Left/right-pads `text` to exactly `width` visible characters, truncating
 /// (never panicking on a multi-byte boundary) if it doesn't fit — a column
@@ -88,6 +109,19 @@ pub fn bordered_line(widths: &[usize]) -> String {
     out
 }
 
+/// Truncates `text` to at most [`LINE_WIDTH`] visible characters, exactly
+/// as it already is if it's shorter — for the handful of values that print
+/// as their own full-width line rather than a fixed-width column (business
+/// name, phone, footer, refund reason, category name, banner titles): free
+/// text with no length limit of its own, so without this a long value
+/// would run past the printer's physical line width and get pushed onto a
+/// second physical line — the exact `pad`-truncates-rather-than-wraps
+/// convention every column in this file already follows, applied to a
+/// whole line instead of one column of one.
+pub fn truncate_line(text: &str) -> String {
+    text.chars().take(LINE_WIDTH).collect()
+}
+
 /// Minor units -> a plain "12.34" string, without a currency symbol (every
 /// template prints the symbol once per section, not per line).
 pub fn format_minor(minor: i64) -> String {
@@ -104,6 +138,19 @@ mod tests {
         assert_eq!(line.chars().count(), LINE_WIDTH);
         assert!(line.ends_with("123.45"));
         assert!(line.starts_with("Subtotal"));
+    }
+
+    #[test]
+    fn truncate_line_leaves_a_short_line_untouched() {
+        assert_eq!(truncate_line("Diwan Store"), "Diwan Store");
+    }
+
+    #[test]
+    fn truncate_line_cuts_a_line_longer_than_the_printer_width_down_to_it() {
+        let long_name = "A".repeat(LINE_WIDTH + 20);
+        let truncated = truncate_line(&long_name);
+        assert_eq!(truncated.chars().count(), LINE_WIDTH, "must never exceed one physical printed line");
+        assert_eq!(truncated, "A".repeat(LINE_WIDTH));
     }
 
     #[test]

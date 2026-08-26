@@ -20,3 +20,10 @@ export interface ParkedOrder {
   items: ParkedCartLine[];
   discountMinor: number;
 }
+
+/** Both tables' post-shift state — see `shiftTableOrder` in
+ * `services/tablesService.ts`. */
+export interface ShiftTableResult {
+  from: TableSummary;
+  to: TableSummary;
+}
