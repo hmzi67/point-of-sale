@@ -1290,7 +1290,6 @@ mod tests {
             receipt_footer: "Thank you!".into(),
             phone: None,
             delivery_number: None,
-            working_days_per_month: 26,
             onboarding_completed: true,
             printer_connection_type: None,
             printer_bluetooth_address: None,

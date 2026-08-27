@@ -38,7 +38,7 @@ export function SalaryPage() {
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Salary</h2>
         <p className="text-sm text-slate-500">
-          Calculated from attendance — {config.workingDaysPerMonth} working days a month.
+          Calculated from attendance — base salary ÷ days in that month × days present.
         </p>
       </div>
 

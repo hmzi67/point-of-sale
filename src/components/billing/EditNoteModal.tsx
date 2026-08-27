@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { X } from "lucide-react";
+import { decimalToMinor, formatMinor, formatQty } from "../../utils/format";
 
 interface EditNoteModalProps {
   itemName: string;
@@ -8,14 +9,16 @@ interface EditNoteModalProps {
   /** `qty` is only ever passed back when `amountEntry` was given — same
    * "commit on Save, not before" timing the note field already has, so
    * there's no race between a live qty write and this callback re-sending
-   * a stale one. */
+   * a stale one. Always the final absolute line quantity (already merged
+   * with the existing qty when the cashier used the "Amount" tab below) —
+   * `onSave` never needs to know which tab produced it. */
   onSave: (notes: string, qty?: number) => void;
-  /** Only present for a `soldByAmount` line — its current qty and unit
-   * ("kg"). When set, this modal also shows a decimal qty field ("adjust
-   * after weighing on a scale") alongside the note; a normal per-piece
-   * item already has the cart row's ±1 stepper for that, so this stays
+  /** Only present for a `soldByAmount` line — its current qty, unit
+   * ("kg"), per-unit price and remaining stock. When set, this modal also
+   * shows a qty/amount editor alongside the note; a normal per-piece item
+   * already has the cart row's ±1 stepper for that, so this stays
    * note-only for it, unchanged from before this feature. */
-  amountEntry?: { qty: number; unit: string | null };
+  amountEntry?: { qty: number; unit: string | null; priceMinor: number; stockQty: number };
 }
 
 /**
@@ -24,19 +27,50 @@ interface EditNoteModalProps {
  * on the grid, straight from the item card) via a whole-number ±1 stepper,
  * so there's no qty control here for one; a `soldByAmount` line is the one
  * exception, since its qty is a fractional real-world weight that the ±1
- * stepper isn't precise enough to fine-tune (the actual amount handed over
- * after weighing on a scale rarely lands on a whole unit) — `amountEntry`
- * being set adds a decimal qty field for exactly that case.
+ * stepper isn't precise enough to fine-tune.
+ *
+ * `amountEntry` being set adds two tabs for that case:
+ *  - "Quantity" — the original decimal qty field, an absolute correction
+ *    ("the scale actually read 0.81 kg") that overwrites the line's qty.
+ *  - "Amount" — mirrors `ItemAmountEntryModal`'s amount-to-qty math (qty =
+ *    amount ÷ item.price), but for a line already in the cart. Matches
+ *    `addItemByAmount`'s merge behavior: it *adds* the computed qty to
+ *    whatever is already on the line (e.g. 2 units already there + "₹100
+ *    more" combines into one line at the new total qty), it never
+ *    overwrites — a customer buying 2 pieces by count and then asking for
+ *    ₹100 loose still gets one line, one correct total, not a silent
+ *    replace of the 2 they already had.
  */
 export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountEntry }: EditNoteModalProps) {
   const [notes, setNotes] = useState(initialNotes);
   const [qtyText, setQtyText] = useState(amountEntry ? String(amountEntry.qty) : "");
+  const [amountText, setAmountText] = useState("");
+  const [mode, setMode] = useState<"qty" | "amount">("qty");
+
+  const amountMinor = (() => {
+    const amount = Number(amountText);
+    return Number.isFinite(amount) && amount > 0 ? decimalToMinor(amount) : 0;
+  })();
+
+  const addedQty =
+    amountEntry && amountMinor > 0 ? Math.round((amountMinor / amountEntry.priceMinor) * 100) / 100 : 0;
+
+  const combinedQty = amountEntry
+    ? Math.min(amountEntry.qty + addedQty, amountEntry.stockQty)
+    : 0;
 
   const save = () => {
     if (!amountEntry) {
       onSave(notes.trim());
       return;
     }
+
+    if (mode === "amount") {
+      if (addedQty <= 0) return; // nothing entered — leave the line as-is
+      onSave(notes.trim(), combinedQty);
+      return;
+    }
+
     const parsed = Number(qtyText);
     const qty = Number.isFinite(parsed) && parsed > 0 ? parsed : amountEntry.qty; // invalid edit -> keep as-is
     onSave(notes.trim(), qty);
@@ -56,24 +90,93 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
 
         <div className="space-y-3 px-5 pt-4">
           {amountEntry && (
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">
-                Quantity{amountEntry.unit ? ` (${amountEntry.unit})` : ""}
-              </span>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                inputMode="decimal"
-                value={qtyText}
-                onChange={(e) => setQtyText(e.target.value)}
-                autoFocus
-                className="w-32 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-brand-400 focus:outline-none"
-              />
-              <span className="mt-1 block text-[11px] text-slate-400">
-                E.g. after weighing on a scale — this updates the line total.
-              </span>
-            </label>
+            <div>
+              <div className="mb-2 grid grid-cols-2 gap-1.5 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setMode("qty")}
+                  className={[
+                    "rounded-lg py-1.5 text-xs font-semibold transition-colors",
+                    mode === "qty" ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                  ].join(" ")}
+                >
+                  Quantity
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("amount")}
+                  className={[
+                    "rounded-lg py-1.5 text-xs font-semibold transition-colors",
+                    mode === "amount" ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                  ].join(" ")}
+                >
+                  Amount
+                </button>
+              </div>
+
+              {mode === "qty" ? (
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-500">
+                    Quantity{amountEntry.unit ? ` (${amountEntry.unit})` : ""}
+                  </span>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={qtyText}
+                    onChange={(e) => setQtyText(e.target.value)}
+                    autoFocus
+                    className="w-32 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  <span className="mt-1 block text-[11px] text-slate-400">
+                    E.g. after weighing on a scale — this replaces the line's quantity.
+                  </span>
+                </label>
+              ) : (
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-500">Add amount (PKR)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={amountText}
+                    onChange={(e) => setAmountText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        save();
+                      }
+                    }}
+                    autoFocus
+                    placeholder="e.g. 100"
+                    className="w-32 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-brand-400 focus:outline-none"
+                  />
+                  <div className="mt-2 rounded-xl bg-brand-50 px-3.5 py-2.5 text-xs text-brand-800">
+                    {amountMinor > 0 ? (
+                      <>
+                        + {formatQty(addedQty, amountEntry.unit)} added to the {formatQty(amountEntry.qty, amountEntry.unit)}{" "}
+                        already on this line — new total{" "}
+                        <span className="font-semibold">{formatQty(combinedQty, amountEntry.unit)}</span>
+                        {amountEntry.qty + addedQty > amountEntry.stockQty && (
+                          <span className="mt-1 block text-red-600">Capped by available stock.</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-brand-400">
+                        Type an amount to add to the existing {formatQty(amountEntry.qty, amountEntry.unit)} on this
+                        line.
+                      </span>
+                    )}
+                  </div>
+                  <span className="mt-1 block text-[11px] text-slate-400">
+                    E.g. "customer also wants {amountEntry.priceMinor > 0 ? formatMinor(amountEntry.priceMinor) : ""}{" "}
+                    worth more" — this adds to the line, it doesn't replace it.
+                  </span>
+                </label>
+              )}
+            </div>
           )}
 
           <textarea
@@ -97,9 +200,10 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
           <button
             type="button"
             onClick={save}
-            className="flex-1 rounded-2xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-soft hover:bg-brand-700"
+            disabled={amountEntry !== undefined && mode === "amount" && addedQty <= 0}
+            className="flex-1 rounded-2xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-soft hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Save
+            {amountEntry && mode === "amount" ? "Add to Line" : "Save"}
           </button>
         </div>
       </div>

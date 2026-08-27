@@ -229,7 +229,14 @@ export function BillingPage() {
           itemName={editingEntry.name}
           initialNotes={editingEntry.notes}
           amountEntry={
-            editingEntry.soldByAmount ? { qty: editingEntry.qty, unit: editingEntry.unit } : undefined
+            editingEntry.soldByAmount
+              ? {
+                  qty: editingEntry.qty,
+                  unit: editingEntry.unit,
+                  priceMinor: editingEntry.priceMinor,
+                  stockQty: editingEntry.stockQty,
+                }
+              : undefined
           }
           onClose={() => setEditingItemId(null)}
           onSave={(notes, qty) => {

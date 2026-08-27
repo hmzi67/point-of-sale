@@ -74,9 +74,12 @@ CREATE TABLE IF NOT EXISTS app_config (
     currency        TEXT    NOT NULL DEFAULT 'PKR',
     tax_percent     REAL    NOT NULL DEFAULT 0 CHECK (tax_percent >= 0),
     receipt_footer  TEXT    NOT NULL DEFAULT 'Thank you for your purchase!',
-    -- Divisor for salary calculation (base_salary / working_days_per_month *
-    -- days_present) — configurable per installation rather than assuming a
-    -- fixed 26- or 30-day month. See db/salary.rs.
+    -- Unused as of the switch to calendar-based salary calculation (see
+    -- db/salary.rs) — salary now divides by the actual number of days in
+    -- the month being paid (28/29/30/31), not a fixed configured divisor.
+    -- Column kept only because migrations are additive-only (CLAUDE.md) and
+    -- an existing install may already have a row with this column set; no
+    -- code reads or writes it anymore.
     working_days_per_month INTEGER NOT NULL DEFAULT 26 CHECK (working_days_per_month > 0),
     -- Set once the first-time setup wizard (Phase 14) finishes. A fresh
     -- install always seeds a row here (see `seed_app_config` in schema.rs) so

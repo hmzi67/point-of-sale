@@ -59,14 +59,21 @@ to it was evaluated and rejected: no trustworthy source for the binary, a
 permanently frozen/unpatched-since-2023 engine, and uncertain compatibility
 with current Tauri.
 
-`bundle.windows.webviewInstallMode` is `offlineInstaller` (bundles the
-*current* WebView2 offline installer into the app installer, so setup needs
-no internet access and never runs Microsoft's online bootstrapper on the
-target machine — that bootstrapper failing on old/non-standard Windows
-builds is what originally surfaced this). `src-tauri/windows/hooks.nsh`
-runs an NSIS pre-install check that stops anything below Windows 10 with a
-plain-language message before touching the machine, instead of failing
-deep inside WebView2 installation with a cryptic native error.
+`bundle.windows.webviewInstallMode` is `downloadBootstrapper` (Tauri's
+default): a small (~2MB) stub that fetches WebView2 from Microsoft's
+servers *at install time* on the target machine, instead of embedding the
+~130-180MB offline installer into every build. This was originally set to
+`offlineInstaller` after a client machine's install failed deep inside
+Microsoft's online bootstrapper — but that machine was genuine Windows 7,
+which `src-tauri/windows/hooks.nsh`'s pre-install check now rejects with a
+plain-language message *before* the bootstrapper ever runs, so the failure
+that justified the offline installer can no longer reach it. Any machine
+that gets past that check is Windows 10+, where WebView2 is either already
+preinstalled or reliably fetchable — so there's no remaining reason to pay
+the size cost. If a genuinely offline install (no internet on the target
+machine, ever) becomes a real requirement again, switch back to
+`offlineInstaller` and accept the size trade-off; there's no way to have
+both a small installer and a truly offline one.
 
 ## Cutting a release
 

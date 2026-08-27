@@ -14,8 +14,6 @@ export interface AppConfig {
    * receipts (labeled "Delivery: ...") only when set. `null` until an
    * owner/admin sets one. */
   deliveryNumber: string | null;
-  /** Divisor for salary calculation — see `db/salary.rs`. */
-  workingDaysPerMonth: number;
   /** Set once the first-time setup wizard finishes. `false` on a brand-new
    * install routes the app into onboarding instead of the normal screens. */
   onboardingCompleted: boolean;

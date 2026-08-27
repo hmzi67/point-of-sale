@@ -2,14 +2,21 @@
 //!
 //! One row per employee per month in `salary_payments` (`UNIQUE(employee_id,
 //! month)`): `calculated_amount_minor` is derived from attendance —
-//! `base_salary / working_days_per_month * days_present`, re-derived (and the
-//! stored row refreshed) every time `calculate_salary` runs, so it always
-//! reflects the latest attendance data — and `paid_amount_minor` accumulates
-//! whatever has actually been paid out, since a month's pay is often settled
-//! in more than one instalment. `working_days_per_month` lives on
-//! `app_config` (see `db/config.rs`) rather than a hardcoded 26 or 30, since
-//! that varies by client and by local labour convention.
+//! `base_salary / days_in_month * days_present`, re-derived (and the stored
+//! row refreshed) every time `calculate_salary` runs, so it always reflects
+//! the latest attendance data — and `paid_amount_minor` accumulates whatever
+//! has actually been paid out, since a month's pay is often settled in more
+//! than one instalment.
+//!
+//! `days_in_month` is the *actual* number of calendar days in the month
+//! being paid (28/29/30/31 — see [`days_in_month`]), not a fixed configured
+//! divisor. An earlier version used a client-configurable
+//! `working_days_per_month` (defaulting to 26), but that consistently
+//! over- or under-pays depending on the month and doesn't match standard
+//! Pakistani payroll convention, which divides by the real days in the
+//! month.
 
+use chrono::{Datelike, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
@@ -77,9 +84,20 @@ pub struct SalaryCalculation {
 }
 
 fn validate_month(month: &str) -> Result<(), SalaryError> {
-    chrono::NaiveDate::parse_from_str(&format!("{}-01", month), "%Y-%m-%d")
-        .map(|_| ())
-        .map_err(|_| SalaryError::InvalidMonth(format!("Invalid month: {} (expected YYYY-MM)", month)))
+    days_in_month(month).map(|_| ())
+}
+
+/// The actual number of calendar days in `month` (`"YYYY-MM"`) — 28/29 for
+/// February depending on leap years, 30 or 31 otherwise. This is the salary
+/// divisor: `base_salary / days_in_month * days_present`.
+fn days_in_month(month: &str) -> Result<i64, SalaryError> {
+    let first = NaiveDate::parse_from_str(&format!("{}-01", month), "%Y-%m-%d")
+        .map_err(|_| SalaryError::InvalidMonth(format!("Invalid month: {} (expected YYYY-MM)", month)))?;
+    let (next_year, next_month) =
+        if first.month() == 12 { (first.year() + 1, 1) } else { (first.year(), first.month() + 1) };
+    let next_first = NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .expect("first-of-month always constructs for a valid year/month");
+    Ok((next_first - first).num_days())
 }
 
 fn validate_date(date: &str) -> Result<(), SalaryError> {
@@ -129,8 +147,8 @@ fn existing_payment_row(
     .optional()
 }
 
-/// Computes `base_salary / working_days_per_month * days_present`, rounded to
-/// the nearest minor unit, and refreshes `calculated_amount_minor` on the
+/// Computes `base_salary / days_in_month * days_present`, rounded to the
+/// nearest minor unit, and refreshes `calculated_amount_minor` on the
 /// month's `salary_payments` row (creating it, with no payment yet, if this
 /// is the first calculation) without touching any `paid_amount_minor`
 /// already recorded.
@@ -139,9 +157,8 @@ pub fn calculate_salary(
     employee_id: i64,
     month: &str,
 ) -> Result<SalaryCalculation, SalaryError> {
-    validate_month(month)?;
+    let working_days = days_in_month(month)?;
     let employee = find_active_employee(conn, employee_id)?;
-    let working_days = crate::db::config::get(conn)?.working_days_per_month;
     let days_present = days_present_for(conn, employee.id, month)?;
 
     let calculated_minor = ((employee.base_salary_minor as f64) / (working_days as f64)
@@ -231,10 +248,13 @@ pub fn get_payment_history(conn: &Connection, employee_id: i64) -> Result<Vec<Sa
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    let working_days = crate::db::config::get(conn)?.working_days_per_month;
-
     rows.into_iter()
         .map(|(month, calculated_minor, paid_minor, paid_date)| {
+            // Each row gets its own month's actual day count (Feb's 28 vs.
+            // Jan's 31), not one value reused across every row in the
+            // history — unlike the old fixed `working_days_per_month`,
+            // this genuinely varies row to row.
+            let working_days = days_in_month(&month)?;
             let days_present = days_present_for(conn, employee.id, &month)?;
             Ok(SalaryCalculation {
                 employee_id: employee.id,
@@ -267,31 +287,46 @@ mod tests {
     }
 
     #[test]
-    fn calculate_salary_uses_base_salary_working_days_and_attendance() {
+    fn calculate_salary_uses_base_salary_calendar_days_and_attendance() {
         let conn = test_conn();
         let id = employee_id(&conn, "Ahmed Raza");
         let month = this_month();
 
         let calc = calculate_salary(&conn, id, &month).unwrap();
-        assert_eq!(calc.working_days_in_month, 26, "default working days per month");
+        assert_eq!(
+            calc.working_days_in_month,
+            days_in_month(&month).unwrap(),
+            "divisor must be this month's actual calendar day count"
+        );
         assert!(calc.days_present > 0, "seed data gives Ahmed attendance this month");
-        let expected =
-            ((calc.base_salary_minor as f64) / 26.0 * (calc.days_present as f64)).round() as i64;
+        let expected = ((calc.base_salary_minor as f64) / (calc.working_days_in_month as f64)
+            * (calc.days_present as f64))
+            .round() as i64;
         assert_eq!(calc.calculated_amount_minor, expected);
         assert_eq!(calc.paid_amount_minor, 0);
         assert!(matches!(calc.status, PaymentStatus::Unpaid));
     }
 
+    #[test]
+    fn days_in_month_matches_the_real_calendar() {
+        assert_eq!(days_in_month("2026-01").unwrap(), 31);
+        assert_eq!(days_in_month("2026-02").unwrap(), 28, "2026 is not a leap year");
+        assert_eq!(days_in_month("2024-02").unwrap(), 29, "2024 is a leap year");
+        assert_eq!(days_in_month("2026-04").unwrap(), 30);
+        assert_eq!(days_in_month("2026-12").unwrap(), 31, "December must roll over into next year correctly");
+    }
+
     /// A known-value check (not a self-referential recompute of the same
     /// formula) that picks numbers where rounding and truncation actually
-    /// disagree: 100000 * 5 / 7 = 71428.5714…, which rounds to 71429 but
-    /// would truncate to 71428 — proving the result is genuinely rounded to
-    /// the nearest minor unit, not floored.
+    /// disagree: 100000 * 7 / 31 = 22580.6451…, which rounds to 22581 but
+    /// would truncate to 22580 — proving the result is genuinely rounded to
+    /// the nearest minor unit, not floored. Uses a fixed month (January,
+    /// always 31 days) with explicit attendance dates rather than "this
+    /// month", so the day count the test asserts on isn't itself a moving
+    /// target.
     #[test]
     fn calculate_salary_rounds_a_fractional_result_to_the_nearest_minor_unit() {
         let conn = test_conn();
-        conn.execute("UPDATE app_config SET working_days_per_month = 7 WHERE id = 1", [])
-            .unwrap();
         conn.execute(
             "INSERT INTO employees (name, role, base_salary_minor) VALUES ('Rounding Test', 'Staff', 100000)",
             [],
@@ -299,30 +334,62 @@ mod tests {
         .unwrap();
         let id = conn.last_insert_rowid();
 
-        let month = this_month();
-        for day in 0..5 {
+        let month = "2026-01";
+        for day in 1..=7 {
             conn.execute(
                 "INSERT INTO attendance (employee_id, work_date, check_in, check_out)
-                 VALUES (?1, date('now', 'localtime', 'start of month', ?2), '09:00:00', '18:00:00')",
-                params![id, format!("+{} days", day)],
+                 VALUES (?1, ?2, '09:00:00', '18:00:00')",
+                params![id, format!("2026-01-{:02}", day)],
             )
             .unwrap();
         }
 
-        let calc = calculate_salary(&conn, id, &month).unwrap();
-        assert_eq!(calc.days_present, 5);
-        assert_eq!(calc.working_days_in_month, 7);
-        assert_eq!(calc.calculated_amount_minor, 71429, "71428.57... must round up, not truncate down to 71428");
+        let calc = calculate_salary(&conn, id, month).unwrap();
+        assert_eq!(calc.days_present, 7);
+        assert_eq!(calc.working_days_in_month, 31, "January always has 31 days");
+        assert_eq!(calc.calculated_amount_minor, 22581, "22580.645... must round up, not truncate down to 22580");
     }
 
+    /// The whole point of the calendar-based divisor: the same base salary
+    /// and days-present pays out *differently* in a 28-day February than a
+    /// 31-day January — a fixed divisor (the old `working_days_per_month`)
+    /// would have paid identically for both.
     #[test]
-    fn calculate_salary_respects_a_configured_working_days_value() {
+    fn calculate_salary_divisor_varies_by_the_actual_month() {
         let conn = test_conn();
-        conn.execute("UPDATE app_config SET working_days_per_month = 22 WHERE id = 1", [])
+        conn.execute(
+            "INSERT INTO employees (name, role, base_salary_minor) VALUES ('Month Compare', 'Staff', 310000)",
+            [],
+        )
+        .unwrap();
+        let id = conn.last_insert_rowid();
+
+        for day in 1..=10 {
+            conn.execute(
+                "INSERT INTO attendance (employee_id, work_date, check_in, check_out)
+                 VALUES (?1, ?2, '09:00:00', '18:00:00')",
+                params![id, format!("2026-01-{:02}", day)],
+            )
             .unwrap();
-        let id = employee_id(&conn, "Ahmed Raza");
-        let calc = calculate_salary(&conn, id, &this_month()).unwrap();
-        assert_eq!(calc.working_days_in_month, 22);
+            conn.execute(
+                "INSERT INTO attendance (employee_id, work_date, check_in, check_out)
+                 VALUES (?1, ?2, '09:00:00', '18:00:00')",
+                params![id, format!("2026-02-{:02}", day)],
+            )
+            .unwrap();
+        }
+
+        let january = calculate_salary(&conn, id, "2026-01").unwrap();
+        let february = calculate_salary(&conn, id, "2026-02").unwrap();
+
+        assert_eq!(january.working_days_in_month, 31);
+        assert_eq!(february.working_days_in_month, 28);
+        assert_eq!(january.days_present, 10);
+        assert_eq!(february.days_present, 10);
+        assert!(
+            february.calculated_amount_minor > january.calculated_amount_minor,
+            "same 10 days present must pay more in a shorter month"
+        );
     }
 
     #[test]

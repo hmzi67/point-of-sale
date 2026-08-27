@@ -14,6 +14,11 @@ Before installing, make sure the computer meets these minimums:
   to install on an older Windows machine, the installer will tell you this
   up front instead of failing partway through.
 - **macOS** — macOS 10.15 (Catalina) or later.
+- **Internet, once, on Windows** — the Windows installer needs an internet
+  connection the *first* time Diwan is installed on a machine, to download
+  a small Microsoft component (WebView2) if it isn't already there. After
+  that one-time setup, Diwan runs and bills completely offline, same as
+  always.
 
 If a shop's computer is older than this, it will need a Windows 10 (or
 newer) machine to run Diwan — there's no way around this requirement, it

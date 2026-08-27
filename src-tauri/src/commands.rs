@@ -1894,8 +1894,9 @@ pub fn expenses_get_totals_by_category(
 // Owner/Admin only, no exceptions.
 // ---------------------------------------------------------------------------
 
-/// `base_salary / working_days_per_month * days_present` for one employee and
-/// month, refreshed against the latest attendance every call.
+/// `base_salary / days_in_month * days_present` for one employee and month
+/// (`days_in_month` is the real calendar day count, 28–31), refreshed
+/// against the latest attendance every call.
 #[tauri::command]
 pub fn salary_calculate_salary(
     db: State<'_, Db>,

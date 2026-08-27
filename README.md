@@ -49,14 +49,14 @@ canonical doc for anyone (human or AI) working on this codebase.
 - **Windows** — 10 or later (64-bit). WebView2 Runtime, which Tauri relies
   on for the app UI, dropped support for Windows 7/8/8.1 in January 2023
   (v109 was the last runtime build to support them, and Microsoft no longer
-  distributes it through any official channel); the Windows installer
-  bundles the offline WebView2 installer (`webviewInstallMode:
-  offlineInstaller` in `tauri.conf.json`) and runs an NSIS preinstall check
-  (`src-tauri/windows/hooks.nsh`) that stops with a plain-language message
-  before touching anything if the target machine is below Windows 10 —
-  it never gets to the WebView2 step to fail cryptically. See
-  `DEPLOYMENT.md`'s "Windows 7 is not supported" section for why pinning an
-  old WebView2 build was considered and rejected.
+  distributes it through any official channel); an NSIS preinstall check
+  (`src-tauri/windows/hooks.nsh`) stops with a plain-language message
+  before touching anything if the target machine is below Windows 10. The
+  installer uses the small `downloadBootstrapper` webview install mode
+  (`tauri.conf.json`), so a Windows 10+ target machine needs internet
+  access the first time it installs Diwan, to fetch WebView2 if it isn't
+  already present — see `DEPLOYMENT.md`'s "Windows 7 is not supported"
+  section for the size/offline trade-off this implies.
 - **macOS** — 10.15 (Catalina) or later, per Tauri/WKWebView's own floor.
 - **Android** — see `src-tauri/gen/android` / the Android build job in
   `.github/workflows/release.yml` for the target/min SDK once that build is
