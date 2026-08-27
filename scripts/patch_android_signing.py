@@ -42,6 +42,16 @@ REQUIRED_IMPORTS = ["java.util.Properties", "java.io.FileInputStream"]
 # Reads the same keystore.properties fields that release.yml's "Configure
 # Android signing" step writes (storeFile, password, keyAlias, keyPassword —
 # "password" doubles as the store password, matching that step).
+#
+# The `signingConfigs`/`buildTypes.release` block is guarded by the same
+# `keystorePropertiesFile.exists()` check as the load above it, not just the
+# load — Gradle evaluates the whole `android {}` DSL block for *every* task
+# in the project, debug builds included, not only when a release variant is
+# actually being assembled. An earlier version of this patch left that block
+# unconditional: on any machine without `keystore.properties` (e.g. local
+# dev that's never touched release signing), the `keystoreProperties["..."]
+# as String` casts hit `null` and threw `null cannot be cast to non-null
+# type kotlin.String`, failing even a plain `tauri android build -- --debug`.
 SIGNING_PATCH = f"""
     {MARKER}
     val keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -50,18 +60,20 @@ SIGNING_PATCH = f"""
         keystoreProperties.load(FileInputStream(keystorePropertiesFile))
     }}
 
-    signingConfigs {{
-        create("release") {{
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
-            storeFile = file(keystoreProperties["storeFile"] as String)
-            storePassword = keystoreProperties["password"] as String
+    if (keystorePropertiesFile.exists()) {{
+        signingConfigs {{
+            create("release") {{
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["password"] as String
+            }}
         }}
-    }}
 
-    buildTypes {{
-        release {{
-            signingConfig = signingConfigs.getByName("release")
+        buildTypes {{
+            release {{
+                signingConfig = signingConfigs.getByName("release")
+            }}
         }}
     }}
 """

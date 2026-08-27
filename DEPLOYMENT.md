@@ -142,3 +142,10 @@ npm run tauri android build -- --apk --aab
 `tauri android init` that regenerates `gen/android`; it no-ops if the patch
 is already present. Never commit `keystore.properties` — it's inside the
 gitignored `gen/android` tree.
+
+A **debug** build (`tauri android build -- --debug`, or `tauri android dev`)
+needs none of this — `keystore.properties` only feeds the `release`
+signing config, and the patch's `signingConfigs`/`buildTypes.release` block
+is skipped entirely (not just left unread) when the file doesn't exist, so
+it can't break debug/config evaluation for a machine that's never set up
+release signing.

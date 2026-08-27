@@ -222,13 +222,18 @@ jobs:
     name: Build Android
     needs: create-release
     runs-on: ubuntu-latest
-    # Temporarily disabled — Android build is being fixed later; only
-    # Windows/macOS ship for now. Re-enable by deleting this line (and
-    # adding `android` back to finalize-release's `needs` below).
-    if: false
-    # Untested cold-build estimate (four Rust targets + Gradle + NDK) —
-    # revisit once this job actually runs again; err generous rather than
-    # risk a false timeout on re-enable.
+    # Re-enabled: the two bugs that broke this build are fixed —
+    # `reveal_main_window` in src-tauri/src/lib.rs was calling
+    # desktop-only WebviewWindow methods (unminimize/center) unconditionally,
+    # which doesn't compile for the Android target; and
+    # scripts/patch_android_signing.py's signingConfigs block wasn't
+    # guarded by the same keystorePropertiesFile.exists() check as the
+    # property load above it. Both confirmed fixed with a real local
+    # `tauri android build` (see git log for the fix commits).
+    #
+    # Untested cold-build estimate in CI specifically (four Rust targets +
+    # Gradle + NDK) — a local single-target debug build took ~12 minutes;
+    # revisit this timeout if a real CI run needs adjusting.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
@@ -378,7 +383,7 @@ jobs:
   # actually landed on it, so the release page never shows an incomplete set.
   finalize-release:
     name: Publish release
-    needs: [create-release, windows, macos]
+    needs: [create-release, windows, macos, android]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

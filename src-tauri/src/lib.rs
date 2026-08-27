@@ -92,7 +92,18 @@ fn reveal_main_window(app: &tauri::AppHandle) {
                 }
 
                 let shown = main.show();
+                // `unminimize`/`center` are desktop-only on `WebviewWindow`
+                // (gated `#[cfg(desktop)]` inside the `tauri` crate itself —
+                // there's no window manager concept of "minimized" or
+                // "centered" for a single fullscreen mobile view) — this
+                // whole function is already a runtime no-op on Android (see
+                // its doc comment), but it still has to *compile* there,
+                // since `reveal_main_window` isn't itself behind a
+                // `#[cfg(not(target_os = "android"))]`.
+                #[cfg(not(target_os = "android"))]
                 let unminimized = main.unminimize();
+                #[cfg(target_os = "android")]
+                let unminimized: tauri::Result<()> = Ok(());
                 // Force back to the configured size/position rather than
                 // trusting whatever the OS restored — confirmed on Windows
                 // that a window left in this state can end up visible but
@@ -101,7 +112,10 @@ fn reveal_main_window(app: &tauri::AppHandle) {
                     MAIN_WINDOW_WIDTH,
                     MAIN_WINDOW_HEIGHT,
                 )));
+                #[cfg(not(target_os = "android"))]
                 let centered = main.center();
+                #[cfg(target_os = "android")]
+                let centered: tauri::Result<()> = Ok(());
                 let focused = main.set_focus();
                 let visible_after = main.is_visible();
                 let size_after = main.inner_size();
