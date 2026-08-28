@@ -3,7 +3,7 @@ import { LogOut, User, X } from "lucide-react";
 import { useModules } from "../../hooks/useModules";
 import { useAuthStore } from "../../store";
 import { EMPLOYEES_NAV, SETTINGS_NAV, USERS_NAV } from "../../utils/navigation";
-import { roleCanAccessSettings, roleCanManageEmployees, roleCanManageUsers } from "../../utils/permissions";
+import { canAttemptEmployeesScreen, roleCanAccessSettings, roleCanManageUsers } from "../../utils/permissions";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner",
@@ -43,7 +43,7 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
   const role = user?.role ?? null;
   const showSettings = role ? roleCanAccessSettings(role) : false;
   const showUsers = role ? roleCanManageUsers(role) : false;
-  const showEmployees = role ? roleCanManageEmployees(role) : false;
+  const showEmployees = role ? canAttemptEmployeesScreen() : false;
 
   return (
     // h-dvh (not relying on inset-0's implicit sizing, and not h-screen/vh):

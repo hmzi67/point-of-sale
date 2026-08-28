@@ -18,6 +18,7 @@ pub mod reports;
 pub mod sales;
 pub mod salary;
 pub mod schema;
+pub mod security_pin;
 pub mod seed;
 pub mod shifts;
 pub mod tables;

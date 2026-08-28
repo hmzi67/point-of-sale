@@ -31,8 +31,9 @@ use crate::db::counters::Counter;
 use crate::db::users::{ManagedUser, Role, User};
 use crate::db::{
     attendance, config, counters, csv_import, dashboard, expenses, full_report, items, modules, product_owner,
-    refunds, reports, salary, sales, shifts, tables, tokens, users, Db,
+    refunds, reports, salary, sales, security_pin, shifts, tables, tokens, users, Db,
 };
+use crate::area_access_session::AreaAccessSession;
 use crate::images;
 use crate::product_owner_session::{require_product_owner, ProductOwnerSession};
 use crate::session::{require_role, Session};
@@ -43,6 +44,46 @@ use crate::session::{require_role, Session};
 /// too and not just there. There is deliberately no third privileged tier;
 /// Cashier is the only other role, and it never appears in this list.
 const STAFF_ROLES: &[Role] = &[Role::Owner, Role::Admin];
+
+/// Fails a command unless someone is signed in *and* currently holds a valid
+/// `AreaAccessSession` grant (see that module's doc comment) — the check
+/// behind every command in the Attendance/Expenses/Salary/Reports sections
+/// below. Deliberately role-independent: a correct "sensitive area" PIN is
+/// the authorization, not the caller's role — Owner, Admin and Cashier all
+/// go through the exact same gate here, matching `db::security_pin`'s
+/// module doc comment. Still requires a live `Session` (not just "any grant
+/// exists anywhere"), so a command can't succeed for literally nobody
+/// signed in even if a grant happens to be live.
+fn require_area_access(session: &Session, area_access: &AreaAccessSession) -> Result<User, String> {
+    let user = session.current().ok_or_else(|| "Not signed in".to_string())?;
+    if area_access.is_valid() {
+        Ok(user)
+    } else {
+        Err("Enter the area PIN to open this screen".to_string())
+    }
+}
+
+/// `reports_get_sales_over_time` specifically: shared between the
+/// (area-PIN-gated) Reports screen and the Dashboard's trend chart —
+/// Dashboard is Owner/Admin-only (`dashboard_get_summary`'s own
+/// `require_role` check) and was never meant to need the area PIN at all,
+/// so this command can't use a plain `require_area_access` the way the rest
+/// of the Reports section does (that would newly break Dashboard for every
+/// role, PIN or not) nor a plain `require_role(STAFF_ROLES)` (that would
+/// reject a Cashier who correctly unlocked Reports with the PIN). Owner/Admin
+/// pass unconditionally, same as before this feature existed; a Cashier
+/// needs a valid `AreaAccessSession` grant, same as the rest of Reports.
+fn require_staff_or_area_access(
+    session: &Session,
+    area_access: &AreaAccessSession,
+) -> Result<User, String> {
+    let user = session.current().ok_or_else(|| "Not signed in".to_string())?;
+    if STAFF_ROLES.contains(&user.role) || area_access.is_valid() {
+        Ok(user)
+    } else {
+        Err("Enter the area PIN to open this screen".to_string())
+    }
+}
 
 /// Roles `caller_role` may assign when creating an account or changing an
 /// existing one's role — never Owner, for anyone: there is exactly one
@@ -536,10 +577,13 @@ pub fn login(db: State<'_, Db>, session: State<'_, Session>, user_id: i64, pin: 
 }
 
 /// Clears the server-side session. Safe to call whether or not anyone was
-/// signed in.
+/// signed in. Also revokes any live `AreaAccessSession` grant — a
+/// PIN-unlocked visit to one of the five gated screens must not survive a
+/// different account signing in on the same till right after.
 #[tauri::command]
-pub fn logout(session: State<'_, Session>) {
+pub fn logout(session: State<'_, Session>, area_access: State<'_, AreaAccessSession>) {
     session.clear();
+    area_access.revoke();
 }
 
 /// Every account, active or not — the user management screen. Owner/Admin
@@ -1007,23 +1051,25 @@ pub fn shift_print_summary(db: State<'_, Db>, session: State<'_, Session>, shift
 }
 
 // ---------------------------------------------------------------------------
-// Reports
+// Reports. Gated by the shared area PIN (see the "Sensitive area PIN"
+// section further down), not by role — Owner, Admin and Cashier all reach
+// these once `AreaAccessSession` has a valid grant. A cashier hitting any
+// of these directly (bypassing the UI, which already gates the whole
+// screen behind `AreaPinGate`) without ever having verified the PIN still
+// gets refused here.
 // ---------------------------------------------------------------------------
 
 /// Total sales, transaction count and average sale value for `start_date`..
-/// `end_date` (inclusive, `YYYY-MM-DD`). Reports is not in a Cashier's module
-/// list (see `permissions.ts`), so this and the other two report queries
-/// below are Owner/Admin only — a cashier hitting this command directly
-/// (bypassing the UI, which already hides the whole screen) still gets
-/// refused here.
+/// `end_date` (inclusive, `YYYY-MM-DD`).
 #[tauri::command]
 pub fn reports_get_sales_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<SalesSummary, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(reports::get_sales_summary(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1034,12 +1080,13 @@ pub fn reports_get_sales_summary(
 pub fn reports_get_top_items(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
     limit: i64,
     sort_by: TopItemSort,
 ) -> Result<Vec<TopItem>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(reports::get_top_items(conn, &start_date, &end_date, limit, sort_by)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1047,15 +1094,17 @@ pub fn reports_get_top_items(
 
 /// One row per calendar day in the range (zero-filled where there were no
 /// sales), for the reports chart. Also used by the Dashboard's trend chart —
-/// fine to share the same gate, since Dashboard is Owner/Admin-only too.
+/// see `require_staff_or_area_access`'s doc comment for why this one
+/// command needs a different check than the rest of this section.
 #[tauri::command]
 pub fn reports_get_sales_over_time(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<Vec<DailySales>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_staff_or_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(reports::get_sales_over_time(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1067,10 +1116,11 @@ pub fn reports_get_sales_over_time(
 pub fn reports_get_category_sales(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<CategorySalesReport, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(reports::get_category_sales(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1081,10 +1131,11 @@ pub fn reports_get_category_sales(
 pub fn reports_print_category_sales(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<(), String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     let report = db
         .with_conn(|conn| Ok(reports::get_category_sales(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
@@ -1105,10 +1156,11 @@ pub fn reports_print_category_sales(
 pub fn reports_get_table_sales_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<TableSalesSummary, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(reports::get_table_sales_summary(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1122,12 +1174,13 @@ pub fn reports_get_table_sales_summary(
 pub fn reports_get_product_sales_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
     category_id: Option<i64>,
     sort_by: TopItemSort,
 ) -> Result<ProductSalesSummaryReport, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(reports::get_product_sales_summary(conn, &start_date, &end_date, category_id, sort_by)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1138,10 +1191,11 @@ pub fn reports_get_product_sales_summary(
 pub fn reports_print_table_sales_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<(), String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     let report = db
         .with_conn(|conn| Ok(reports::get_table_sales_summary(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
@@ -1159,10 +1213,11 @@ pub fn reports_print_table_sales_summary(
 pub fn reports_get_refunds_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<RefundsSummary, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(reports::get_refunds_summary(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1173,10 +1228,11 @@ pub fn reports_get_refunds_summary(
 pub fn reports_print_refunds_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<(), String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     let report = db
         .with_conn(|conn| Ok(reports::get_refunds_summary(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
@@ -1194,11 +1250,12 @@ pub fn reports_print_refunds_summary(
 pub fn reports_get_full_report(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
     platform: String,
 ) -> Result<FullReport, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     let platform = parse_platform(&platform)?;
     db.with_conn(|conn| Ok(full_report::get_full_report(conn, &start_date, &end_date, platform)))
         .map_err(|e| e.to_string())?
@@ -1210,11 +1267,12 @@ pub fn reports_get_full_report(
 pub fn reports_print_full_report(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
     platform: String,
 ) -> Result<(), String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     let platform = parse_platform(&platform)?;
     let report = db
         .with_conn(|conn| Ok(full_report::get_full_report(conn, &start_date, &end_date, platform)))
@@ -1264,6 +1322,32 @@ pub fn tables_update_table_status(
 ) -> Result<TableSummary, String> {
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(tables::update_table_status(conn, table_id, &status)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Renames a physical table. Owner/Admin only, same tier as `tables_add_table`.
+#[tauri::command]
+pub fn tables_rename_table(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    table_id: i64,
+    name: String,
+) -> Result<TableSummary, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(tables::rename_table(conn, table_id, &name)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// Removes a physical table from the floor entirely. Owner/Admin only, same
+/// tier as `tables_add_table`. Refused (see `TableError::HasOpenOrder`)
+/// while the table has an order parked on it, so an in-progress cart can
+/// never be silently discarded from this command.
+#[tauri::command]
+pub fn tables_delete_table(db: State<'_, Db>, session: State<'_, Session>, table_id: i64) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(tables::delete_table(conn, table_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
 }
@@ -1684,16 +1768,77 @@ fn print_one_adhoc_counter_token(
 }
 
 // ---------------------------------------------------------------------------
+// Sensitive area PIN — the shared, role-independent PIN gate in front of
+// Attendance, Expenses, Salary, Employees and Reports (see
+// `db::security_pin`'s module doc comment for the full picture). Every
+// command in the four sections below this one calls `require_area_access`
+// instead of `require_role(&session, STAFF_ROLES)`.
+// ---------------------------------------------------------------------------
+
+/// Verifies `pin` against the shared area PIN and, on success, grants
+/// `AreaAccessSession` — the frontend's `AreaPinGate` calls this once per
+/// visit to one of the five gated screens, before rendering their content.
+/// Any signed-in role may call this (the PIN itself is the authorization);
+/// an incorrect PIN never grants anything, it just returns an error.
+#[tauri::command]
+pub fn security_verify_area_pin(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    pin: String,
+) -> Result<(), String> {
+    session.current().ok_or_else(|| "Not signed in".to_string())?;
+    db.with_conn(move |conn| Ok(security_pin::verify(conn, &pin)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    area_access.grant();
+    Ok(())
+}
+
+/// Ends the current `AreaAccessSession` grant immediately, without waiting
+/// for its safety-net timeout — the frontend's `AreaPinGate` calls this on
+/// unmount (leaving a gated screen), which is what actually makes "every
+/// single visit needs its own PIN" true in practice rather than just "until
+/// the timeout happens to lapse".
+#[tauri::command]
+pub fn security_revoke_area_access(area_access: State<'_, AreaAccessSession>) {
+    area_access.revoke();
+}
+
+/// Changes the shared area PIN — Owner/Admin only (Settings itself is
+/// admin-only; this mirrors that, it doesn't loosen it). Requires the
+/// current PIN; "confirm new PIN" is a frontend-only check (the two typed
+/// values must match before this is even called), same as any other
+/// password-confirmation field.
+#[tauri::command]
+pub fn security_set_area_pin(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    old_pin: String,
+    new_pin: String,
+) -> Result<(), String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(move |conn| Ok(security_pin::set(conn, &old_pin, &new_pin)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Attendance (only called when the `attendance` module is enabled; the
-// frontend hides all attendance UI otherwise). Attendance is Owner/Admin
-// only — it's payroll-adjacent staff data, and isn't in a Cashier's module
-// list — so every command here checks the session before touching anything.
+// frontend hides all attendance UI otherwise). Gated by the shared area PIN
+// (see the section above), not by role — see `db::security_pin`'s module
+// doc comment for why Owner, Admin and Cashier all go through the same
+// `require_area_access` check on every command here.
 // ---------------------------------------------------------------------------
 
 /// Active staff, for the check-in/out screen and the monthly summary.
 #[tauri::command]
-pub fn attendance_get_employees(db: State<'_, Db>, session: State<'_, Session>) -> Result<Vec<Employee>, String> {
-    require_role(&session, STAFF_ROLES)?;
+pub fn attendance_get_employees(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+) -> Result<Vec<Employee>, String> {
+    require_area_access(&session, &area_access)?;
     db.with_conn(attendance::list_employees).map_err(|e| e.to_string())
 }
 
@@ -1702,8 +1847,9 @@ pub fn attendance_get_employees(db: State<'_, Db>, session: State<'_, Session>) 
 pub fn attendance_get_all_employees(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
 ) -> Result<Vec<ManagedEmployee>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(attendance::list_all_employees).map_err(|e| e.to_string())
 }
 
@@ -1715,12 +1861,13 @@ pub fn attendance_get_all_employees(
 pub fn attendance_add_employee(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     name: String,
     role: String,
     contact: Option<String>,
     base_salary_minor: i64,
 ) -> Result<ManagedEmployee, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(move |conn| Ok(attendance::add_employee(conn, &name, &role, contact.as_deref(), base_salary_minor)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1731,13 +1878,14 @@ pub fn attendance_add_employee(
 pub fn attendance_update_employee(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
     name: String,
     role: String,
     contact: Option<String>,
     base_salary_minor: i64,
 ) -> Result<ManagedEmployee, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(move |conn| {
         Ok(attendance::update_employee(
             conn,
@@ -1759,10 +1907,11 @@ pub fn attendance_update_employee(
 pub fn attendance_set_employee_active(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
     is_active: bool,
 ) -> Result<(), String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(move |conn| Ok(attendance::set_employee_active(conn, employee_id, is_active)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1774,9 +1923,10 @@ pub fn attendance_set_employee_active(
 pub fn attendance_check_in(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<AttendanceRecord, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(attendance::check_in(conn, employee_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1788,9 +1938,10 @@ pub fn attendance_check_in(
 pub fn attendance_check_out(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<AttendanceRecord, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(attendance::check_out(conn, employee_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1802,11 +1953,12 @@ pub fn attendance_check_out(
 pub fn attendance_get_attendance(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     employee_id: Option<i64>,
     start_date: String,
     end_date: String,
 ) -> Result<Vec<AttendanceRecord>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(attendance::get_attendance(conn, employee_id, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1818,9 +1970,10 @@ pub fn attendance_get_attendance(
 pub fn attendance_get_monthly_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     month: String,
 ) -> Result<Vec<MonthlySummary>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(attendance::get_monthly_summary(conn, &month)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1828,8 +1981,8 @@ pub fn attendance_get_monthly_summary(
 
 // ---------------------------------------------------------------------------
 // Expenses (only called when the `expenses` module is enabled; the frontend
-// hides all expense UI otherwise). Financial data — Owner/Admin only, same
-// gate on every command here.
+// hides all expense UI otherwise). Gated by the shared area PIN, same as
+// Attendance/Salary/Reports above/below — not by role.
 // ---------------------------------------------------------------------------
 
 /// Logs one expense.
@@ -1837,12 +1990,13 @@ pub fn attendance_get_monthly_summary(
 pub fn expenses_add_expense(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     date: String,
     category: String,
     amount_minor: i64,
     note: Option<String>,
 ) -> Result<Expense, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(expenses::add_expense(conn, &date, &category, amount_minor, note.as_deref())))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1853,11 +2007,12 @@ pub fn expenses_add_expense(
 pub fn expenses_get_expenses(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
     category: Option<String>,
 ) -> Result<Vec<Expense>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(expenses::get_expenses(conn, &start_date, &end_date, category.as_deref())))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1868,8 +2023,9 @@ pub fn expenses_get_expenses(
 pub fn expenses_get_expense_categories(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
 ) -> Result<Vec<String>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(expenses::get_categories).map_err(|e| e.to_string())
 }
 
@@ -1879,10 +2035,11 @@ pub fn expenses_get_expense_categories(
 pub fn expenses_get_totals_by_category(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     start_date: String,
     end_date: String,
 ) -> Result<Vec<CategoryTotal>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(expenses::get_totals_by_category(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1891,7 +2048,8 @@ pub fn expenses_get_totals_by_category(
 // ---------------------------------------------------------------------------
 // Salary (only called when the `salary` module is enabled; the frontend
 // hides all salary UI otherwise). The most sensitive data in the product —
-// Owner/Admin only, no exceptions.
+// gated by the shared area PIN, same as Attendance/Expenses/Reports, not by
+// role. See `db::security_pin`'s module doc comment.
 // ---------------------------------------------------------------------------
 
 /// `base_salary / days_in_month * days_present` for one employee and month
@@ -1901,10 +2059,11 @@ pub fn expenses_get_totals_by_category(
 pub fn salary_calculate_salary(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
     month: String,
 ) -> Result<SalaryCalculation, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(salary::calculate_salary(conn, employee_id, &month)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1921,9 +2080,10 @@ pub fn salary_calculate_salary(
 pub fn salary_get_monthly_overview(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     month: String,
 ) -> Result<Vec<SalaryCalculation>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_transaction(|tx| Ok(salary::get_monthly_overview(tx, &month)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1941,12 +2101,13 @@ pub fn salary_get_monthly_overview(
 pub fn salary_record_payment(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
     month: String,
     paid_amount_minor: i64,
     paid_date: String,
 ) -> Result<SalaryCalculation, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_transaction(|tx| Ok(salary::record_payment(tx, employee_id, &month, paid_amount_minor, &paid_date)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1957,9 +2118,10 @@ pub fn salary_record_payment(
 pub fn salary_get_payment_history(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<Vec<SalaryCalculation>, String> {
-    require_role(&session, STAFF_ROLES)?;
+    require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(salary::get_payment_history(conn, employee_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())

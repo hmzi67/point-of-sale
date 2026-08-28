@@ -1,3 +1,4 @@
+import { Pencil, Trash2 } from "lucide-react";
 import type { TableSummary } from "../../types";
 
 interface TableCardProps {
@@ -8,6 +9,8 @@ interface TableCardProps {
   onRelease: () => void;
   onReserve: () => void;
   onShift: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }
 
 /** Color-codes a table by status: free = green, occupied = red, reserved =
@@ -34,28 +37,63 @@ const STATUS_LABEL: Record<TableSummary["status"], string> = {
  * (starts a new order) and opens billing; tapping an occupied table resumes
  * its in-progress cart. Both go through the same primary action button so
  * the whole card is one big, cashier-friendly tap target. */
-export function TableCard({ table, busy, onSeat, onResume, onRelease, onReserve, onShift }: TableCardProps) {
+export function TableCard({
+  table,
+  busy,
+  onSeat,
+  onResume,
+  onRelease,
+  onReserve,
+  onShift,
+  onEdit,
+  onDelete,
+}: TableCardProps) {
   const primaryAction = table.status === "occupied" ? onResume : onSeat;
 
   return (
     <div
       className={`flex flex-col gap-2 rounded-lg border-2 p-4 transition-colors ${STATUS_STYLES[table.status]}`}
     >
-      <button
-        type="button"
-        onClick={primaryAction}
-        disabled={busy}
-        className="flex flex-col items-start gap-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-          <span className={`h-2 w-2 rounded-full ${STATUS_DOT[table.status]}`} />
-          {table.name}
-        </span>
-        <span className="text-xs text-slate-500">
-          {table.seats} seat{table.seats === 1 ? "" : "s"} · {STATUS_LABEL[table.status]}
-          {table.hasParkedOrder ? " · order in progress" : ""}
-        </span>
-      </button>
+      <div className="flex items-start justify-between gap-2">
+        <button
+          type="button"
+          onClick={primaryAction}
+          disabled={busy}
+          className="flex flex-1 flex-col items-start gap-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+            <span className={`h-2 w-2 rounded-full ${STATUS_DOT[table.status]}`} />
+            {table.name}
+          </span>
+          <span className="text-xs text-slate-500">
+            {table.seats} seat{table.seats === 1 ? "" : "s"} · {STATUS_LABEL[table.status]}
+            {table.hasParkedOrder ? " · order in progress" : ""}
+          </span>
+        </button>
+
+        <div className="flex shrink-0 gap-1">
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={busy}
+            aria-label={`Rename ${table.name}`}
+            title="Rename table"
+            className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={busy || table.hasParkedOrder}
+            aria-label={`Delete ${table.name}`}
+            title={table.hasParkedOrder ? "Clear the table's order before deleting it" : "Delete table"}
+            className="rounded p-1 text-slate-400 hover:bg-white hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
 
       <div className="flex gap-1.5 text-xs">
         {table.status === "free" && (

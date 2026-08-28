@@ -2,15 +2,19 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { AddTableForm } from "../components/tables/AddTableForm";
+import { EditTableModal } from "../components/tables/EditTableModal";
 import { ShiftTableModal } from "../components/tables/ShiftTableModal";
 import { TableCard } from "../components/tables/TableCard";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { getItems } from "../services/inventoryService";
 import {
   addTable,
   assignOrderToTable,
   clearTable,
+  deleteTable,
   getParkedCart,
   getTables,
+  renameTable,
   shiftTableOrder,
   updateTableStatus,
 } from "../services/tablesService";
@@ -31,6 +35,10 @@ export function TablesPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [shiftingTable, setShiftingTable] = useState<TableSummary | null>(null);
+  const [editingTable, setEditingTable] = useState<TableSummary | null>(null);
+  const [deletingTable, setDeletingTable] = useState<TableSummary | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
 
   const billingTableId = useBillingStore((state) => state.tableId);
@@ -102,6 +110,28 @@ export function TablesPage() {
     reload();
   };
 
+  const handleRenameTable = async (name: string) => {
+    if (!editingTable) return;
+    await renameTable(editingTable.id, name);
+    setEditingTable(null);
+    reload();
+  };
+
+  const confirmDeleteTable = async () => {
+    if (!deletingTable) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteTable(deletingTable.id);
+      setDeletingTable(null);
+      reload();
+    } catch (e) {
+      setDeleteError((e as Error).message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   /** Confirmed from the Shift Table picker: moves `shiftingTable`'s order
    * onto `toTableId`. If the Billing screen currently has `shiftingTable`
    * selected (the cashier had it open, or just navigated away and back),
@@ -160,6 +190,11 @@ export function TablesPage() {
               onRelease={() => void releaseTable(table)}
               onReserve={() => void reserveTable(table)}
               onShift={() => setShiftingTable(table)}
+              onEdit={() => setEditingTable(table)}
+              onDelete={() => {
+                setDeleteError(null);
+                setDeletingTable(table);
+              }}
             />
           ))}
         </div>
@@ -171,6 +206,32 @@ export function TablesPage() {
           freeTables={tables.filter((t) => t.status === "free")}
           onClose={() => setShiftingTable(null)}
           onConfirm={confirmShift}
+        />
+      )}
+
+      {editingTable && (
+        <EditTableModal
+          table={editingTable}
+          onSave={handleRenameTable}
+          onClose={() => setEditingTable(null)}
+        />
+      )}
+
+      {deletingTable && (
+        <ConfirmDialog
+          title={`Delete ${deletingTable.name}?`}
+          message={
+            deleteError ??
+            "This removes the table from the floor. It can't be undone, and only works while the table has no order in progress."
+          }
+          confirmLabel="Delete"
+          isDangerous
+          isBusy={isDeleting}
+          onConfirm={() => void confirmDeleteTable()}
+          onCancel={() => {
+            setDeletingTable(null);
+            setDeleteError(null);
+          }}
         />
       )}
     </section>

@@ -1,3 +1,4 @@
+mod area_access_session;
 mod commands;
 mod db;
 mod images;
@@ -8,6 +9,7 @@ mod startup_log;
 
 use tauri::Manager;
 
+use crate::area_access_session::AreaAccessSession;
 use crate::db::Db;
 use crate::product_owner_session::ProductOwnerSession;
 use crate::session::Session;
@@ -180,6 +182,7 @@ pub fn run() {
         // `app_data_dir()` needs an `AppHandle`.
         .manage(Session::new())
         .manage(ProductOwnerSession::new())
+        .manage(AreaAccessSession::new())
         .manage(LaunchedAt(launched_at))
         .manage(SplashRevealed(std::sync::atomic::AtomicBool::new(false)))
         .plugin(tauri_plugin_opener::init())
@@ -345,6 +348,8 @@ pub fn run() {
             commands::reports_get_product_sales_summary,
             commands::tables_get_tables,
             commands::tables_add_table,
+            commands::tables_rename_table,
+            commands::tables_delete_table,
             commands::tables_update_table_status,
             commands::tables_assign_order_to_table,
             commands::tables_clear_table,
@@ -392,7 +397,10 @@ pub fn run() {
             commands::set_user_pin,
             commands::get_all_users,
             commands::update_user,
-            commands::set_user_active
+            commands::set_user_active,
+            commands::security_verify_area_pin,
+            commands::security_revoke_area_access,
+            commands::security_set_area_pin
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|error| {

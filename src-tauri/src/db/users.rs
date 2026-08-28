@@ -112,7 +112,11 @@ impl From<rusqlite::Error> for AuthError {
     }
 }
 
-fn validate_pin(pin: &str) -> Result<(), AuthError> {
+/// `pub(crate)` rather than private — `db::security_pin` (the shared
+/// "sensitive area" PIN, a separate concept from a per-user login PIN but
+/// governed by the same 4–6-digit-numeric policy) reuses this rather than
+/// duplicating the rule.
+pub(crate) fn validate_pin(pin: &str) -> Result<(), AuthError> {
     let len = pin.chars().count();
     if len < MIN_PIN_LEN || len > MAX_PIN_LEN || !pin.chars().all(|c| c.is_ascii_digit()) {
         return Err(AuthError::MalformedPin);

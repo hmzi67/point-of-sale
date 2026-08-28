@@ -70,6 +70,13 @@ pub const EXPECTED_TABLES: &[&str] = &[
 pub const DEFAULT_OWNER_NAME: &str = "Owner";
 pub const DEFAULT_OWNER_PIN: &str = "1234";
 
+/// Default value for the shared "sensitive area" PIN (see
+/// `db::security_pin`) — gates Attendance, Expenses, Salary, Employees and
+/// Reports for every role. Deliberately different from `DEFAULT_OWNER_PIN`
+/// so the two are never confused; an owner/admin is expected to change it
+/// from Settings once the client is live, same as the owner login PIN.
+pub const DEFAULT_AREA_PIN: &str = "0000";
+
 /// The fixed module catalogue: (key, display name, is_core, sort_order, android default).
 ///
 /// Billing is the only core module — the minimum viable POS — and can never be
@@ -162,6 +169,7 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     crate::startup_log::log(&format!("db: schema now at v{SCHEMA_VERSION}"));
 
     seed_app_config(conn)?;
+    seed_area_pin(conn)?;
     seed_modules(conn)?;
     seed_owner(conn)?;
     crate::startup_log::log("db: app_config/modules/owner seeded (or already present)");
@@ -237,6 +245,12 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // table doc comment for why this is a separate concept from
     // `category_id`.
     ("items", "counter_id", "INTEGER REFERENCES counters (id) ON DELETE SET NULL"),
+    // The shared "sensitive area" PIN's argon2 hash — see
+    // `db::security_pin`'s module doc comment. NULL until `seed_area_pin`
+    // backfills it below (can't express an argon2 hash, which is randomly
+    // salted per call, as a static SQL `DEFAULT` literal the way e.g.
+    // `onboarding_completed` above does).
+    ("app_config", "sensitive_area_pin_hash", "TEXT"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs
@@ -382,6 +396,32 @@ fn seed_modules(conn: &Connection) -> Result<(), rusqlite::Error> {
 }
 
 /// Creates the default owner account so a fresh install is actually loginable.
+/// Backfills the shared "sensitive area" PIN's hash the first time —
+/// checked against the column's own value, not a row-existence count like
+/// `seed_owner` (unlike `users`, `app_config` already has exactly one row
+/// by this point via `seed_app_config`, so "hash is still NULL" is the only
+/// signal for "never set". Runs for every install, fresh or upgrading:
+/// `ADDED_COLUMNS` can only leave the new column NULL (an argon2 hash can't
+/// be a static SQL `DEFAULT`), so this is what actually gives every
+/// install — not just fresh ones — a real, working default PIN.
+fn seed_area_pin(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let already_set: bool = conn.query_row(
+        "SELECT sensitive_area_pin_hash IS NOT NULL FROM app_config WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    if already_set {
+        return Ok(());
+    }
+
+    let pin_hash = users::hash_pin(DEFAULT_AREA_PIN)
+        .map_err(|e| rusqlite::Error::InvalidParameterName(format!("area pin hash failed: {}", e)))?;
+
+    conn.execute("UPDATE app_config SET sensitive_area_pin_hash = ?1 WHERE id = 1", params![pin_hash])?;
+
+    Ok(())
+}
+
 fn seed_owner(conn: &Connection) -> Result<(), rusqlite::Error> {
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?;
     if count > 0 {

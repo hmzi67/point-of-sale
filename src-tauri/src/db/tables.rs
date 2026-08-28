@@ -79,6 +79,10 @@ pub enum TableError {
     DestinationNotFree(String, String),
     /// Shift-table: `from_table_id == to_table_id` — nothing to move.
     SameTable,
+    /// Delete: the table has an `open` order parked on it — refused rather
+    /// than silently discarding an in-progress cart. Clear (or bill) the
+    /// table first, then delete it.
+    HasOpenOrder(String),
 }
 
 impl std::fmt::Display for TableError {
@@ -97,6 +101,9 @@ impl std::fmt::Display for TableError {
                 write!(f, "{} is already {} — choose a free table", name, status)
             }
             TableError::SameTable => write!(f, "Choose a different table to shift the order to"),
+            TableError::HasOpenOrder(name) => {
+                write!(f, "{} has an order in progress — clear or bill it before deleting the table", name)
+            }
         }
     }
 }
@@ -197,6 +204,51 @@ pub fn update_table_status(conn: &Connection, table_id: i64, status: &str) -> Re
         return Err(TableError::TableNotFound);
     }
     load_table(conn, table_id)
+}
+
+/// Renames a physical table (e.g. "Table 7" -> "Patio 3"). Does not touch
+/// status or any parked order — same "one field, nothing else" shape as
+/// `update_table_status`. `UNIQUE(name)` is enforced the same way
+/// `add_table` handles it: a collision comes back as `DuplicateName`, not a
+/// raw SQLite error.
+pub fn rename_table(conn: &Connection, table_id: i64, name: &str) -> Result<TableSummary, TableError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(TableError::EmptyName);
+    }
+
+    let result = conn.execute("UPDATE tables SET name = ?1 WHERE id = ?2", params![name, table_id]);
+    match result {
+        Ok(0) => Err(TableError::TableNotFound),
+        Ok(_) => load_table(conn, table_id),
+        Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
+            Err(TableError::DuplicateName(name.to_string()))
+        }
+        Err(err) => Err(TableError::Sqlite(err)),
+    }
+}
+
+/// Removes a physical table from the floor entirely — unlike `clear_table`
+/// (frees it for reuse), this deletes the row. Refused while the table has
+/// an `open` order (see `TableError::HasOpenOrder`) so an in-progress cart
+/// can never be silently discarded; `clear_table` or completing the sale
+/// first is required. `table_orders` rows for this table cascade-delete
+/// (`ON DELETE CASCADE` — they're bookkeeping for the floor view, not
+/// billing history); any `sales` row that was billed from this table keeps
+/// existing with `table_id` set to `NULL` (`ON DELETE SET NULL` — see
+/// `schema.sql`), so historic sales are never lost, only their table
+/// attribution.
+pub fn delete_table(conn: &Connection, table_id: i64) -> Result<(), TableError> {
+    let table = load_table(conn, table_id)?;
+    if table.has_parked_order {
+        return Err(TableError::HasOpenOrder(table.name));
+    }
+
+    let changed = conn.execute("DELETE FROM tables WHERE id = ?1", params![table_id])?;
+    if changed == 0 {
+        return Err(TableError::TableNotFound);
+    }
+    Ok(())
 }
 
 /// Parks (creates, or replaces the existing open one for) a table's draft
@@ -565,6 +617,62 @@ mod tests {
             update_table_status(&conn, 999_999, "free"),
             Err(TableError::TableNotFound)
         ));
+    }
+
+    #[test]
+    fn rename_table_changes_the_name_and_rejects_blank_or_duplicate() {
+        let conn = test_conn();
+        let t2 = table_id(&conn, "Table 2");
+
+        let renamed = rename_table(&conn, t2, "Patio 3").unwrap();
+        assert_eq!(renamed.name, "Patio 3");
+        // Other fields untouched.
+        assert_eq!(renamed.status, "free");
+        assert_eq!(renamed.seats, 4);
+
+        assert!(matches!(rename_table(&conn, t2, "   "), Err(TableError::EmptyName)));
+        assert!(matches!(
+            rename_table(&conn, t2, "Table 1"),
+            Err(TableError::DuplicateName(_))
+        ));
+        assert!(matches!(
+            rename_table(&conn, 999_999, "Whatever"),
+            Err(TableError::TableNotFound)
+        ));
+    }
+
+    #[test]
+    fn delete_table_removes_a_free_table() {
+        let conn = test_conn();
+        let t2 = table_id(&conn, "Table 2"); // seeded free, no parked order
+
+        delete_table(&conn, t2).unwrap();
+
+        let exists: bool =
+            conn.query_row("SELECT EXISTS(SELECT 1 FROM tables WHERE id = ?1)", params![t2], |row| row.get(0)).unwrap();
+        assert!(!exists);
+    }
+
+    #[test]
+    fn delete_table_refuses_a_table_with_an_open_order() {
+        let conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let t2 = table_id(&conn, "Table 2");
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+
+        assert!(matches!(delete_table(&conn, t2), Err(TableError::HasOpenOrder(_))));
+
+        // Refused, not partially applied — the table and its order both
+        // still exist afterwards.
+        let exists: bool =
+            conn.query_row("SELECT EXISTS(SELECT 1 FROM tables WHERE id = ?1)", params![t2], |row| row.get(0)).unwrap();
+        assert!(exists);
+    }
+
+    #[test]
+    fn delete_table_rejects_unknown_table() {
+        let conn = test_conn();
+        assert!(matches!(delete_table(&conn, 999_999), Err(TableError::TableNotFound)));
     }
 
     #[test]

@@ -11,13 +11,23 @@ import type { ModuleKey, Role } from "../types";
  * | Tables — bill against a table   |   ✓   |   ✓   |    ✓    |
  * | Tables — floor management       |   ✓   |   ✓   |         |
  * | Dashboard                       |   ✓   |   ✓   |         |
- * | Reports                         |   ✓   |   ✓   |         |
- * | Attendance                      |   ✓   |   ✓   |         |
- * | Expenses                        |   ✓   |   ✓   |         |
- * | Salary                          |   ✓   |   ✓   |         |
+ * | Reports                         |  PIN  |  PIN  |   PIN   |
+ * | Attendance                      |  PIN  |  PIN  |   PIN   |
+ * | Expenses                        |  PIN  |  PIN  |   PIN   |
+ * | Salary                          |  PIN  |  PIN  |   PIN   |
+ * | Employee management             |  PIN  |  PIN  |   PIN   |
  * | Settings (module toggles, config)|  ✓   |   ✓   |         |
  * | User management (screen access) |   ✓   |   ✓   |         |
- * | Employee management             |   ✓   |   ✓   |         |
+ *
+ * "PIN" rows are gated by the shared "sensitive area" PIN
+ * (`AreaPinGate`/`db::security_pin` on the Rust side), not by role — Owner,
+ * Admin and Cashier all pass the exact same server-side check
+ * (`require_area_access` in `commands.rs`) once they've entered the correct
+ * PIN, required fresh on every visit (no session persistence). This is a
+ * deliberate departure from every other row in this table, which
+ * `roleCanAccessModule`/`isAdminRole` below still gate by role alone — the
+ * PIN *is* the authorization for these five, not an extra layer on top of
+ * one. Changing the PIN itself is still Owner/Admin only (Settings).
  *
  * Owner and Admin see the same *screens*, but User Management itself is
  * hierarchical, not flat — there is exactly one Owner account per
@@ -43,8 +53,12 @@ import type { ModuleKey, Role } from "../types";
  * confused user, not a deliberate one poking `invoke()` directly.
  */
 
-/** Cashiers get the till and a look at stock; nothing else. */
-const CASHIER_MODULES: ModuleKey[] = ["billing", "inventory"];
+/** Cashiers get the till and a look at stock unconditionally. Attendance,
+ * expenses, salary and reports are also reachable — but only in the sense
+ * that the route/nav link isn't hidden; actually opening one still requires
+ * the shared area PIN (`AreaPinGate`), which every role goes through
+ * equally. See this file's doc comment's "PIN" rows. */
+const CASHIER_MODULES: ModuleKey[] = ["billing", "inventory", "attendance", "expenses", "salary", "reports"];
 
 /** Modules a cashier may open but must not edit. */
 const CASHIER_READ_ONLY_MODULES: ModuleKey[] = ["inventory"];
@@ -68,12 +82,14 @@ export function roleCanManageUsers(role: Role): boolean {
   return isAdminRole(role);
 }
 
-/** Same tier again — employee (payroll/attendance) records are managed on
- * their own screen too, gated the same as Users/Settings rather than tied to
- * the Attendance or Salary module toggle, since either module can consume
- * this list even when the other (or both) are off. */
-export function roleCanManageEmployees(role: Role): boolean {
-  return isAdminRole(role);
+/** Employee (payroll/attendance) records have their own screen, not tied to
+ * the Attendance or Salary module toggle (either module can consume this
+ * list even when the other, or both, are off) — and unlike Settings/Users
+ * above, it's gated by the shared area PIN (`AreaPinGate`), not by role, so
+ * every role gets the nav link; actually opening it still requires the PIN.
+ * See this file's doc comment's "PIN" rows. */
+export function canAttemptEmployeesScreen(): boolean {
+  return true;
 }
 
 export function isModuleReadOnlyFor(role: Role, key: ModuleKey): boolean {

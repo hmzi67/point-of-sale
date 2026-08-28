@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AreaPinGate } from "./components/auth/AreaPinGate";
 import { ModuleRoute } from "./components/auth/ModuleRoute";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { RequireOnboarding } from "./components/auth/RequireOnboarding";
@@ -87,7 +88,9 @@ export function App() {
                 path="reports"
                 element={
                   <ModuleRoute moduleKey="reports">
-                    <ReportsPage />
+                    <AreaPinGate key="reports" label="Reports">
+                      <ReportsPage />
+                    </AreaPinGate>
                   </ModuleRoute>
                 }
               />
@@ -103,7 +106,9 @@ export function App() {
                 path="attendance"
                 element={
                   <ModuleRoute moduleKey="attendance">
-                    <AttendancePage />
+                    <AreaPinGate key="attendance" label="Attendance">
+                      <AttendancePage />
+                    </AreaPinGate>
                   </ModuleRoute>
                 }
               />
@@ -111,7 +116,9 @@ export function App() {
                 path="expenses"
                 element={
                   <ModuleRoute moduleKey="expenses">
-                    <ExpensesPage />
+                    <AreaPinGate key="expenses" label="Expenses">
+                      <ExpensesPage />
+                    </AreaPinGate>
                   </ModuleRoute>
                 }
               />
@@ -119,7 +126,9 @@ export function App() {
                 path="salary"
                 element={
                   <ModuleRoute moduleKey="salary">
-                    <SalaryPage />
+                    <AreaPinGate key="salary" label="Salary">
+                      <SalaryPage />
+                    </AreaPinGate>
                   </ModuleRoute>
                 }
               />
@@ -147,12 +156,16 @@ export function App() {
                   </ModuleRoute>
                 }
               />
+              {/* No `adminOnly`/`moduleKey` here — Employees isn't a
+                  toggleable module, and the "sensitive area" PIN (below) is
+                  now what actually gates it for every role, same as
+                  Attendance/Expenses/Salary/Reports above. */}
               <Route
                 path="employees"
                 element={
-                  <ModuleRoute adminOnly>
+                  <AreaPinGate key="employees" label="Employees">
                     <EmployeesPage />
-                  </ModuleRoute>
+                  </AreaPinGate>
                 }
               />
               <Route path="404" element={<NotFoundPage />} />
