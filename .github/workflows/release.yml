@@ -1,8 +1,14 @@
-# Builds production artifacts for Windows, macOS (Apple Silicon + Intel) and
-# Android whenever a `v*` tag is pushed, and collects them all onto a single
-# GitHub release for that tag.
+# Builds production artifacts for Windows (x64 + x86), Linux (x64), macOS
+# (Apple Silicon + Intel) and Android whenever a `v*` tag is pushed, and
+# collects them all onto a single GitHub release for that tag.
 #
 # iOS is intentionally out of scope — see PROJECT_GOALS.md / BUILD_PLAN.md.
+#
+# 32-bit coverage is Windows only (i686-pc-windows-msvc). A 32-bit Linux
+# build was deliberately left out: Ubuntu's GitHub-hosted runners don't ship
+# 32-bit webkit2gtk packages, so producing one would need a multiarch/chroot
+# toolchain that's fragile to keep green in CI — not worth it unless a real
+# 32-bit Linux user shows up.
 #
 # ---------------------------------------------------------------------------
 # VERSION PINS THAT NEED PERIODIC VERIFICATION
@@ -115,13 +121,19 @@ jobs:
             return data.id;
 
   windows:
-    name: Build Windows
+    name: Build Windows (${{ matrix.target }})
     needs: create-release
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
     # Observed cold-build time (no Rust cache) is ~9-11 minutes end-to-end
-    # for this job; with Swatinem/rust-cache warm, expect roughly half
-    # that. 45 minutes gives real headroom over both without masking a
-    # genuinely stuck build behind an ambiguous cancellation.
+    # for the x64 leg; with Swatinem/rust-cache warm, expect roughly half
+    # that. The x86 leg is a separate, from-scratch compile (its own cache
+    # key below) so give it the same headroom. 45 minutes gives real
+    # headroom over both without masking a genuinely stuck build behind an
+    # ambiguous cancellation.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
@@ -132,14 +144,17 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
-      # Caches ~/.cargo and src-tauri/target keyed on Cargo.lock, so a
-      # release rebuild doesn't recompile every dependency from scratch —
-      # see the concurrency comment above for why builds staying fast also
-      # shrinks the window a re-pushed tag can clash in.
+      # Keyed by matrix.target too: both matrix jobs share the job id
+      # ("windows"), and without an explicit extra key Swatinem/rust-cache
+      # would key them the same despite compiling for different targets —
+      # same reasoning as the macOS job's cache below.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
+          key: ${{ matrix.target }}
           cache-on-failure: true
 
       - name: Install frontend dependencies
@@ -149,6 +164,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          args: --target ${{ matrix.target }}
           releaseId: ${{ needs.create-release.outputs.release_id }}
 
   macos:
@@ -216,6 +232,58 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target ${{ matrix.target }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+
+  linux:
+    name: Build Linux
+    needs: create-release
+    runs-on: ubuntu-22.04
+    # Pinned to ubuntu-22.04 rather than ubuntu-latest: Tauri's Linux bundler
+    # (AppImage in particular) links against the runner's system
+    # webkit2gtk/glibc, and an AppImage built on a newer Ubuntu doesn't run
+    # on an older one — 22.04 is Tauri's own documented recommendation for
+    # producing the most widely-compatible Linux artifacts.
+    #
+    # bundle.targets is "all" in tauri.conf.json, so a single build here
+    # produces AppImage + .deb + .rpm together — no per-format matrix needed.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          cache-on-failure: true
+
+      # webkit2gtk-4.1 + friends are the Tauri v2 Linux runtime deps; rpm
+      # and libfuse2 are needed for the .rpm and AppImage bundle targets
+      # respectively (AppImage's runtime shim needs FUSE2 at build time on
+      # 22.04 even though the resulting AppImage is self-contained).
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm \
+            libfuse2
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
 
   android:
@@ -383,7 +451,7 @@ jobs:
   # actually landed on it, so the release page never shows an incomplete set.
   finalize-release:
     name: Publish release
-    needs: [create-release, windows, macos, android]
+    needs: [create-release, windows, macos, linux, android]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
