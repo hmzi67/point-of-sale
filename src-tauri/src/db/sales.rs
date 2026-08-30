@@ -487,6 +487,7 @@ mod tests {
             ItemInput {
                 name: "Loose Channa".into(),
                 barcode: None,
+                short_code: None,
                 description: None,
                 price_minor: 12_987, // PKR 129.87/kg
                 cost_minor: 10_000,

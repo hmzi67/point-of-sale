@@ -4,13 +4,16 @@ import { useBillingStore } from "../../store";
 import { decimalToMinor, formatMinor, formatQty } from "../../utils/format";
 
 /**
- * "By Amount" entry for a `soldByAmount` item — a cashier types the rupee
- * amount a customer asked for ("100 rupees worth") instead of a quantity,
- * and this shows the computed quantity live (amount ÷ item.price) before
- * committing it to the cart, so the cashier sees what they're giving, not
- * just a hidden calculation. Reads `amountEntryItem` from the billing
- * store — see that field's doc comment for why it's there rather than
- * local state in whichever component (item card or search bar) opened it.
+ * Amount entry for a `soldByAmount` cart line — opened by selecting the
+ * line in the cart panel and pressing Enter (see `useFastBillingHotkeys`).
+ * A cashier types the rupee amount a customer asked for ("100 rupees
+ * worth") instead of a quantity, and this shows the computed quantity live
+ * (amount ÷ item.price) before committing, so the cashier sees what
+ * they're giving, not just a hidden calculation. Confirming SETS the
+ * line's qty to that computed value — replacing whatever was there, not
+ * adding to it (see `billingStore.addItemByAmount`). Reads `amountEntryItem`
+ * from the billing store — see that field's doc comment for why it's there
+ * rather than local state in the hook that opened it.
  */
 export function ItemAmountEntryModal() {
   const item = useBillingStore((state) => state.amountEntryItem);
@@ -70,7 +73,16 @@ export function ItemAmountEntryModal() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  confirm();
+                  // Enter always closes the popup — commits the typed
+                  // amount when there is one, otherwise just cancels
+                  // (same as Esc/clicking outside) rather than leaving a
+                  // cashier stuck on a dialog that silently did nothing.
+                  if (amountMinor > 0) confirm();
+                  else close();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  close();
                 }
               }}
               autoFocus

@@ -307,6 +307,7 @@ pub fn run() {
             commands::inventory_add_item,
             commands::inventory_update_item,
             commands::inventory_delete_item,
+            commands::inventory_suggest_short_code,
             commands::inventory_get_categories,
             commands::inventory_add_category,
             commands::inventory_import_csv,

@@ -39,8 +39,22 @@ body,
 
 body {
   @apply bg-slate-100 text-slate-900 antialiased;
-  /* Cashiers use this all day on low-spec machines: no text selection drag artifacts. */
   -webkit-font-smoothing: antialiased;
+  /* Cashiers use this all day on low-spec machines: no text-selection drag
+   * artifacts — a stray click-drag (or double-click) on a button/label used
+   * to leave the browser's native rectangular selection highlight sitting on
+   * top of it, with square corners that ignore the element's border-radius
+   * (most visible on a big solid-color target like Billing's "Place Order"
+   * button). `input`/`textarea` opt back in below since selecting an amount
+   * or note to edit/copy is still expected there. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Android's in-app splash (`SplashGate.tsx`) — a fade-in plus a subtle

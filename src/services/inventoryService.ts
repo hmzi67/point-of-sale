@@ -18,6 +18,13 @@ export function deleteItem(id: number): Promise<DeleteOutcome> {
   return call<DeleteOutcome>("inventory_delete_item", { id });
 }
 
+/** The next unused short code, for the "Add item" form to pre-fill — an
+ * Owner/Admin can still type over it. `null` once even a 4-digit code space
+ * is exhausted (see the Rust side's `items::suggest_next_short_code`). */
+export function suggestShortCode(): Promise<string | null> {
+  return call<string | null>("inventory_suggest_short_code", {});
+}
+
 export function getCategories(): Promise<Category[]> {
   return call<Category[]>("inventory_get_categories", {});
 }

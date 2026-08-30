@@ -12,7 +12,10 @@ import { OrderSummaryHeader } from "../components/billing/OrderSummaryHeader";
 import { OrderTypeAndTable } from "../components/billing/OrderTypeAndTable";
 import { PaymentMethodSelector } from "../components/billing/PaymentMethodSelector";
 import { ReceiptModal } from "../components/billing/ReceiptModal";
+import { ShortcutsHelpOverlay } from "../components/billing/ShortcutsHelpOverlay";
+import { TableQuickSelectModal } from "../components/billing/TableQuickSelectModal";
 import { useBestSellerIds } from "../hooks/useBestSellerIds";
+import { useFastBillingHotkeys } from "../hooks/useFastBillingHotkeys";
 import { useModules } from "../hooks/useModules";
 import { createSale } from "../services/billingService";
 import { getCategories, getItems } from "../services/inventoryService";
@@ -93,6 +96,7 @@ export function BillingPage() {
   const tableId = useBillingStore((state) => state.tableId);
   const clearCart = useBillingStore((state) => state.clearCart);
   const updateLine = useBillingStore((state) => state.updateLine);
+  const amountEntryItem = useBillingStore((state) => state.amountEntryItem);
 
   const editingEntry = editingItemId !== null ? cart[editingItemId] : undefined;
 
@@ -100,6 +104,21 @@ export function BillingPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
+
+  // Keyboard fast billing (desktop only — Android stays touch-first) is
+  // disabled while any modal already has the cashier's attention, so arrow
+  // keys/Delete/quick-entry never fight with a field inside one of them.
+  const fastBillingEnabled =
+    !IS_ANDROID && editingItemId === null && completedSale === null && amountEntryItem === null;
+  const fastBilling = useFastBillingHotkeys({
+    enabled: fastBillingEnabled,
+    items,
+    tablesEnabled,
+    // `completeSale` is defined further down this component, but this
+    // wrapper isn't invoked until a real Ctrl/Cmd+Enter keypress — well
+    // after render — so the forward reference is safe.
+    onPlaceOrder: () => void completeSale(),
+  });
 
   const cartLines = cartOrder.map((id) => cart[id]);
   const totals = computeCartTotals(cartLines, discountMode, discountValue, config.taxPercent);
@@ -167,7 +186,7 @@ export function BillingPage() {
       </div>
 
       {/* Checkout column */}
-      <div className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-3xl bg-white p-5 shadow-soft lg:w-[380px]">
+      <div className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-3xl bg-white p-5 shadow-soft lg:w-110">
         <OrderSummaryHeader />
 
         {tablesEnabled && (
@@ -180,9 +199,13 @@ export function BillingPage() {
           />
         )}
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <CartPanel currency={config.currency} onEditLine={setEditingItemId} />
-        </div>
+        {/* CartPanel is the checkout column's flexible middle (it carries its
+         * own flex-1 min-h-0 — see its doc comment): it claims exactly the
+         * space left over between this header/table row above and the
+         * totals/discount/payment/Place Order footer below, so that footer
+         * always sits flush against the panel's bottom edge regardless of
+         * cart size, instead of trailing right under a short item list. */}
+        <CartPanel currency={config.currency} onEditLine={setEditingItemId} />
 
         <dl className="space-y-1.5 border-t border-slate-100 pt-3 text-sm">
           <div className="flex justify-between text-slate-500">
@@ -256,6 +279,21 @@ export function BillingPage() {
       )}
 
       <ItemAmountEntryModal />
+
+      {/* Keyboard fast billing UI — see `useFastBillingHotkeys`. */}
+      {fastBilling.buffer && (
+        <div
+          className="pointer-events-none fixed bottom-5 right-5 z-40 rounded-xl bg-slate-900/85 px-3 py-1.5 font-mono text-sm text-white shadow-soft-lg"
+          aria-live="polite"
+        >
+          {fastBilling.buffer}
+          <span className="animate-pulse">_</span>
+        </div>
+      )}
+      {fastBilling.tablePopupOpen && <TableQuickSelectModal onClose={fastBilling.closeTablePopup} />}
+      {fastBilling.showHelp && (
+        <ShortcutsHelpOverlay tablesEnabled={tablesEnabled} onClose={fastBilling.closeHelp} />
+      )}
     </div>
   );
 }

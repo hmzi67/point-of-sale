@@ -32,6 +32,15 @@ function minQty(entry: Pick<CartEntry, "soldByAmount">): number {
   return entry.soldByAmount ? 0.01 : 1;
 }
 
+/** The keyboard fast-billing arrow-key qty step — always a whole unit, same
+ * as the mouse +/- stepper, for every line including a `soldByAmount` one.
+ * Left/Right is a quantity control, not the amount one — typing a rupee
+ * amount is what the Enter popup is for (see `ItemAmountEntryModal`); the
+ * arrow keys just nudge the piece count up/down from there. */
+function qtyStep(): number {
+  return 1;
+}
+
 export type DiscountMode = "flat" | "percent";
 
 interface BillingState {
@@ -41,6 +50,13 @@ interface BillingState {
    * over for row order, kept separate so it only changes on add/remove. */
   cart: Record<number, CartEntry>;
   cartOrder: number[];
+
+  /** The keyboard fast-billing "active line" — highlighted in the cart panel,
+   * and the target of the arrow-key qty adjust and Delete/Backspace remove
+   * shortcuts. `null` when nothing's selected (empty cart, or the active
+   * line was just removed). Not touched by mouse interactions — a cashier
+   * clicking a stepper doesn't fight the keyboard flow for this. */
+  activeLineItemId: number | null;
 
   discountMode: DiscountMode;
   /** Raw input value: a currency amount when `discountMode` is "flat", a
@@ -70,11 +86,14 @@ interface BillingState {
   addItem: (item: Item) => void;
   /** "By Amount" entry for a `soldByAmount` item: computes qty from a
    * rupee amount (amountMinor ÷ item.priceMinor, rounded to 2dp — see
-   * `ItemAmountEntryModal`) and adds it the same way `addItem` does
-   * (+existing qty if the item's already in the cart, a fresh line
-   * otherwise). Does nothing for an item that isn't `soldByAmount` — the
-   * caller (the amount-entry UI) only ever appears for one, but this is
-   * the same defensive floor `addItem` has via `item.stockQty <= 0`. */
+   * `ItemAmountEntryModal`) and SETS the line to exactly that qty —
+   * replacing whatever qty was there, not adding to it. The normal trigger
+   * (`useFastBillingHotkeys`'s Enter-on-active-line) only ever fires for a
+   * line already in the cart (added at qty 0 by `addItem`), but this also
+   * creates the line if it somehow isn't there yet, at that same computed
+   * qty. Does nothing for an item that isn't `soldByAmount` — the caller
+   * only ever opens the popup for one, but this is the same defensive floor
+   * `addItem` has via `item.stockQty <= 0`. */
   addItemByAmount: (item: Item, amountMinor: number) => void;
   /** The cart row's notes-pencil "edit" flow: sets (not adds) qty and notes
    * to exactly the given values, since this is editing an existing line
@@ -82,6 +101,22 @@ interface BillingState {
   updateLine: (itemId: number, qty: number, notes: string) => void;
   setQty: (itemId: number, qty: number) => void;
   removeItem: (itemId: number) => void;
+
+  /** Keyboard fast-billing: selects one cart line as "active" (or clears the
+   * selection with `null`). */
+  setActiveLine: (itemId: number | null) => void;
+  /** Moves the active selection up (`-1`) or down (`1`) through `cartOrder`.
+   * No active line yet picks the first (down) or last (up) line; already at
+   * an end just stays put rather than wrapping, matching how a spreadsheet's
+   * arrow keys behave at a sheet's edge. A no-op on an empty cart. */
+  moveActiveLine: (direction: -1 | 1) => void;
+  /** Adjusts the active line's qty by one step (see `qtyStep`) in the given
+   * direction, reusing the same stock-clamp/remove-at-floor rules the mouse
+   * +/- stepper already has. A no-op with nothing active. */
+  adjustActiveQty: (direction: -1 | 1) => void;
+  /** Removes the active line entirely (same effect as the row's trash icon)
+   * and clears the selection. A no-op with nothing active. */
+  removeActiveLine: () => void;
   setDiscountMode: (mode: DiscountMode) => void;
   setDiscountValue: (value: number) => void;
   setPaymentMethod: (method: PaymentMethod) => void;
@@ -91,14 +126,14 @@ interface BillingState {
   loadParkedCart: (lines: ParkedCartLine[], discountMinor: number, resolveItem: (id: number) => Item | undefined) => void;
   clearCart: () => void;
 
-  /** Which `soldByAmount` item's "By Amount" entry popup is currently open,
-   * if any. Transient UI state, not cart data — lives here (rather than as
-   * local state in whichever component triggered it) because both the item
-   * grid's card and the search bar's result list need to be able to open
-   * the same modal, and neither is an ancestor of the other; `BillingPage`
-   * mounts the one `ItemAmountEntryModal` that reads this. Same reasoning
-   * `tableId`/`customerName` above already established for billing-UI
-   * state that isn't itself a cart line. */
+  /** Which `soldByAmount` item's amount-entry popup is currently open, if
+   * any. Transient UI state, not cart data — lives here (rather than as
+   * local state in whichever component triggered it) because the trigger
+   * (`useFastBillingHotkeys`'s Enter-on-active-line — select a soldByAmount
+   * line already in the cart, press Enter) isn't an ancestor of the modal;
+   * `BillingPage` mounts the one `ItemAmountEntryModal` that reads this.
+   * Same reasoning `tableId`/`customerName` above already established for
+   * billing-UI state that isn't itself a cart line. */
   amountEntryItem: Item | null;
   requestAmountEntry: (item: Item) => void;
   cancelAmountEntry: () => void;
@@ -107,6 +142,7 @@ interface BillingState {
 const initialCartState = {
   cart: {} as Record<number, CartEntry>,
   cartOrder: [] as number[],
+  activeLineItemId: null as number | null,
   discountMode: "flat" as DiscountMode,
   discountValue: 0,
   tableId: null as number | null,
@@ -125,6 +161,11 @@ export const useBillingStore = create<BillingState>((set) => ({
     set((state) => {
       const existing = state.cart[item.id];
       if (existing) {
+        // A soldByAmount line's qty is only ever set via the amount popup
+        // (Enter on the active cart line) — a repeat card click while it's
+        // already in the cart just leaves it alone rather than silently
+        // stacking a meaningless "+1 unit" onto a weighed/loose line.
+        if (item.soldByAmount) return state;
         const qty = Math.min(existing.qty + 1, item.stockQty);
         return { cart: { ...state.cart, [item.id]: { ...existing, qty } } };
       }
@@ -136,7 +177,12 @@ export const useBillingStore = create<BillingState>((set) => ({
         priceMinor: item.priceMinor,
         stockQty: item.stockQty,
         imagePath: item.imagePath,
-        qty: 1,
+        // A soldByAmount item starts at 0, not 1 — the card's single "Add
+        // to Cart" button just puts it on the ticket; the cashier then
+        // selects the line and presses Enter to type the actual amount
+        // (see `useFastBillingHotkeys`/`ItemAmountEntryModal`). A plain
+        // per-piece item still starts at 1, same as always.
+        qty: item.soldByAmount ? 0 : 1,
         notes: "",
         soldByAmount: item.soldByAmount,
         unit: item.unit,
@@ -158,13 +204,15 @@ export const useBillingStore = create<BillingState>((set) => ({
     // which this doesn't bypass just because the cashier's input was an
     // amount instead of a qty).
     const rawQty = amountMinor / item.priceMinor;
-    const qty = Math.round(rawQty * 100) / 100;
+    const qty = Math.min(Math.round(rawQty * 100) / 100, item.stockQty);
 
     set((state) => {
       const existing = state.cart[item.id];
       if (existing) {
-        const newQty = Math.min(existing.qty + qty, item.stockQty);
-        return { cart: { ...state.cart, [item.id]: { ...existing, qty: newQty } } };
+        // SET, not add — typing 50 always means "this line is worth PKR 50
+        // now", regardless of whatever qty (0, or a previously-set amount)
+        // was there before.
+        return { cart: { ...state.cart, [item.id]: { ...existing, qty } } };
       }
 
       const entry: CartEntry = {
@@ -174,7 +222,7 @@ export const useBillingStore = create<BillingState>((set) => ({
         priceMinor: item.priceMinor,
         stockQty: item.stockQty,
         imagePath: item.imagePath,
-        qty: Math.min(qty, item.stockQty),
+        qty,
         notes: "",
         soldByAmount: item.soldByAmount,
         unit: item.unit,
@@ -207,7 +255,67 @@ export const useBillingStore = create<BillingState>((set) => ({
   removeItem: (itemId) => {
     set((state) => {
       const { [itemId]: _removed, ...rest } = state.cart;
-      return { cart: rest, cartOrder: state.cartOrder.filter((id) => id !== itemId) };
+      return {
+        cart: rest,
+        cartOrder: state.cartOrder.filter((id) => id !== itemId),
+        activeLineItemId: state.activeLineItemId === itemId ? null : state.activeLineItemId,
+      };
+    });
+  },
+
+  setActiveLine: (itemId) => set({ activeLineItemId: itemId }),
+
+  moveActiveLine: (direction) => {
+    set((state) => {
+      if (state.cartOrder.length === 0) return state;
+      const currentIndex = state.activeLineItemId === null ? -1 : state.cartOrder.indexOf(state.activeLineItemId);
+
+      let nextIndex: number;
+      if (currentIndex === -1) {
+        nextIndex = direction === 1 ? 0 : state.cartOrder.length - 1;
+      } else {
+        nextIndex = Math.max(0, Math.min(state.cartOrder.length - 1, currentIndex + direction));
+      }
+
+      return { activeLineItemId: state.cartOrder[nextIndex] };
+    });
+  },
+
+  adjustActiveQty: (direction) => {
+    set((state) => {
+      if (state.activeLineItemId === null) return state;
+      const entry = state.cart[state.activeLineItemId];
+      if (!entry) return state;
+
+      const step = qtyStep();
+      const nextQty = Math.round((entry.qty + direction * step) * 100) / 100;
+
+      // Same floor behavior as the mouse stepper (CartRow/ItemCard): dropping
+      // at or below the minimum removes the line outright rather than
+      // clamping to a value the cashier didn't ask for.
+      if (nextQty < minQty(entry)) {
+        const { [state.activeLineItemId]: _removed, ...rest } = state.cart;
+        return {
+          cart: rest,
+          cartOrder: state.cartOrder.filter((id) => id !== state.activeLineItemId),
+          activeLineItemId: null,
+        };
+      }
+
+      const clamped = Math.min(nextQty, entry.stockQty);
+      return { cart: { ...state.cart, [state.activeLineItemId]: { ...entry, qty: clamped } } };
+    });
+  },
+
+  removeActiveLine: () => {
+    set((state) => {
+      if (state.activeLineItemId === null) return state;
+      const { [state.activeLineItemId]: _removed, ...rest } = state.cart;
+      return {
+        cart: rest,
+        cartOrder: state.cartOrder.filter((id) => id !== state.activeLineItemId),
+        activeLineItemId: null,
+      };
     });
   },
 
@@ -245,6 +353,7 @@ export const useBillingStore = create<BillingState>((set) => ({
     set({
       cart,
       cartOrder,
+      activeLineItemId: null,
       discountMode: "flat",
       discountValue: discountMinor / 100,
     });

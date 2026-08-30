@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Plus, X } from "lucide-react";
 import { useInventoryStore } from "../../store";
-import { uploadItemImage } from "../../services/inventoryService";
+import { suggestShortCode, uploadItemImage } from "../../services/inventoryService";
 import { useModules } from "../../hooks/useModules";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import { readImageFile } from "../../utils/image";
@@ -16,6 +16,9 @@ interface ItemFormModalProps {
 interface FormState {
   name: string;
   barcode: string;
+  /** Short (2-4 digit) PLU-style code for keyboard-first billing. Empty
+   * string means "not set" — same convention as `barcode`. */
+  shortCode: string;
   /** Short blurb shown on the billing screen's item detail modal. */
   description: string;
   price: string;
@@ -42,6 +45,7 @@ function toFormState(item?: Item): FormState {
   return {
     name: item?.name ?? "",
     barcode: item?.barcode ?? "",
+    shortCode: item?.shortCode ?? "",
     description: item?.description ?? "",
     price: item ? String(minorToDecimal(item.priceMinor)) : "",
     cost: item ? String(minorToDecimal(item.costMinor)) : "",
@@ -91,6 +95,23 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   useEffect(() => {
     if (item?.imagePath) ensureImage(item.imagePath);
   }, [item?.imagePath, ensureImage]);
+
+  // Auto-suggests the next unused short code for a brand-new item only — an
+  // edit keeps whatever code (or lack of one) the item already has. Just a
+  // starting point: the field below stays a plain text input the Owner/Admin
+  // can freely override or clear before saving.
+  useEffect(() => {
+    if (item) return;
+    suggestShortCode()
+      .then((code) => {
+        if (code) setForm((current) => (current.shortCode ? current : { ...current, shortCode: code }));
+      })
+      .catch(() => {
+        /* best-effort suggestion — the field is still editable by hand */
+      });
+    // Only ever runs once, on mount, for the "add" form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // Barcode scanners send Enter after typing the code; outside a text
@@ -165,10 +186,15 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
     if (!Number.isInteger(lowStockThreshold) || lowStockThreshold < 0) {
       return setError("Low-stock threshold must be a whole number.");
     }
+    const shortCode = form.shortCode.trim();
+    if (shortCode && (shortCode.length < 2 || shortCode.length > 4)) {
+      return setError("Quick code must be 2-4 digits.");
+    }
 
     const input: ItemInput = {
       name: form.name.trim(),
       barcode: form.barcode.trim() || null,
+      shortCode: shortCode || null,
       description: form.description.trim() || null,
       priceMinor: decimalToMinor(price),
       costMinor: decimalToMinor(cost),
@@ -302,6 +328,26 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               placeholder="Scan or type…"
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-500" htmlFor="item-short-code">
+              Quick code <span className="text-slate-400">(optional — for keyboard billing)</span>
+            </label>
+            <input
+              id="item-short-code"
+              value={form.shortCode}
+              onChange={(e) => set("shortCode", e.target.value.replace(/\D/g, "").slice(0, 4))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.preventDefault();
+              }}
+              inputMode="numeric"
+              placeholder="e.g. 12"
+              className="mt-1 w-full max-w-[8rem] rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">
+              2-4 digits. A cashier can type this straight into the billing screen instead of scanning a barcode.
+            </p>
           </div>
 
           <div>

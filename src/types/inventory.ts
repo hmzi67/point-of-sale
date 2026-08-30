@@ -13,6 +13,11 @@ export interface Item {
   id: number;
   name: string;
   barcode: string | null;
+  /** Short (2-4 digit) PLU-style code for keyboard-first billing — a cashier
+   * types this into the billing screen's quick-entry buffer instead of
+   * scanning. `null` for most items until an Owner/Admin sets one; such an
+   * item just stays reachable only via search/tap/barcode, as before. */
+  shortCode: string | null;
   /** Short blurb shown on the billing screen's item detail modal. */
   description: string | null;
   priceMinor: number;
@@ -47,6 +52,7 @@ export interface Item {
 export interface ItemInput {
   name: string;
   barcode: string | null;
+  shortCode: string | null;
   description: string | null;
   priceMinor: number;
   costMinor: number;

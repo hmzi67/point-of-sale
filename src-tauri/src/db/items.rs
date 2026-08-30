@@ -84,6 +84,13 @@ pub struct Item {
     pub id: i64,
     pub name: String,
     pub barcode: Option<String>,
+    /// Short (2-4 digit) PLU-style code for keyboard-first billing — a
+    /// cashier types this into the billing screen's quick-entry buffer
+    /// instead of scanning a barcode. Deliberately a separate field from
+    /// `barcode`: not every item needs one, and lookup tries `barcode`
+    /// first, falling back to this — see `db::items::search_items`'s sibling
+    /// `find_by_code` used by the billing quick-entry command.
+    pub short_code: Option<String>,
     /// Short blurb shown on the billing screen's item detail modal.
     pub description: Option<String>,
     pub price_minor: i64,
@@ -129,6 +136,7 @@ pub struct Item {
 pub struct ItemInput {
     pub name: String,
     pub barcode: Option<String>,
+    pub short_code: Option<String>,
     pub description: Option<String>,
     pub price_minor: i64,
     pub cost_minor: i64,
@@ -158,6 +166,7 @@ pub struct ItemQuery {
 pub enum ItemError {
     NotFound,
     DuplicateBarcode(String),
+    DuplicateShortCode(String),
     UnknownCategory(i64),
     UnknownCounter(i64),
     Validation(String),
@@ -171,6 +180,9 @@ impl std::fmt::Display for ItemError {
             ItemError::NotFound => write!(f, "Item not found"),
             ItemError::DuplicateBarcode(code) => {
                 write!(f, "Barcode \"{}\" is already used by another item", code)
+            }
+            ItemError::DuplicateShortCode(code) => {
+                write!(f, "Code \"{}\" is already used by another item", code)
             }
             ItemError::UnknownCategory(id) => write!(f, "Category {} does not exist", id),
             ItemError::UnknownCounter(id) => write!(f, "Counter {} does not exist", id),
@@ -186,7 +198,7 @@ impl From<rusqlite::Error> for ItemError {
     }
 }
 
-const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.description, i.price_minor, i.cost_minor,
+const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.short_code, i.description, i.price_minor, i.cost_minor,
        i.stock_qty, i.category_id, c.name AS category_name,
        i.low_stock_threshold, i.is_active, i.image_path, i.sold_by_amount, i.unit,
        i.counter_id, k.name AS counter_name
@@ -201,6 +213,7 @@ fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
         id: row.get("id")?,
         name: row.get("name")?,
         barcode: row.get("barcode")?,
+        short_code: row.get("short_code")?,
         description: row.get("description")?,
         price_minor: row.get("price_minor")?,
         cost_minor: row.get("cost_minor")?,
@@ -284,6 +297,32 @@ pub fn search_items(conn: &Connection, query: &str, limit: i64) -> Result<Vec<It
     rows.collect()
 }
 
+/// The next unused short code for the "Add item" form to pre-fill — an
+/// Owner/Admin can still type over it. Picks one past the highest
+/// numerically-valued existing code (so codes stay roughly assignment-order,
+/// not reused after a gap from a deleted item), starting at "01" for the
+/// first item ever given one, and always zero-padded to at least 2 digits
+/// (the format's floor — see `schema.sql`'s doc comment on the column). Once
+/// past 99 it grows to 3 then 4 digits naturally, and stops suggesting
+/// (returns `None`) once even a 4-digit code space would be exhausted —
+/// vanishingly unlikely for a single shop's catalogue, but a suggestion is
+/// only ever a starting point the form lets the caller override anyway.
+pub fn suggest_next_short_code(conn: &Connection) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT short_code FROM items WHERE short_code IS NOT NULL")?;
+    let max_used = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(|code| code.ok())
+        .filter_map(|code| code.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+
+    let next = max_used + 1;
+    if next > 9999 {
+        return Ok(None);
+    }
+    Ok(Some(format!("{:02}", next)))
+}
+
 pub fn get_item(conn: &Connection, id: i64) -> Result<Item, ItemError> {
     let sql = format!("{} WHERE i.id = ?1", SELECT_ITEM);
     conn.query_row(&sql, params![id], from_row)
@@ -303,6 +342,13 @@ fn validate(conn: &Connection, input: &ItemInput) -> Result<(), ItemError> {
     }
     if input.low_stock_threshold < 0 {
         return Err(ItemError::Validation("Low-stock threshold cannot be negative".into()));
+    }
+
+    if let Some(code) = input.short_code.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let is_2_to_4_digits = (2..=4).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_digit());
+        if !is_2_to_4_digits {
+            return Err(ItemError::Validation("Short code must be 2-4 digits".into()));
+        }
     }
 
     if let Some(category_id) = input.category_id {
@@ -330,10 +376,20 @@ fn validate(conn: &Connection, input: &ItemInput) -> Result<(), ItemError> {
     Ok(())
 }
 
-fn map_barcode_conflict(err: rusqlite::Error, barcode: &Option<String>) -> ItemError {
+/// Maps a UNIQUE-constraint violation (SQLite extended code 2067) on either
+/// `items.barcode` or `items.short_code` to the matching typed error — the
+/// message text SQLite attaches names the column that actually conflicted
+/// (`"UNIQUE constraint failed: items.short_code"`), so that's what
+/// disambiguates which of the two this was, since both fire the same
+/// extended code.
+fn map_unique_conflict(err: rusqlite::Error, barcode: &Option<String>, short_code: &Option<String>) -> ItemError {
     match err {
-        rusqlite::Error::SqliteFailure(e, _) if e.extended_code == 2067 => {
-            ItemError::DuplicateBarcode(barcode.clone().unwrap_or_default())
+        rusqlite::Error::SqliteFailure(e, ref msg) if e.extended_code == 2067 => {
+            if msg.as_deref().is_some_and(|m| m.contains("short_code")) {
+                ItemError::DuplicateShortCode(short_code.clone().unwrap_or_default())
+            } else {
+                ItemError::DuplicateBarcode(barcode.clone().unwrap_or_default())
+            }
         }
         other => ItemError::Sqlite(other),
     }
@@ -345,18 +401,20 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
     // Empty string is not a meaningful "no barcode" — normalize to NULL so it
     // never collides with another blank barcode under the UNIQUE constraint.
     let barcode = input.barcode.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let short_code = input.short_code.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let description = input.description.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     let unit = input.unit.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     conn.execute(
         "INSERT INTO items
-             (name, barcode, description, price_minor, cost_minor, stock_qty, category_id,
+             (name, barcode, short_code, description, price_minor, cost_minor, stock_qty, category_id,
               low_stock_threshold, image_path, sold_by_amount, unit, counter_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             name,
             barcode,
+            short_code,
             description,
             input.price_minor,
             input.cost_minor,
@@ -369,7 +427,7 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
             input.counter_id,
         ],
     )
-    .map_err(|err| map_barcode_conflict(err, &barcode.map(str::to_string)))?;
+    .map_err(|err| map_unique_conflict(err, &barcode.map(str::to_string), &short_code.map(str::to_string)))?;
 
     get_item(conn, conn.last_insert_rowid())
 }
@@ -378,6 +436,7 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
     validate(conn, &input)?;
     let name = input.name.trim();
     let barcode = input.barcode.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let short_code = input.short_code.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let description = input.description.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     let unit = input.unit.as_deref().map(str::trim).filter(|s| !s.is_empty());
@@ -385,14 +444,15 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
     let changed = conn
         .execute(
             "UPDATE items
-                SET name = ?1, barcode = ?2, description = ?3, price_minor = ?4, cost_minor = ?5,
-                    stock_qty = ?6, category_id = ?7, low_stock_threshold = ?8,
-                    image_path = ?9, sold_by_amount = ?10, unit = ?11, counter_id = ?12,
+                SET name = ?1, barcode = ?2, short_code = ?3, description = ?4, price_minor = ?5, cost_minor = ?6,
+                    stock_qty = ?7, category_id = ?8, low_stock_threshold = ?9,
+                    image_path = ?10, sold_by_amount = ?11, unit = ?12, counter_id = ?13,
                     updated_at = datetime('now', 'localtime')
-              WHERE id = ?13",
+              WHERE id = ?14",
             params![
                 name,
                 barcode,
+                short_code,
                 description,
                 input.price_minor,
                 input.cost_minor,
@@ -406,7 +466,7 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
                 id
             ],
         )
-        .map_err(|err| map_barcode_conflict(err, &barcode.map(str::to_string)))?;
+        .map_err(|err| map_unique_conflict(err, &barcode.map(str::to_string), &short_code.map(str::to_string)))?;
 
     if changed == 0 {
         return Err(ItemError::NotFound);
@@ -455,6 +515,7 @@ mod tests {
         ItemInput {
             name: name.to_string(),
             barcode: None,
+            short_code: None,
             description: None,
             price_minor: 10000,
             cost_minor: 8000,
@@ -616,6 +677,55 @@ mod tests {
         input.barcode = Some("8901234500011".into()); // already used by Cola
         let err = add_item(&conn, input).unwrap_err();
         assert!(matches!(err, ItemError::DuplicateBarcode(_)));
+    }
+
+    #[test]
+    fn short_code_round_trips_and_is_nullable() {
+        let conn = test_conn();
+        let mut input = basic_input("Coded Item");
+        input.short_code = Some("42".into());
+        let created = add_item(&conn, input).unwrap();
+        assert_eq!(created.short_code.as_deref(), Some("42"));
+
+        // Most items never get one — nullable, no format requirement then.
+        let uncoded = add_item(&conn, basic_input("Uncoded Item")).unwrap();
+        assert_eq!(uncoded.short_code, None);
+    }
+
+    #[test]
+    fn add_item_rejects_a_duplicate_short_code_distinctly_from_a_duplicate_barcode() {
+        let conn = test_conn();
+        let mut first = basic_input("First");
+        first.short_code = Some("07".into());
+        add_item(&conn, first).unwrap();
+
+        let mut second = basic_input("Second");
+        second.short_code = Some("07".into());
+        let err = add_item(&conn, second).unwrap_err();
+        assert!(matches!(err, ItemError::DuplicateShortCode(code) if code == "07"));
+    }
+
+    #[test]
+    fn add_item_rejects_a_short_code_outside_2_to_4_digits() {
+        let conn = test_conn();
+        let mut too_short = basic_input("Too Short");
+        too_short.short_code = Some("5".into());
+        assert!(matches!(add_item(&conn, too_short).unwrap_err(), ItemError::Validation(_)));
+
+        let mut not_digits = basic_input("Not Digits");
+        not_digits.short_code = Some("AB".into());
+        assert!(matches!(add_item(&conn, not_digits).unwrap_err(), ItemError::Validation(_)));
+    }
+
+    #[test]
+    fn suggest_next_short_code_climbs_past_the_highest_used_code() {
+        let conn = test_conn();
+        assert_eq!(suggest_next_short_code(&conn).unwrap().as_deref(), Some("01"));
+
+        let mut input = basic_input("Coded");
+        input.short_code = Some("07".into());
+        add_item(&conn, input).unwrap();
+        assert_eq!(suggest_next_short_code(&conn).unwrap().as_deref(), Some("08"));
     }
 
     #[test]

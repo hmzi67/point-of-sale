@@ -458,6 +458,7 @@ mod tests {
         ItemInput {
             name: name.to_string(),
             barcode: None,
+            short_code: None,
             description: None,
             price_minor: 10000,
             cost_minor: 8000,

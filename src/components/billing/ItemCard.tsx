@@ -19,16 +19,22 @@ interface ItemCardProps {
  * the cart yet, replaced by a qty stepper (subscribed to just this item's
  * cart entry, same pattern as `CartRow`) once it is. Decrementing from 1
  * removes the line entirely and reverts the card back to "Add to Cart".
+ *
+ * A `soldByAmount` item uses the exact same single button — it lands in the
+ * cart at qty 0 (see `billingStore.addItem`), and the cashier sets its real
+ * quantity by selecting that line in the cart panel and pressing Enter to
+ * type an amount (see `useFastBillingHotkeys`/`ItemAmountEntryModal`), or by
+ * using the stepper here/there like any other line.
  */
 export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps) {
   const outOfStock = item.stockQty <= 0;
   const color = categoryColor(item.categoryId);
 
+  const inCart = useBillingStore((state) => state.cart[item.id] !== undefined);
   const qty = useBillingStore((state) => state.cart[item.id]?.qty ?? 0);
   const addItem = useBillingStore((state) => state.addItem);
   const setQty = useBillingStore((state) => state.setQty);
   const removeItem = useBillingStore((state) => state.removeItem);
-  const requestAmountEntry = useBillingStore((state) => state.requestAmountEntry);
 
   const decrement = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -55,11 +61,21 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
       <div className="p-2.5 pb-0">
         <div className="relative overflow-hidden rounded-xl bg-slate-50">
           <ItemImage imagePath={item.imagePath} alt={item.name} className="h-28 w-full" />
-          {outOfStock && (
-            <span className="absolute left-2 top-2 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-semibold text-white">
-              Out of stock
-            </span>
-          )}
+          <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+            {item.shortCode && (
+              <span
+                className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-white"
+                title={`Quick code ${item.shortCode}`}
+              >
+                #{item.shortCode}
+              </span>
+            )}
+            {outOfStock && (
+              <span className="rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-semibold text-white">
+                Out of stock
+              </span>
+            )}
+          </div>
           {isBestSeller && !outOfStock && (
             <span
               className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-orange-500/90 text-white shadow-sm"
@@ -90,7 +106,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
           </span>
         </div>
 
-        {qty > 0 ? (
+        {inCart ? (
           <div className="mt-1 flex items-center justify-between rounded-xl bg-slate-100 p-1">
             <button
               type="button"
@@ -109,31 +125,6 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
               aria-label={`Increase quantity of ${item.name}`}
             >
               <Plus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ) : item.soldByAmount ? (
-          <div className="mt-1 grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!outOfStock) addItem(item);
-              }}
-              disabled={outOfStock}
-              className="rounded-xl border border-brand-200 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-            >
-              By Qty
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!outOfStock) requestAmountEntry(item);
-              }}
-              disabled={outOfStock}
-              className="rounded-xl bg-brand-600 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-            >
-              By Amount
             </button>
           </div>
         ) : (

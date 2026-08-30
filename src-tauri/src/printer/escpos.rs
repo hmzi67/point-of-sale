@@ -525,15 +525,19 @@ pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
 /// `layout::format_qty`'s doc comment, which explains why the bill's item
 /// table can't afford one).
 /// Deliberately stripped down to almost nothing — no logo, no business
-/// name, no phone, no counter/table/cashier line: just when it printed,
-/// which token it is, and what to prepare. A token is a scrap of paper
-/// handed to a counter and thrown away once the order's collected, not a
-/// record anyone needs to look back on, so every extra line here is just
-/// wasted paper on a kitchen printer that's producing dozens of these a
-/// shift. Counter/table identity — which physical station and which table
-/// this is for — is exactly what's been cut; if that turns out to be
-/// needed on the paper after all (a shared printer serving multiple
-/// counters, say), those are one `two_col` call each to bring back.
+/// name, no phone, no cashier line: just when it printed, which token it
+/// is, which table it's for, and what to prepare. A token is a scrap of
+/// paper handed to a counter and thrown away once the order's collected,
+/// not a record anyone needs to look back on, so every extra line here is
+/// just wasted paper on a kitchen printer that's producing dozens of these
+/// a shift. The one exception is the table — a kitchen serving several
+/// tables at once needs to know which order a ticket belongs to at a
+/// glance, not just what's on it, so `token.table_name` prints right under
+/// the token number when it's `Some` (an ad hoc/Takeaway token, with no
+/// table behind it, just skips the line rather than printing something
+/// like "Table: —"). Counter identity — which physical station this
+/// printed from — is still cut; that's one `two_col` call to bring back if
+/// a shared printer serving multiple counters ever needs it too.
 pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
     let mut out = Vec::new();
 
@@ -565,6 +569,10 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
         out.push(b'\n');
     }
     out.extend(bold(false));
+    if let Some(table_name) = &token.table_name {
+        out.extend(truncate_line(&format!("Table: {}", table_name)).as_bytes());
+        out.push(b'\n');
+    }
     out.extend(divider().as_bytes());
     out.push(b'\n');
     out.extend(align_left());
@@ -1943,11 +1951,25 @@ mod tests {
         assert!(text.contains("Cola 500ml"));
         // No prices/totals anywhere — this is a kitchen ticket, not a bill.
         assert!(!text.contains(&config_currency_marker()), "must not print a currency-formatted amount");
-        // Stripped down deliberately — no business identity or per-order
-        // context on the paper itself, see `build_token_bytes`'s doc comment.
+        // Stripped down deliberately — no business identity or counter
+        // identity on the paper itself, see `build_token_bytes`'s doc
+        // comment. The table *does* appear — kitchen staff need to know
+        // which order a ticket belongs to, see the test right below.
         assert!(!text.contains("Demo Shop"), "business name must not appear — a token is minimal by design");
         assert!(!text.contains("Channa Counter"), "counter name must not appear — reduced token format");
-        assert!(!text.contains("Table 4"), "table name must not appear — reduced token format");
+        assert!(text.contains("Table 4"), "table name must appear so kitchen staff know which order it's for");
+    }
+
+    #[test]
+    fn build_token_bytes_omits_the_table_line_for_an_ad_hoc_takeaway_token() {
+        let mut token = sample_token();
+        token.table_order_id = None;
+        token.table_id = None;
+        token.table_name = None;
+
+        let bytes = build_token_bytes(&token, false);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("Table"), "no table line at all for a token with no table behind it");
     }
 
     /// `format_minor`'s currency prefix — asserting its exact absence is a

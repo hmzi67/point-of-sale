@@ -491,6 +491,14 @@ pub fn inventory_get_image(app: AppHandle, file_name: String) -> Result<String, 
     images::read_image_data_url(&images_dir(&app)?, &file_name).map_err(|e| e.to_string())
 }
 
+/// The next unused short code, for the "Add item" form to pre-fill — an
+/// Owner/Admin can still type over it. `None` once even a 4-digit code
+/// space is exhausted (see `items::suggest_next_short_code`'s doc comment).
+#[tauri::command]
+pub fn inventory_suggest_short_code(db: State<'_, Db>) -> Result<Option<String>, String> {
+    db.with_conn(items::suggest_next_short_code).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn inventory_get_categories(db: State<'_, Db>) -> Result<Vec<Category>, String> {
     db.with_conn(items::list_categories).map_err(|e| e.to_string())

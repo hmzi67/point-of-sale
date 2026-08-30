@@ -18,13 +18,34 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
   const entry = useBillingStore((state) => state.cart[itemId]);
   const setQty = useBillingStore((state) => state.setQty);
   const removeItem = useBillingStore((state) => state.removeItem);
+  const isActive = useBillingStore((state) => state.activeLineItemId === itemId);
+  const setActiveLine = useBillingStore((state) => state.setActiveLine);
 
   if (!entry) return null;
 
   const lineTotalMinor = entry.priceMinor * entry.qty;
 
   return (
-    <li className="flex items-center gap-3 py-3">
+    <li
+      onClick={() => setActiveLine(itemId)}
+      // The row's separator line (previously the parent `<ul>`'s `divide-y`)
+      // is folded into this same `border` declaration rather than left as a
+      // separate utility on the list — a `divide-y` border-top and this
+      // row's own border-color compete for the same side, and `divide-y`'s
+      // `> :not(:first-child)` selector wins on specificity, leaving the
+      // active highlight's top edge a stray slate color instead of brand
+      // (a broken-looking top-left corner). Keeping every side's color on
+      // this one element, with the divider only added when inactive (an
+      // active row's border is a uniform brand-300 rectangle, no divider
+      // fighting it on the last real edge case: an active row that isn't
+      // the last one in the cart), avoids that conflict entirely.
+      className={[
+        "flex cursor-pointer items-center gap-3 rounded-xl py-3 px-2 -mx-2 border transition-colors",
+        isActive
+          ? "border-brand-300 bg-brand-50"
+          : "border-transparent [&:not(:last-child)]:border-b-slate-100",
+      ].join(" ")}
+    >
       <ItemImage imagePath={entry.imagePath} alt={entry.name} className="h-12 w-12 shrink-0 rounded-xl" />
 
       <div className="min-w-0 flex-1">

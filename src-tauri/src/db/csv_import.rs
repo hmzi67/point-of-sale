@@ -170,6 +170,7 @@ pub fn import_csv(conn: &Connection, csv_content: &str) -> Result<ImportSummary,
                     barcode,
                     // Not a CSV column (out of scope for bulk import) — an
                     // owner can add one later via the item edit form.
+                    short_code: None,
                     description: None,
                     price_minor,
                     cost_minor,

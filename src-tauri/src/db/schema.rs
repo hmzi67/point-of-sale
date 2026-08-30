@@ -251,6 +251,16 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // salted per call, as a static SQL `DEFAULT` literal the way e.g.
     // `onboarding_completed` above does).
     ("app_config", "sensitive_area_pin_hash", "TEXT"),
+    // Short (2-4 digit) PLU-style code for keyboard-first billing (see
+    // `db::items::suggest_next_short_code`) — a separate concept from
+    // `barcode`: a cashier can type this straight into the billing screen's
+    // quick-entry buffer instead of scanning. NULL for any item that hasn't
+    // been given one (most items, until an Owner/Admin sets one), which
+    // simply means it stays reachable only via search/tap/barcode, same as
+    // today. Uniqueness is enforced by `idx_items_short_code` below, not a
+    // column constraint — `ALTER TABLE ... ADD COLUMN` can't add a UNIQUE
+    // constraint, only `CREATE UNIQUE INDEX` can, hence the two-step setup.
+    ("items", "short_code", "TEXT"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs
@@ -291,6 +301,15 @@ fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
             index_name, table, column
         ))?;
     }
+
+    // `items.short_code` needs a UNIQUE index, not a plain one (same trap
+    // `ADDED_COLUMN_INDEXES` above documents: can't live in `schema.sql`
+    // since the column doesn't exist there on an upgrading install), and a
+    // plain `CREATE INDEX` can't be upgraded to unique in place — so this
+    // gets its own statement instead of an `ADDED_COLUMN_INDEXES` entry.
+    // SQLite's UNIQUE index already allows any number of NULLs, matching
+    // `barcode`'s same nullable-but-unique convention.
+    conn.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS idx_items_short_code ON items (short_code)")?;
 
     Ok(())
 }
