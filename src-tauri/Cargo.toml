@@ -37,8 +37,18 @@ tauri-plugin-fs = "2"
 # `MessageDialogImpl` simply aren't implemented for that target, a hard
 # compile error, not a runtime one. `lib.rs`'s `run()` falls back to logging
 # via `eprintln!` (reaches `adb logcat`) on Android instead.
+#
+# default-features disabled + explicit "gtk3": rfd's own defaults are
+# ["xdg-portal", "wayland"], while tauri-plugin-dialog's rfd dependency
+# defaults to "gtk3" — Cargo unifies features across the whole dependency
+# graph, so leaving this at its defaults enables both gtk3 and xdg-portal
+# on Linux at once, which rfd's build.rs treats as a hard error ("You can't
+# enable both `gtk3` and `xdg-portal` features at once"). Pinning to gtk3
+# here matches tauri-plugin-dialog's own default and this repo's existing
+# CI dependency install (libwebkit2gtk/libgtk are already required for the
+# webview itself), so it adds nothing new to the Linux build environment.
 [target.'cfg(not(target_os = "android"))'.dependencies]
-rfd = "0.16"
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 
 # macOS/Linux desktop printer transport: raw USB. Gated to
 # "not Android, not Windows" — Android is excluded for the libusb/permission
