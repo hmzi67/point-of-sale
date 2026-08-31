@@ -55,8 +55,8 @@ async function drawReceiptContent(
   // label-left/value-right table row (not centered prose) — only drawn at
   // all if at least one is set.
   const contactRows: Array<[string, string]> = [];
-  if (config.phone) contactRows.push(["Business No", config.phone]);
-  if (config.deliveryNumber) contactRows.push(["Delivery No", config.deliveryNumber]);
+  if (config.phone) contactRows.push(["Business", config.phone]);
+  if (config.deliveryNumber) contactRows.push(["Delivery", config.deliveryNumber]);
   if (contactRows.length > 0) {
     y = drawKeyValueRows(doc, y + 1, contactRows, 8);
     y += 3; // a clear gap before the sale info below, not butted right up against it

@@ -197,7 +197,9 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
         </label>
 
         <label className="block flex-1">
-          <span className="mb-1.5 block text-xs font-medium text-slate-500">Delivery number</span>
+          <span className="mb-1.5 block text-xs font-medium text-slate-500">
+            Delivery Contact Number (optional)
+          </span>
           <input
             type="tel"
             value={deliveryDraft}
@@ -209,7 +211,7 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
             className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:opacity-50"
           />
           <p className="mt-1 text-[11px] text-slate-400">
-            Optional — printed on receipts as "Delivery: …" only when set.
+            Optional — printed as its own "Delivery" row on receipts, only when set.
           </p>
           {isSavingDelivery && <p className="mt-1 text-xs text-slate-400">Saving…</p>}
           {deliveryError && <p className="mt-1 text-xs text-red-600">{deliveryError}</p>}

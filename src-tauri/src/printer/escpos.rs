@@ -319,8 +319,9 @@ fn close_out(out: &mut Vec<u8>, footer: &str) {
 /// and printing it at all is always an explicit click (`print_receipt`),
 /// never automatic.
 ///
-/// Deliberately compact: phone/delivery share one line, "Sale #N" and the
-/// timestamp share one line, Cashier and Table/Order Type share one line —
+/// Deliberately compact: phone and delivery number each get their own
+/// aligned row (see the two_col rows below), but "Sale #N" and the
+/// timestamp share one line, and Cashier and Table/Order Type share one line —
 /// every pair that can fit side by side does, and there are no spacer blank
 /// lines between sections, only the box-drawn table border and the
 /// `double_divider` above TOTAL doing that job. Less paper per sale, same
@@ -343,30 +344,34 @@ pub fn build_receipt_bytes(
         print_logo(&mut out, logo);
     }
 
-    // Centered subtitle block: phone + delivery number share a line (only
-    // the ones actually set), "Sale #N" + timestamp share a line — half the
-    // line count of printing each on its own, with no loss of information.
-    let mut subtitle = Vec::new();
-    let mut contact = Vec::new();
+    // Business/delivery contact numbers, each its own label-left/value-right
+    // row via `two_col` — the same column-alignment primitive every totals
+    // row already uses — so the two lines print as a clean aligned table
+    // rather than centered prose. Only the ones actually set print at all;
+    // a shop with no delivery service just never gets that row.
+    let mut contact_rows: Vec<(&str, String)> = Vec::new();
     if let Some(phone) = &config.phone {
         if !phone.trim().is_empty() {
-            contact.push(phone.clone());
+            contact_rows.push(("Business", phone.clone()));
         }
     }
     if let Some(delivery_number) = &config.delivery_number {
         if !delivery_number.trim().is_empty() {
-            contact.push(format!("Delivery: {delivery_number}"));
+            contact_rows.push(("Delivery", delivery_number.clone()));
         }
     }
-    if !contact.is_empty() {
-        subtitle.push(contact.join("  |  "));
+    if !contact_rows.is_empty() {
+        out.extend(align_left());
+        for (label, value) in &contact_rows {
+            out.extend(two_col(label, value).as_bytes());
+            out.push(b'\n');
+        }
     }
-    subtitle.push(format!("Sale #{}  {}", sale.id, sale.created_at));
+
+    // "Sale #N" + timestamp still centered on their own line below.
     out.extend(align_center());
-    for line in &subtitle {
-        out.extend(truncate_line(line).as_bytes());
-        out.push(b'\n');
-    }
+    out.extend(truncate_line(&format!("Sale #{}  {}", sale.id, sale.created_at)).as_bytes());
+    out.push(b'\n');
     out.extend(align_left());
 
     // Cashier and table-or-order-type share one line, each half the width —
@@ -1508,15 +1513,14 @@ mod tests {
 
     #[test]
     fn build_receipt_bytes_never_lets_a_long_phone_or_delivery_number_spill_onto_another_line() {
-        use crate::printer::layout::{truncate_line, LINE_WIDTH};
+        use crate::printer::layout::two_col;
 
-        // Phone and delivery number now share one line (see build_receipt_
-        // bytes's doc comment on the compact layout) — this fixture stays
-        // too long even combined, so truncation still has to kick in.
+        // Business and Delivery are now their own two_col rows (label-left,
+        // value-right, padded/truncated to LINE_WIDTH) rather than one
+        // combined centered line — each row's `pad` truncation is what
+        // guards against overflow here.
         let long_phone = "+92 300 1234567 (also a needlessly long phone line to test with)";
         let long_delivery = "0300-9999999 (a needlessly long delivery contact line to test with)";
-        let combined = format!("{long_phone}  |  Delivery: {long_delivery}");
-        assert!(combined.chars().count() > LINE_WIDTH, "fixture must actually be too long");
 
         let mut config = sample_config();
         config.phone = Some(long_phone.into());
@@ -1526,9 +1530,10 @@ mod tests {
         let text = String::from_utf8_lossy(&bytes);
         assert!(!text.contains(long_phone), "the untruncated phone must not appear at all");
         assert!(!text.contains(long_delivery), "the untruncated delivery number must not appear at all");
+        assert!(text.contains(&two_col("Business", long_phone)), "the Business row must appear, cut to one line's width");
         assert!(
-            text.contains(&truncate_line(&combined)),
-            "the combined phone/delivery line must still appear, cut to one line's width"
+            text.contains(&two_col("Delivery", long_delivery)),
+            "the Delivery row must appear, cut to one line's width"
         );
     }
 
@@ -1568,12 +1573,13 @@ mod tests {
     #[test]
     fn build_receipt_bytes_shows_the_delivery_number_only_when_set() {
         let without = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        assert!(!String::from_utf8_lossy(&without).contains("Delivery:"), "no delivery number set, none must appear");
+        assert!(!String::from_utf8_lossy(&without).contains("Delivery"), "no delivery number set, none must appear");
 
         let mut config = sample_config();
         config.delivery_number = Some("0300-1234567".into());
         let with = build_receipt_bytes(&sample_sale(), &config, None, true);
-        assert!(String::from_utf8_lossy(&with).contains("Delivery: 0300-1234567"));
+        assert!(String::from_utf8_lossy(&with).contains("Delivery"));
+        assert!(String::from_utf8_lossy(&with).contains("0300-1234567"));
     }
 
     #[test]

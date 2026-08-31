@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, Download, Printer, X } from "lucide-react";
 import { printReceiptThermal } from "../../services/billingService";
 import { formatMinor, formatQty } from "../../utils/format";
@@ -39,6 +39,35 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
       setIsPrinting(false);
     }
   };
+
+  // Plain Enter is this dialog's "do the obvious thing": send the receipt to
+  // the thermal printer, same as clicking Print. Escape is the other
+  // obvious thing: close the dialog, same as clicking the X / "New sale".
+  // Both registered in the capture phase so they run and stop propagation
+  // before the billing-surface keyboard listener (`useFastBillingHotkeys`,
+  // still mounted underneath) sees the event — this dialog is the only
+  // thing focused/active while it's open. Mounted/unmounted with the modal
+  // itself, so once it closes these keys go right back to meaning whatever
+  // they mean elsewhere (item-code confirm/clear, etc.) with zero residual
+  // effect here.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (isPrinting) return;
+      void printThermal();
+    }
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPrinting, onClose]);
 
   const savePdf = async () => {
     setIsSavingPdf(true);
