@@ -30,6 +30,16 @@ import type { Item } from "../types";
  *    plain-Enter buffer-lookup/amount-popup branches below and independent
  *    of the buffer's contents — it's a distinct combination, never treated
  *    as part of a typed item code.
+ *  - Ctrl+K (Cmd+K on macOS) opens "Print Token" for the current table-linked
+ *    order — mnemonic for KOT (Kitchen Order Ticket). Only fires `onPrintToken`
+ *    when a table is actually selected (`tableId !== null`); with no table
+ *    selected there's nothing table-linked to token, so this is a silent
+ *    no-op, same as every other shortcut here that has no target. The
+ *    "nothing to token" / "everything already tokenized" cases beyond that
+ *    are left entirely to `onPrintToken`'s own flow (`OrderTypeAndTable`'s
+ *    `openTableTokenDialog` + `TokenPrintDialog`) — it already surfaces the
+ *    same messages the mouse "Print token" button does, so there's nothing
+ *    for this hook to duplicate.
  *  - `?` toggles a shortcuts help overlay.
  *
  * Deliberately does nothing while focus is on a genuine text input (search
@@ -43,12 +53,18 @@ export function useFastBillingHotkeys(options: {
   enabled: boolean;
   items: Item[];
   tablesEnabled: boolean;
+  /** The cart's current table, straight from `useBillingStore` — Ctrl+K only
+   * acts when this is non-null (see the hook's doc comment). */
+  tableId: number | null;
   /** Called on Ctrl/Cmd+Enter — the mouse "Place Order" button's own click
    * handler, passed straight through so this shortcut can never drift from
    * whatever conditions/validation that button already enforces. */
   onPlaceOrder: () => void;
+  /** Called on Ctrl/Cmd+K when a table is selected — triggers the same
+   * "Print Token" flow the mouse button opens (see `OrderTypeAndTable`). */
+  onPrintToken: () => void;
 }) {
-  const { enabled, items, tablesEnabled, onPlaceOrder } = options;
+  const { enabled, items, tablesEnabled, tableId, onPlaceOrder, onPrintToken } = options;
 
   const [buffer, setBuffer] = useState("");
   const [tablePopupOpen, setTablePopupOpen] = useState(false);
@@ -113,6 +129,17 @@ export function useFastBillingHotkeys(options: {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         onPlaceOrder();
+        return;
+      }
+
+      // Ctrl/Cmd+K: "Print Token" (KOT). Distinct combination, independent
+      // of `buffer`, same as Ctrl+Enter above. A table must actually be
+      // selected — no table means nothing table-linked to token, so this
+      // stays a silent no-op rather than opening anything or erroring.
+      if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
+        if (tableId === null) return;
+        event.preventDefault();
+        onPrintToken();
         return;
       }
 
@@ -197,7 +224,18 @@ export function useFastBillingHotkeys(options: {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, items, tablesEnabled, buffer, tablePopupOpen, showHelp, activeLineItemId, onPlaceOrder]);
+  }, [
+    enabled,
+    items,
+    tablesEnabled,
+    tableId,
+    buffer,
+    tablePopupOpen,
+    showHelp,
+    activeLineItemId,
+    onPlaceOrder,
+    onPrintToken,
+  ]);
 
   return {
     buffer,

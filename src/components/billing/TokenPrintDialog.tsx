@@ -124,6 +124,40 @@ export function TokenPrintDialog({ source, onClose }: TokenPrintDialogProps) {
     }
   };
 
+  // Same pattern as `ReceiptModal`: plain Enter is this dialog's "do the
+  // obvious thing" — print whatever's currently selected, same as clicking
+  // "Print selected" — and Escape closes it, same as the X. Registered in
+  // the capture phase so both keys are handled and stopped here before the
+  // billing-surface listener (`useFastBillingHotkeys`) underneath ever sees
+  // them; unlike `ReceiptModal`'s modal, this one isn't reflected in
+  // `BillingPage`'s `fastBillingEnabled` by state alone but by
+  // `onTokenDialogOpenChange`, so capturing here is the belt to that
+  // suspenders. Enter no-ops (falls through to nothing) while printing is
+  // already in flight or there's nothing selected to print — same guard
+  // `handlePrint` and the button's own `disabled` already apply, so Enter
+  // can never do more than the button could. Only Enter/Escape are
+  // intercepted — Space still activates whichever button is focused (e.g. a
+  // "Reprint" button), so tabbing to one and pressing Space still reprints
+  // that specific token instead of the whole selection.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (isPrinting || pending.length === 0 || selected.size === 0) return;
+      void handlePrint();
+    }
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPrinting, pending.length, selected.size, onClose]);
+
   const handleReprint = async (tokenId: number) => {
     setReprintingId(tokenId);
     setError(null);

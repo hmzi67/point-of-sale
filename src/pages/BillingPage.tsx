@@ -105,19 +105,31 @@ export function BillingPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
 
+  // Bumped on every Ctrl/Cmd+K; `isTokenDialogOpen` mirrors whether
+  // `OrderTypeAndTable`'s "Print Token" dialog is currently up — see both
+  // props' doc comments on `OrderTypeAndTable`.
+  const [tokenPrintRequestId, setTokenPrintRequestId] = useState(0);
+  const [isTokenDialogOpen, setIsTokenDialogOpen] = useState(false);
+
   // Keyboard fast billing (desktop only — Android stays touch-first) is
   // disabled while any modal already has the cashier's attention, so arrow
   // keys/Delete/quick-entry never fight with a field inside one of them.
   const fastBillingEnabled =
-    !IS_ANDROID && editingItemId === null && completedSale === null && amountEntryItem === null;
+    !IS_ANDROID &&
+    editingItemId === null &&
+    completedSale === null &&
+    amountEntryItem === null &&
+    !isTokenDialogOpen;
   const fastBilling = useFastBillingHotkeys({
     enabled: fastBillingEnabled,
     items,
     tablesEnabled,
+    tableId,
     // `completeSale` is defined further down this component, but this
     // wrapper isn't invoked until a real Ctrl/Cmd+Enter keypress — well
     // after render — so the forward reference is safe.
     onPlaceOrder: () => void completeSale(),
+    onPrintToken: () => setTokenPrintRequestId((n) => n + 1),
   });
 
   const cartLines = cartOrder.map((id) => cart[id]);
@@ -196,6 +208,8 @@ export function BillingPage() {
               setNotice(message);
               window.setTimeout(() => setNotice(null), 4000);
             }}
+            tokenPrintRequestId={tokenPrintRequestId}
+            onTokenDialogOpenChange={setIsTokenDialogOpen}
           />
         )}
 

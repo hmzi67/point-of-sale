@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ticket } from "lucide-react";
 import { getItems } from "../../services/inventoryService";
 import { attachCartToTable, getParkedCart, getTables } from "../../services/tablesService";
@@ -11,6 +11,19 @@ import type { TableSummary } from "../../types";
 interface OrderTypeAndTableProps {
   taxPercent: number;
   onParked: (message: string) => void;
+  /** Bumped by `BillingPage` on every Ctrl/Cmd+K press (see
+   * `useFastBillingHotkeys`) — this component owns the actual "Print Token"
+   * flow (table sync, `openOrderId` lookup, dialog state), so the keyboard
+   * shortcut just re-triggers the same `openTableTokenDialog` the mouse
+   * button calls rather than duplicating any of that logic upstream. The
+   * initial value is never acted on — only a *change* opens the dialog. */
+  tokenPrintRequestId: number;
+  /** Reported every time the "Print Token" dialog opens/closes, so
+   * `BillingPage` can suspend the rest of the keyboard-fast-billing surface
+   * (digits, arrows, Ctrl+Enter, …) while it's up — mirrors how
+   * `editingItemId`/`completedSale`/`amountEntryItem` already gate
+   * `fastBillingEnabled` there. */
+  onTokenDialogOpenChange: (open: boolean) => void;
 }
 
 /** Same free/occupied/reserved color convention as the floor view's
@@ -37,7 +50,12 @@ const STATUS_LABEL: Record<TableSummary["status"], string> = {
  * before, so this stays wired to the exact same state the backend already
  * understands.
  */
-export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTableProps) {
+export function OrderTypeAndTable({
+  taxPercent,
+  onParked,
+  tokenPrintRequestId,
+  onTokenDialogOpenChange,
+}: OrderTypeAndTableProps) {
   const [tables, setTables] = useState<TableSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
@@ -159,6 +177,27 @@ export function OrderTypeAndTable({ taxPercent, onParked }: OrderTypeAndTablePro
     if (cartOrder.length === 0) return;
     setTokenSource({ kind: "adhoc", items: cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty })) });
   };
+
+  // Ctrl/Cmd+K (see `useFastBillingHotkeys`) re-triggers the exact table
+  // flow the mouse "Print token" button calls — `openTableTokenDialog`
+  // already handles every "nothing to token" case with the same message the
+  // mouse path shows, so there's nothing extra to check here beyond not
+  // double-firing while a request is already in flight or the dialog is
+  // already open. Skipped on mount: only a *change* in the request id counts
+  // as a keypress.
+  const lastTokenPrintRequestId = useRef(tokenPrintRequestId);
+  useEffect(() => {
+    if (tokenPrintRequestId === lastTokenPrintRequestId.current) return;
+    lastTokenPrintRequestId.current = tokenPrintRequestId;
+    if (isBusy || tokenSource !== null) return;
+    void openTableTokenDialog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenPrintRequestId]);
+
+  useEffect(() => {
+    onTokenDialogOpenChange(tokenSource !== null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenSource]);
 
   return (
     <div className="space-y-2">

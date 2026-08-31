@@ -5,14 +5,19 @@ interface ShortcutsHelpOverlayProps {
   onClose: () => void;
 }
 
-const SHORTCUTS: { keys: string; description: string }[] = [
+const SHORTCUTS: { keys: string; description: string; tablesOnly?: boolean }[] = [
   { keys: "0-9 then Enter", description: "Add an item by its quick code (or scan a barcode)" },
-  { keys: "T then number, Enter", description: "Jump straight to a table" },
+  { keys: "T then number, Enter", description: "Jump straight to a table", tablesOnly: true },
   { keys: "↑ / ↓", description: "Move the active cart line" },
   { keys: "← / →", description: "Decrease / increase the active line's quantity" },
   { keys: "Enter (on a line)", description: "For a by-amount item, type its rupee amount" },
   { keys: "Delete or Backspace", description: "Remove the active cart line" },
   { keys: "Ctrl+Enter (⌘+Enter)", description: "Place the order" },
+  {
+    keys: "Ctrl+K (⌘+K)",
+    description: "Print token (KOT) for the current table's order",
+    tablesOnly: true,
+  },
   { keys: "Esc", description: "Cancel the current quick-entry code or close a popup" },
   { keys: "?", description: "Show or hide this list" },
 ];
@@ -43,7 +48,7 @@ export function ShortcutsHelpOverlay({ tablesEnabled, onClose }: ShortcutsHelpOv
         </div>
 
         <ul className="mt-3 space-y-2">
-          {SHORTCUTS.filter((s) => tablesEnabled || !s.keys.startsWith("T ")).map((shortcut) => (
+          {SHORTCUTS.filter((s) => tablesEnabled || !s.tablesOnly).map((shortcut) => (
             <li key={shortcut.keys} className="flex items-center justify-between gap-3 text-sm">
               <kbd className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
                 {shortcut.keys}
