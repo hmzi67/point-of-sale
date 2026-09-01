@@ -54,6 +54,7 @@ use crate::db::dashboard::DashboardSummary;
 use crate::db::full_report::FullReport;
 use crate::db::reports::{CategorySalesReport, ProductSalesSummaryReport, RefundsSummary, TableSalesSummary};
 use crate::db::refunds::Refund;
+use crate::db::salary::{PaymentStatus, SalaryCalculation};
 use crate::db::sales::Sale;
 use crate::db::shifts::ShiftSummary;
 #[cfg(test)]
@@ -535,14 +536,14 @@ pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
 /// paper handed to a counter and thrown away once the order's collected,
 /// not a record anyone needs to look back on, so every extra line here is
 /// just wasted paper on a kitchen printer that's producing dozens of these
-/// a shift. The one exception is the table — a kitchen serving several
-/// tables at once needs to know which order a ticket belongs to at a
-/// glance, not just what's on it, so `token.table_name` prints right under
-/// the token number when it's `Some` (an ad hoc/Takeaway token, with no
-/// table behind it, just skips the line rather than printing something
-/// like "Table: —"). Counter identity — which physical station this
-/// printed from — is still cut; that's one `two_col` call to bring back if
-/// a shared printer serving multiple counters ever needs it too.
+/// a shift. The one exception is the order type — a kitchen serving several
+/// tables (and Takeaway orders) at once needs to know which order a ticket
+/// belongs to at a glance, not just what's on it, so a line right under the
+/// token number always says either `Table: {name}` (`token.table_name` is
+/// `Some`) or plain `Takeaway` (an ad hoc token, with no table behind it).
+/// Counter identity — which physical station this printed from — is still
+/// cut; that's one `two_col` call to bring back if a shared printer serving
+/// multiple counters ever needs it too.
 pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
     let mut out = Vec::new();
 
@@ -574,10 +575,11 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
         out.push(b'\n');
     }
     out.extend(bold(false));
-    if let Some(table_name) = &token.table_name {
-        out.extend(truncate_line(&format!("Table: {}", table_name)).as_bytes());
-        out.push(b'\n');
+    match &token.table_name {
+        Some(table_name) => out.extend(truncate_line(&format!("Table: {}", table_name)).as_bytes()),
+        None => out.extend(truncate_line("Takeaway").as_bytes()),
     }
+    out.push(b'\n');
     out.extend(divider().as_bytes());
     out.push(b'\n');
     out.extend(align_left());
@@ -788,6 +790,89 @@ fn write_table_sales_section(out: &mut Vec<u8>, report: &TableSalesSummary, curr
     );
     out.push(b'\n');
     out.extend(bold(false));
+}
+
+/// The Employee Report: one row per active employee for a given month —
+/// days present against the real calendar days in that month (attendance),
+/// and the net pay it produces (salary), plus how much of that has actually
+/// been paid and its status, built from `salary::get_monthly_overview`'s
+/// `SalaryCalculation` rows. Same "bordered table, then grand totals" shape
+/// as `build_table_sales_bytes`, but each row needs a second, unbordered
+/// line underneath it (Paid amount + status) since a 3-column budget has no
+/// room left for a 4th figure — same trade-off `write_category_sales_
+/// section` makes with its per-category Subtotal line sitting outside the
+/// item box.
+pub fn build_employee_report_bytes(rows: &[SalaryCalculation], month: &str, config: &AppConfig) -> Vec<u8> {
+    let mut out = Vec::new();
+
+    out.extend(wake_padding());
+    out.extend(init());
+
+    let subtitle = vec!["Employee Report".to_string(), format!("Month: {}", month)];
+    header_block(&mut out, &config.business_name, &subtitle);
+
+    write_employee_report_section(&mut out, rows, &config.currency);
+
+    close_out(&mut out, &config.receipt_footer);
+    out
+}
+
+fn write_employee_report_section(out: &mut Vec<u8>, rows: &[SalaryCalculation], currency: &str) {
+    if rows.is_empty() {
+        out.extend(b"No employees found\n");
+        return;
+    }
+
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(three_col_row("Employee", "Present", "Net Pay").as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
+
+    let mut total_net_minor: i64 = 0;
+    let mut total_paid_minor: i64 = 0;
+    for row in rows {
+        let present = format!("{}/{}", row.days_present, row.working_days_in_month);
+        out.extend(
+            three_col_row(&row.employee_name, &present, &format_minor(row.calculated_amount_minor)).as_bytes(),
+        );
+        out.push(b'\n');
+
+        let status_label = match row.status {
+            PaymentStatus::Unpaid => "Unpaid",
+            PaymentStatus::Partial => "Partial",
+            PaymentStatus::Paid => "Paid",
+        };
+        out.extend(
+            truncate_line(&format!("  Paid: {}  ({})", format_minor(row.paid_amount_minor), status_label))
+                .as_bytes(),
+        );
+        out.push(b'\n');
+
+        total_net_minor += row.calculated_amount_minor;
+        total_paid_minor += row.paid_amount_minor;
+    }
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
+
+    out.extend(double_divider().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(two_col("Total Net Pay", &format!("{} {}", currency, format_minor(total_net_minor))).as_bytes());
+    out.push(b'\n');
+    out.extend(two_col("Total Paid", &format!("{} {}", currency, format_minor(total_paid_minor))).as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+}
+
+/// Builds and sends the Employee Report to this installation's configured
+/// printer — same division of responsibility as `print_table_sales`.
+pub fn print_employee_report(rows: &[SalaryCalculation], month: &str, config: &AppConfig) -> Result<(), PrinterError> {
+    let bytes = build_employee_report_bytes(rows, month, config);
+    send_to_printer(&bytes, config)
 }
 
 /// The Refunds report: one block per refund — Vno (original sale id),
@@ -1449,6 +1534,59 @@ mod tests {
         }
     }
 
+    fn sample_employee_report() -> Vec<SalaryCalculation> {
+        vec![
+            SalaryCalculation {
+                employee_id: 1,
+                employee_name: "Ali Khan".into(),
+                month: "2026-01".into(),
+                base_salary_minor: 3_000_000,
+                working_days_in_month: 31,
+                days_present: 28,
+                calculated_amount_minor: 2_709_677,
+                paid_amount_minor: 2_709_677,
+                paid_date: Some("2026-02-01".into()),
+                status: PaymentStatus::Paid,
+            },
+            SalaryCalculation {
+                employee_id: 2,
+                employee_name: "Sara Ahmed".into(),
+                month: "2026-01".into(),
+                base_salary_minor: 2_500_000,
+                working_days_in_month: 31,
+                days_present: 15,
+                calculated_amount_minor: 1_209_677,
+                paid_amount_minor: 0,
+                paid_date: None,
+                status: PaymentStatus::Unpaid,
+            },
+        ]
+    }
+
+    #[test]
+    fn build_employee_report_bytes_lists_every_employee_with_attendance_and_pay_status() {
+        let bytes = build_employee_report_bytes(&sample_employee_report(), "2026-01", &sample_config());
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("Employee Report"));
+        assert!(text.contains("Month: 2026-01"));
+        assert!(text.contains("Ali Khan"));
+        assert!(text.contains("28/31"), "attendance must show days present over the real days in the month");
+        assert!(text.contains("Paid"), "Ali Khan's fully-paid status must appear");
+        assert!(text.contains("Sara Ahmed"));
+        assert!(text.contains("15/31"));
+        assert!(text.contains("Unpaid"), "Sara Ahmed's unpaid status must appear");
+        assert!(text.contains("Total Net Pay"));
+        assert!(text.contains("Total Paid"));
+        assert!(text.contains("+"), "a real box-drawn grid, not bare dashes");
+    }
+
+    #[test]
+    fn build_employee_report_bytes_reports_no_employees_cleanly() {
+        let bytes = build_employee_report_bytes(&[], "2026-01", &sample_config());
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("No employees found"));
+    }
+
     #[test]
     fn build_table_sales_bytes_lists_every_row_and_a_grand_total() {
         let bytes = build_table_sales_bytes(&sample_table_sales(), &sample_config());
@@ -1967,7 +2105,7 @@ mod tests {
     }
 
     #[test]
-    fn build_token_bytes_omits_the_table_line_for_an_ad_hoc_takeaway_token() {
+    fn build_token_bytes_shows_takeaway_for_an_ad_hoc_token_with_no_table_behind_it() {
         let mut token = sample_token();
         token.table_order_id = None;
         token.table_id = None;
@@ -1975,7 +2113,8 @@ mod tests {
 
         let bytes = build_token_bytes(&token, false);
         let text = String::from_utf8_lossy(&bytes);
-        assert!(!text.contains("Table"), "no table line at all for a token with no table behind it");
+        assert!(!text.contains("Table"), "no table line for a token with no table behind it");
+        assert!(text.contains("Takeaway"), "must clearly mark a table-less token as Takeaway");
     }
 
     /// `format_minor`'s currency prefix — asserting its exact absence is a

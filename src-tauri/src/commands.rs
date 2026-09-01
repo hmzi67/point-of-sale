@@ -2121,6 +2121,25 @@ pub fn salary_record_payment(
         .map_err(|e| e.to_string())
 }
 
+/// Prints the Employee Report (every active employee's attendance and
+/// salary for `month`, same rows `salary_get_monthly_overview` returns) on
+/// a USB thermal printer.
+#[tauri::command]
+pub fn salary_print_monthly_report(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    month: String,
+) -> Result<(), String> {
+    require_area_access(&session, &area_access)?;
+    let rows = db
+        .with_transaction(|tx| Ok(salary::get_monthly_overview(tx, &month)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    crate::printer::escpos::print_employee_report(&rows, &month, &app_config).map_err(|e| e.to_string())
+}
+
 /// Every month with a salary record for one employee, most recent first.
 #[tauri::command]
 pub fn salary_get_payment_history(

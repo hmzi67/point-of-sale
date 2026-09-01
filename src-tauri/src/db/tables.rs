@@ -42,7 +42,12 @@ pub struct ShiftTableResult {
 #[serde(rename_all = "camelCase")]
 pub struct ParkedCartLine {
     pub item_id: i64,
-    pub qty: i64,
+    /// `f64`, not `i64` — a `sold_by_amount` item (e.g. sold by weight) can
+    /// have a fractional cart quantity like 1.33, same as `sales::CartLine`/
+    /// `tokens::AdhocTokenLine`. Parking such a line to a table used to
+    /// reject the whole "Save to table"/"Print token" call with a Tauri
+    /// arg-deserialization error the moment the cart held one.
+    pub qty: f64,
 }
 
 /// The JSON payload stored in `table_orders.cart_json`.
@@ -528,7 +533,7 @@ mod tests {
         let conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
         let t3 = table_id(&conn, "Table 3");
-        attach_cart_to_table(&conn, t3, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+        attach_cart_to_table(&conn, t3, &[ParkedCartLine { item_id: cola, qty: 1.0 }], 0).unwrap();
 
         let tables = list_tables(&conn).unwrap();
         assert_eq!(tables.len(), 6, "all six seeded tables should be listed");
@@ -544,8 +549,8 @@ mod tests {
         let cola = item_id(&conn, "Cola 500ml");
         let t2 = table_id(&conn, "Table 2"); // seeded status: free
 
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 4 }], 200).unwrap();
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1.0 }], 0).unwrap();
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 4.0 }], 200).unwrap();
 
         let order_count: i64 = conn
             .query_row(
@@ -557,7 +562,7 @@ mod tests {
         assert_eq!(order_count, 1, "second attach should update, not duplicate");
 
         let parked = get_parked_cart(&conn, t2).unwrap().unwrap();
-        assert_eq!(parked.items[0].qty, 4);
+        assert_eq!(parked.items[0].qty, 4.0);
         assert_eq!(parked.discount_minor, 200);
 
         let status: String =
@@ -573,7 +578,7 @@ mod tests {
 
         assert!(matches!(attach_cart_to_table(&conn, t2, &[], 0), Err(TableError::EmptyCart)));
         assert!(matches!(
-            attach_cart_to_table(&conn, 999_999, &[ParkedCartLine { item_id: cola, qty: 1 }], 0),
+            attach_cart_to_table(&conn, 999_999, &[ParkedCartLine { item_id: cola, qty: 1.0 }], 0),
             Err(TableError::TableNotFound)
         ));
     }
@@ -658,7 +663,7 @@ mod tests {
         let conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
         let t2 = table_id(&conn, "Table 2");
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1.0 }], 0).unwrap();
 
         assert!(matches!(delete_table(&conn, t2), Err(TableError::HasOpenOrder(_))));
 
@@ -692,12 +697,12 @@ mod tests {
         let conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
         let t2 = table_id(&conn, "Table 2");
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 3 }], 0).unwrap();
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 3.0 }], 0).unwrap();
 
         start_table_order(&conn, t2).unwrap();
 
         let parked = get_parked_cart(&conn, t2).unwrap().unwrap();
-        assert_eq!(parked.items[0].qty, 3, "re-seating an already-open table must not discard its cart");
+        assert_eq!(parked.items[0].qty, 3.0, "re-seating an already-open table must not discard its cart");
 
         let order_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM table_orders WHERE table_id = ?1", params![t2], |row| row.get(0))
@@ -710,7 +715,7 @@ mod tests {
         let conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
         let t1 = table_id(&conn, "Table 1"); // seeded occupied
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 2 }], 0).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 2.0 }], 0).unwrap();
 
         let table = clear_table(&conn, t1).unwrap();
         assert_eq!(table.status, "free");
@@ -750,7 +755,7 @@ mod tests {
         assert_eq!(seated.status, "occupied");
 
         // 2. Add items via billing (parks the cart on the table's open order).
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 2 }], 0).unwrap();
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 2.0 }], 0).unwrap();
         assert!(get_parked_cart(&conn, t2).unwrap().unwrap().items.iter().any(|l| l.item_id == cola));
 
         // 3. Complete the sale against that table.
@@ -787,7 +792,7 @@ mod tests {
         let cola = item_id(&conn, "Cola 500ml");
         let t1 = table_id(&conn, "Table 1"); // seeded occupied
         let t2 = table_id(&conn, "Table 2"); // seeded free
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 3 }], 500).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 3.0 }], 500).unwrap();
 
         let tx = conn.transaction().unwrap();
         let result = shift_table_order(&tx, t1, t2).unwrap();
@@ -802,7 +807,7 @@ mod tests {
         let parked = get_parked_cart(&conn, t2).unwrap().unwrap();
         assert_eq!(parked.items.len(), 1);
         assert_eq!(parked.items[0].item_id, cola);
-        assert_eq!(parked.items[0].qty, 3);
+        assert_eq!(parked.items[0].qty, 3.0);
         assert_eq!(parked.discount_minor, 500);
         assert!(get_parked_cart(&conn, t1).unwrap().is_none(), "old table must have no order left");
 
@@ -841,7 +846,7 @@ mod tests {
         let mut conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
         let t1 = table_id(&conn, "Table 1"); // seeded occupied
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 1.0 }], 0).unwrap();
         let t4 = table_id(&conn, "Table 4"); // seeded reserved
 
         let tx = conn.transaction().unwrap();
@@ -859,7 +864,7 @@ mod tests {
         let mut conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
         let t1 = table_id(&conn, "Table 1");
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 1.0 }], 0).unwrap();
 
         let tx = conn.transaction().unwrap();
         assert!(matches!(shift_table_order(&tx, t1, t1), Err(TableError::SameTable)));
@@ -870,7 +875,7 @@ mod tests {
         let conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
         let t2 = table_id(&conn, "Table 2");
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 3 }], 0).unwrap();
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 3.0 }], 0).unwrap();
 
         let order_id: i64 = conn
             .query_row("SELECT id FROM table_orders WHERE table_id = ?1", params![t2], |row| row.get(0))
@@ -890,7 +895,7 @@ mod tests {
         let mut conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
         let t2 = table_id(&conn, "Table 2");
-        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1 }], 0).unwrap();
+        attach_cart_to_table(&conn, t2, &[ParkedCartLine { item_id: cola, qty: 1.0 }], 0).unwrap();
         let order_id: i64 = conn
             .query_row("SELECT id FROM table_orders WHERE table_id = ?1", params![t2], |row| row.get(0))
             .unwrap();
@@ -920,7 +925,7 @@ mod tests {
         let cola = item_id(&conn, "Cola 500ml");
         let t1 = table_id(&conn, "Table 1"); // seeded status: occupied
 
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 2 }], 0).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: cola, qty: 2.0 }], 0).unwrap();
 
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {

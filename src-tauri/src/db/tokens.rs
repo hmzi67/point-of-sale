@@ -502,9 +502,9 @@ mod tests {
             &conn,
             t1,
             &[
-                ParkedCartLine { item_id: channa, qty: 2 },
-                ParkedCartLine { item_id: roti, qty: 5 },
-                ParkedCartLine { item_id: cola, qty: 1 },
+                ParkedCartLine { item_id: channa, qty: 2.0 },
+                ParkedCartLine { item_id: roti, qty: 5.0 },
+                ParkedCartLine { item_id: cola, qty: 1.0 },
             ],
             0,
         )
@@ -525,7 +525,7 @@ mod tests {
         let (channa_counter, _drinks, channa, _roti) = seed_counters_and_items(&conn);
         let t1 = table_id(&conn, "Table 1");
         start_table_order(&conn, t1).unwrap();
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 3 }], 0).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 3.0 }], 0).unwrap();
         let order_id = order_id_for_table(&conn, t1);
 
         // "Print" the first token (bypassing the printer — this module never
@@ -544,7 +544,7 @@ mod tests {
         assert!(get_pending_token_items(&conn, order_id).unwrap().is_empty());
 
         // Customer orders 2 more channa — cart qty goes 3 -> 5.
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 5 }], 0).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 5.0 }], 0).unwrap();
         let repeat_pending = pending_items_for_counter(&conn, order_id, channa_counter).unwrap();
         assert_eq!(repeat_pending.len(), 1);
         assert_eq!(repeat_pending[0].qty, 2.0, "only the newly-added 2 units, not all 5");
@@ -556,7 +556,7 @@ mod tests {
         let (channa_counter, _drinks, channa, _roti) = seed_counters_and_items(&conn);
         let t1 = table_id(&conn, "Table 1");
         start_table_order(&conn, t1).unwrap();
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 10 }], 0).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 10.0 }], 0).unwrap();
         let order_id = order_id_for_table(&conn, t1);
 
         let first_number = next_token_number_for_today(&conn).unwrap();
@@ -585,7 +585,7 @@ mod tests {
         crate::db::tables::update_table_status(&conn, t4, "free").unwrap();
 
         start_table_order(&conn, t1).unwrap();
-        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 1 }], 0).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 1.0 }], 0).unwrap();
         let order_id = order_id_for_table(&conn, t1);
 
         let items = pending_items_for_counter(&conn, order_id, channa_counter).unwrap();

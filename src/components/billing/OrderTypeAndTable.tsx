@@ -178,19 +178,27 @@ export function OrderTypeAndTable({
     setTokenSource({ kind: "adhoc", items: cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty })) });
   };
 
-  // Ctrl/Cmd+K (see `useFastBillingHotkeys`) re-triggers the exact table
-  // flow the mouse "Print token" button calls — `openTableTokenDialog`
-  // already handles every "nothing to token" case with the same message the
-  // mouse path shows, so there's nothing extra to check here beyond not
-  // double-firing while a request is already in flight or the dialog is
-  // already open. Skipped on mount: only a *change* in the request id counts
-  // as a keypress.
+  // Ctrl/Cmd+K (see `useFastBillingHotkeys`) re-triggers whichever "Print
+  // token" flow the mouse button for the current order type would call —
+  // dine-in's `openTableTokenDialog` (with a table selected) or Takeaway's
+  // `openTakeawayTokenDialog` (with `tableId === null`), same branch the
+  // mouse buttons below are rendered on. `openTableTokenDialog` already
+  // handles every "nothing to token" case with the same message the mouse
+  // path shows; Takeaway has no such flow of its own (an empty cart is
+  // simply nothing to token), so that case is handled here directly. Skipped
+  // on mount: only a *change* in the request id counts as a keypress.
   const lastTokenPrintRequestId = useRef(tokenPrintRequestId);
   useEffect(() => {
     if (tokenPrintRequestId === lastTokenPrintRequestId.current) return;
     lastTokenPrintRequestId.current = tokenPrintRequestId;
     if (isBusy || tokenSource !== null) return;
-    void openTableTokenDialog();
+    if (tableId !== null) {
+      void openTableTokenDialog();
+    } else if (cartOrder.length > 0) {
+      openTakeawayTokenDialog();
+    } else {
+      setError("Nothing to token yet — add items to the cart first.");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tokenPrintRequestId]);
 

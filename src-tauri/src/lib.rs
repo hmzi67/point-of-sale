@@ -382,6 +382,7 @@ pub fn run() {
             commands::expenses_get_totals_by_category,
             commands::salary_calculate_salary,
             commands::salary_get_monthly_overview,
+            commands::salary_print_monthly_report,
             commands::salary_record_payment,
             commands::salary_get_payment_history,
             commands::dashboard_get_summary,

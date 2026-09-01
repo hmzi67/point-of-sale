@@ -13,6 +13,13 @@ export function getMonthlyOverview(month: string): Promise<SalaryCalculation[]> 
   return call<SalaryCalculation[]>("salary_get_monthly_overview", { month });
 }
 
+/** Prints the Employee Report (attendance + salary for every active
+ * employee in `month`, same rows `getMonthlyOverview` returns) on a USB
+ * thermal printer. */
+export function printMonthlyReportThermal(month: string): Promise<void> {
+  return call<void>("salary_print_monthly_report", { month });
+}
+
 /** Records a payment against `month`'s salary — added to whatever has
  * already been paid that month, not a replacement. */
 export function recordPayment(
