@@ -36,6 +36,7 @@ use crate::db::{
 use crate::area_access_session::AreaAccessSession;
 use crate::images;
 use crate::product_owner_session::{require_product_owner, ProductOwnerSession};
+use crate::vendor_gate::{self, VendorGate};
 use crate::session::{require_role, Session};
 
 /// Owner and Admin are this product's two "full access" roles — see
@@ -267,11 +268,70 @@ pub fn get_app_config(db: State<'_, Db>) -> Result<AppConfig, String> {
 pub fn update_app_config(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    vendor_gate: State<'_, VendorGate>,
     patch: AppConfigUpdate,
 ) -> Result<AppConfig, String> {
     require_role(&session, STAFF_ROLES)?;
+
+    // The vendor gate's actual enforcement point. Completing first-run setup
+    // is the single transition that turns a fresh copy of the installer into
+    // a working store, so that is what's gated — not the wizard's UI, which
+    // is only a route guard and (with `withGlobalTauri: true`) bypassable by
+    // calling this command straight from a devtools console.
+    //
+    // Only the false -> true transition is gated. Once an install is set up,
+    // `onboarding_completed` is already true, this branch never fires again,
+    // and ordinary config edits are untouched — the gate is a setup-time
+    // check, not a recurring login.
+    if patch.onboarding_completed == Some(true) {
+        let already_onboarded = db
+            .with_conn(|conn| config::get(conn))
+            .map_err(|e| e.to_string())?
+            .onboarding_completed;
+        if vendor_gate::setup_is_blocked(true, already_onboarded, vendor_gate.is_authorized()) {
+            return Err("Vendor authorization is required to set up this installation".into());
+        }
+    }
+
     db.with_conn(|conn| config::update(conn, patch))
         .map_err(|e| e.to_string())
+}
+
+/// Whether the first-run vendor gate still stands in the way on this
+/// install, and whether this process has already cleared it.
+///
+/// `required` is false once setup has completed, which is what makes this a
+/// one-time gate rather than a login: after that the frontend never shows
+/// the prompt again. Deliberately unauthenticated and deliberately
+/// uninformative — it reveals only whether setup has happened, which is
+/// already obvious from the app showing a setup wizard.
+#[tauri::command]
+pub fn vendor_gate_status(
+    db: State<'_, Db>,
+    vendor_gate: State<'_, VendorGate>,
+) -> Result<VendorGateStatus, String> {
+    let onboarded = db.with_conn(|conn| config::get(conn)).map_err(|e| e.to_string())?.onboarding_completed;
+    Ok(VendorGateStatus { required: !onboarded, authorized: vendor_gate.is_authorized() })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VendorGateStatus {
+    pub required: bool,
+    pub authorized: bool,
+}
+
+/// Verifies the vendor authorization password against the hash compiled
+/// into the binary, recording a grant for the rest of this process on
+/// success. See `vendor_gate`'s module doc comment for why verification
+/// lives in Rust and what this does and doesn't protect against.
+///
+/// A wrong password costs a delay that grows with consecutive failures
+/// (applied inside `VendorGate::verify`, before this returns), so scripted
+/// guessing is impractical. Neither the attempt nor the hash is logged.
+#[tauri::command]
+pub fn vendor_gate_verify(vendor_gate: State<'_, VendorGate>, password: String) -> Result<(), String> {
+    vendor_gate.verify(&password).map_err(|e| e.to_string())
 }
 
 /// Saves an uploaded logo to disk (in its own directory, distinct from

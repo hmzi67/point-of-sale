@@ -25,7 +25,17 @@ export function computeCartTotals(
   discountValue: number,
   taxPercent: number,
 ): CartTotals {
-  const subtotalMinor = cart.reduce((sum, line) => sum + line.priceMinor * line.qty, 0);
+  // Rounded per line, not once over the sum — this mirrors `db::sales::
+  // create_sale`'s `(price_minor as f64 * line.qty).round()` exactly, so the
+  // subtotal shown at checkout is the same integer the server derives rather
+  // than one that can drift a paisa from it.
+  //
+  // The rounding also keeps money whole: an amount-entered line carries a
+  // full-precision qty (see `billingStore.addItemByAmount`), so the raw
+  // product is something like 9999.999999999998, and letting that flow on
+  // would put a fractional value into fields that are integer minor units
+  // everywhere else.
+  const subtotalMinor = cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.qty), 0);
 
   const rawDiscountMinor =
     discountMode === "percent"

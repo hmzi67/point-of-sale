@@ -23,7 +23,11 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
 
   if (!entry) return null;
 
-  const lineTotalMinor = entry.priceMinor * entry.qty;
+  // Rounded to whole minor units, same as `computeCartTotals` and the
+  // server's per-line rounding — an amount-entered line's qty is carried at
+  // full precision, so the raw product is fractional (9999.999999999998 for
+  // a typed 100.00) and must not be shown or summed as-is.
+  const lineTotalMinor = Math.round(entry.priceMinor * entry.qty);
 
   return (
     <li

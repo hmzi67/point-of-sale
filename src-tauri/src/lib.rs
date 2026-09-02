@@ -6,12 +6,14 @@ mod printer;
 mod product_owner_session;
 mod session;
 mod startup_log;
+mod vendor_gate;
 
 use tauri::Manager;
 
 use crate::area_access_session::AreaAccessSession;
 use crate::db::Db;
 use crate::product_owner_session::ProductOwnerSession;
+use crate::vendor_gate::VendorGate;
 use crate::session::Session;
 
 /// Splash duration bounds. Shared with the Android-side splash
@@ -183,6 +185,7 @@ pub fn run() {
         .manage(Session::new())
         .manage(ProductOwnerSession::new())
         .manage(AreaAccessSession::new())
+        .manage(VendorGate::new())
         .manage(LaunchedAt(launched_at))
         .manage(SplashRevealed(std::sync::atomic::AtomicBool::new(false)))
         .plugin(tauri_plugin_opener::init())
@@ -299,6 +302,8 @@ pub fn run() {
             commands::app_db_tables,
             commands::get_app_config,
             commands::update_app_config,
+            commands::vendor_gate_status,
+            commands::vendor_gate_verify,
             commands::config_upload_logo,
             commands::config_get_logo,
             commands::get_enabled_modules,

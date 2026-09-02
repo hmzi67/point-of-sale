@@ -433,6 +433,45 @@ mod tests {
         assert_eq!(sale.items[0].notes, None);
     }
 
+    /// A cashier typing a rupee amount must be billed *that* amount, to the
+    /// paisa — the whole point of "sell by amount".
+    ///
+    /// The client turns the typed amount into a qty (`amount ÷ price`, in
+    /// `billingStore.addItemByAmount`) and this function turns it back into
+    /// money (`round(price × qty)`). That round trip only reduces to the
+    /// original amount if the quotient is carried at full precision:
+    /// rounding it to 2dp first used to bill 99.00 for a typed 100.00 at
+    /// 300.00/unit, and 51.00 for a typed 50.00 — wrong in both directions.
+    ///
+    /// The rates below are chosen so `amount ÷ price` is a non-terminating
+    /// decimal, which is exactly the case that used to break.
+    #[test]
+    fn an_amount_entered_line_bills_the_typed_amount_exactly() {
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let price_minor: i64 =
+            conn.query_row("SELECT price_minor FROM items WHERE id = ?1", params![cola], |row| row.get(0)).unwrap();
+
+        for typed_amount_minor in [10_000_i64, 5_000, 12_345, 100, 1] {
+            // Exactly what `addItemByAmount` now sends: the unrounded quotient.
+            let qty = typed_amount_minor as f64 / price_minor as f64;
+
+            let tx = conn.transaction().unwrap();
+            let input =
+                CreateSaleInput { items: vec![CartLine { item_id: cola, qty, notes: None }], ..basic_input(&tx) };
+            let sale = create_sale(&tx, input).unwrap();
+            tx.commit().unwrap();
+
+            assert_eq!(
+                sale.items[0].line_total_minor, typed_amount_minor,
+                "a typed amount of {typed_amount_minor} minor units must bill exactly that, not {} — \
+                 qty must reach the server unrounded",
+                sale.items[0].line_total_minor
+            );
+            assert_eq!(sale.total_minor, typed_amount_minor, "and the sale total must match it too");
+        }
+    }
+
     /// A "sold by amount" line end to end: fractional qty, money rounded
     /// back to whole minor units, stock decremented by exactly that
     /// fraction — not rounded to a whole unit anywhere in the path.

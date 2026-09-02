@@ -197,14 +197,22 @@ export const useBillingStore = create<BillingState>((set) => ({
   addItemByAmount: (item, amountMinor) => {
     if (!item.soldByAmount || item.priceMinor <= 0 || amountMinor <= 0 || item.stockQty <= 0) return;
 
-    // Rounded to 2 decimal places — the same rounding `printer::layout::
-    // format_qty` displays with, and what the server re-derives the actual
-    // charged total from (price × this qty, never the typed amount
-    // directly — see CLAUDE.md's "server re-derives price × qty" rule,
-    // which this doesn't bypass just because the cashier's input was an
-    // amount instead of a qty).
+    // Deliberately NOT rounded. The server charges `round(price × qty)`
+    // (see `db::sales::create_sale`), so any rounding of qty here lands
+    // straight on the customer's bill: at 300.00/unit, a typed 100 became
+    // qty 0.33 and billed 99.00, and a typed 50 became qty 0.17 and billed
+    // *51.00* — the error ran in both directions, overcharging as readily
+    // as undercharging.
+    //
+    // Carrying the full-precision quotient makes `price × qty` reduce back
+    // to the typed amount exactly: f64's relative error here is ~1e-16, so
+    // the product lands within a billionth of a minor unit of the amount and
+    // `.round()` recovers it precisely. Display is unaffected — `formatQty`
+    // and `printer::layout::format_qty` still show 2dp — and `sale_items.qty`
+    // / `items.stock_qty` are both REAL, so the exact figure survives
+    // storage and the stock decrement.
     const rawQty = amountMinor / item.priceMinor;
-    const qty = Math.min(Math.round(rawQty * 100) / 100, item.stockQty);
+    const qty = Math.min(rawQty, item.stockQty);
 
     set((state) => {
       const existing = state.cart[item.id];

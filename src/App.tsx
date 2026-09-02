@@ -4,6 +4,7 @@ import { AreaPinGate } from "./components/auth/AreaPinGate";
 import { ModuleRoute } from "./components/auth/ModuleRoute";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { RequireOnboarding } from "./components/auth/RequireOnboarding";
+import { VendorGate } from "./components/auth/VendorGate";
 import { AppLayout } from "./components/layout/AppLayout";
 import { useAppStore, useAuthStore, useModuleStore } from "./store";
 import {
@@ -52,8 +53,15 @@ export function App() {
 
         <Route element={<RequireAuth />}>
           {/* Reachable as soon as someone's logged in, regardless of
-              onboarding status — it's the only way out of "not onboarded". */}
-          <Route path="onboarding" element={<OnboardingPage />} />
+              onboarding status — it's the only way out of "not onboarded".
+              `VendorGate` fronts it on a fresh install: setup can't be
+              completed until the vendor password is entered. That guard is
+              presentational; the binding check is in Rust
+              (`commands::update_app_config`), so reaching this route by any
+              other means still can't finish setup. */}
+          <Route element={<VendorGate />}>
+            <Route path="onboarding" element={<OnboardingPage />} />
+          </Route>
 
           {/* Everything else waits on setup having actually finished. */}
           <Route element={<RequireOnboarding />}>
