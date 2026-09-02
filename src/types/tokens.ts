@@ -12,6 +12,13 @@ export interface TokenLine {
   itemName: string;
   qty: number;
   unit: string | null;
+  /** Whether this line's `qty` was computed from a rupee amount rather than
+   * typed directly — see `store/billingStore.ts`'s `addItemByAmount`. */
+  soldByAmount: boolean;
+  /** `qty × item.priceMinor`, rounded — the rupee amount this line
+   * represents, computed fresh from the item's current price. Only
+   * meaningful (and only shown) when `soldByAmount` is true. */
+  amountMinor: number;
 }
 
 /** One counter's worth of not-yet-printed items for a table order. Items

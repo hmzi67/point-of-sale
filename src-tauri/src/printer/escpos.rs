@@ -61,8 +61,8 @@ use crate::db::shifts::ShiftSummary;
 use crate::db::tokens::TokenLine;
 use crate::db::tokens::TokenSummary;
 use crate::printer::layout::{
-    bordered_line, bordered_row, box_line, box_row, divider, double_divider, format_minor, format_qty, row,
-    truncate_line, two_col, BoxLinePosition, LINE_WIDTH,
+    bordered_line, bordered_row, box_line, box_row, divider, dashed_divider, double_divider, format_minor,
+    format_qty, row, truncate_line, two_col, BoxLinePosition, LINE_WIDTH,
 };
 #[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
 use rusb::{Direction, TransferType};
@@ -103,6 +103,18 @@ fn init() -> [u8; 5] {
 
 fn bold(on: bool) -> [u8; 3] {
     [ESC, b'E', u8::from(on)]
+}
+
+/// Selects Font B (`ESC M 1`), the printer's smaller built-in face, or
+/// returns to Font A (`ESC M 0`). Used only for the developer credit block
+/// at the foot of a receipt, so it reads as secondary to the transaction.
+///
+/// Font B fits *more* characters per line than Font A, so `LINE_WIDTH`
+/// (measured for Font A) is a conservative budget while it's active — text
+/// sized against it can never overflow. Everything else on every template
+/// stays in Font A, which is what all the column arithmetic assumes.
+fn font_small(on: bool) -> [u8; 3] {
+    [ESC, b'M', u8::from(on)]
 }
 
 fn align_center() -> [u8; 3] {
@@ -250,6 +262,67 @@ fn item_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
 /// format_qty`'s doc comment for why that's PDF-only.
 const ITEM_TABLE_COLS: [usize; 4] = [16, 5, 7, 9];
 
+/// Content-only column widths for the receipt's boxed contact block
+/// (Business / Delivery numbers): 12 + 27 = 39, plus the 3 `│` separators
+/// [`box_row`] draws = 42 = `LINE_WIDTH`.
+const CONTACT_BOX_COLS: [usize; 2] = [12, 27];
+
+/// The developer credit printed at the very bottom of a customer receipt.
+/// Constants rather than config fields on purpose — this is the vendor's
+/// own attribution, not something a client configures per installation.
+///
+/// The trademark is spelled `(TM)`, not `™`, and that is deliberate: this
+/// text prints while the printer is in codepage CP437 (selected once by
+/// [`init`]), and CP437 has no trademark glyph at any codepoint. Sending
+/// the UTF-8 bytes for `™` (E2 84 A2) would print three unrelated CP437
+/// characters, not a symbol. The PDF path has a real font and no such
+/// limit, so it uses the actual `™` — the one place the two outputs
+/// deliberately differ, because the hardware can't render what the PDF can.
+const DEVELOPER_CREDIT: &str = "Developed by Code Hunts(TM)";
+const DEVELOPER_SITE: &str = "codehunts.co.uk";
+/// Spaced rather than one unbroken digit string, so it reads as a phone
+/// number a customer could actually dial off the paper.
+const DEVELOPER_PHONE: &str = "+92 339 0129547";
+/// Separator between site and phone when both share one line.
+const CREDIT_SEPARATOR: &str = "  |  ";
+
+/// The developer credit block: a centered attribution line, then the
+/// contact details, in the printer's smaller Font B so it reads as a
+/// footer rather than competing with the transaction above it.
+///
+/// Whether the site and phone share one line or take one each is derived
+/// from [`LINE_WIDTH`] rather than hardcoded, so this stays correct if that
+/// budget ever becomes configurable (a 58mm roll is ~32 columns, where the
+/// combined line no longer fits and splits on its own). The check is
+/// deliberately made against Font A's budget even though the block prints
+/// in Font B, which fits *more* characters per line — measuring against the
+/// narrower of the two can only ever split earlier than strictly necessary,
+/// never too late, so nothing can wrap mid-word.
+///
+/// Emits no feed or cut of its own: the caller places it above the
+/// pre-cut padding so the cutter never runs through it.
+fn developer_credit_block(out: &mut Vec<u8>) {
+    out.extend(align_center());
+    out.extend(font_small(true));
+
+    out.extend(truncate_line(DEVELOPER_CREDIT).as_bytes());
+    out.push(b'\n');
+
+    let combined = format!("{}{}{}", DEVELOPER_SITE, CREDIT_SEPARATOR, DEVELOPER_PHONE);
+    if combined.chars().count() <= LINE_WIDTH {
+        out.extend(combined.as_bytes());
+        out.push(b'\n');
+    } else {
+        out.extend(truncate_line(DEVELOPER_SITE).as_bytes());
+        out.push(b'\n');
+        out.extend(truncate_line(DEVELOPER_PHONE).as_bytes());
+        out.push(b'\n');
+    }
+
+    out.extend(font_small(false));
+    out.extend(align_left());
+}
+
 /// The header block every template shares: business name (bold, centered),
 /// then `subtitle_lines` centered underneath it, then a blank line.
 fn header_block(out: &mut Vec<u8>, business_name: &str, subtitle_lines: &[String]) {
@@ -361,24 +434,45 @@ pub fn build_receipt_bytes(
             contact_rows.push(("Delivery", delivery_number.clone()));
         }
     }
+    // Drawn as a real box (─│┌┬┐├┼┤└┴┘ via `box_row`/`box_line`) rather
+    // than the bare aligned rows this used to print — the contact numbers
+    // are the one block on the receipt that reads as a distinct card in the
+    // reference design, so they keep their border while the item table
+    // below gives its own up.
     if !contact_rows.is_empty() {
         out.extend(align_left());
+        out.extend(box_line(&CONTACT_BOX_COLS, BoxLinePosition::Top));
+        out.push(b'\n');
+        // Bold applies to the card's contents only — the box rules
+        // themselves stay at normal weight, and `bold(false)` below puts the
+        // rest of the receipt back to normal.
+        out.extend(bold(true));
         for (label, value) in &contact_rows {
-            out.extend(two_col(label, value).as_bytes());
+            out.extend(box_row(&[
+                (format!("{}:", label).as_str(), CONTACT_BOX_COLS[0], false),
+                (value.as_str(), CONTACT_BOX_COLS[1], true),
+            ]));
             out.push(b'\n');
         }
+        out.extend(bold(false));
+        out.extend(box_line(&CONTACT_BOX_COLS, BoxLinePosition::Bottom));
+        out.push(b'\n');
+        // The card's own bottom border is separation enough — a blank line
+        // is all that's needed before the sale details, with no second rule
+        // competing with it.
+        out.push(b'\n');
     }
 
-    // "Sale #N" + timestamp still centered on their own line below.
-    out.extend(align_center());
-    out.extend(truncate_line(&format!("Sale #{}  {}", sale.id, sale.created_at)).as_bytes());
-    out.push(b'\n');
+    // Sale identity: number + timestamp on one line, cashier + order type
+    // on the next, each pair filling the full width rather than being
+    // centered — the reference reads these as a two-line data block, not a
+    // masthead. `row` truncates rather than wraps, so a long table name
+    // shortens instead of pushing the line onto a second physical row.
     out.extend(align_left());
+    let sale_field = format!("Sale #{}", sale.id);
+    out.extend(row(&[(&sale_field, 18, false), (&sale.created_at, LINE_WIDTH - 18, true)]).as_bytes());
+    out.push(b'\n');
 
-    // Cashier and table-or-order-type share one line, each half the width —
-    // same information `two_col` used to give two full-width rows to. "Type"
-    // rather than "Order Type" so "Type: Counter Sale" still fits its half
-    // without truncating (half the 42-column line is only 21 characters).
     let (order_label, order_value) = match &sale.table_name {
         Some(table_name) => ("Table", table_name.clone()),
         None => ("Type", if tables_module_enabled { "Takeaway".to_string() } else { "Counter Sale".to_string() }),
@@ -386,18 +480,27 @@ pub fn build_receipt_bytes(
     let cashier_field = format!("Cashier: {}", sale.cashier_name.as_deref().unwrap_or("—"));
     let order_field = format!("{}: {}", order_label, order_value);
     let half = LINE_WIDTH / 2;
-    out.extend(row(&[(&cashier_field, half, false), (&order_field, LINE_WIDTH - half, false)]).as_bytes());
+    out.extend(row(&[(&cashier_field, half, false), (&order_field, LINE_WIDTH - half, true)]).as_bytes());
     out.push(b'\n');
 
-    // Real box-drawing borders (─│┌┬┐├┼┤└┴┘), not the ASCII `|`/`-`/`+`
-    // punctuation `bordered_row`/`bordered_line` draw — see `layout::
-    // box_row`/`box_line`'s doc comment for why this needs raw bytes
-    // instead of the `String`-based helpers every other bordered table in
-    // this file still uses.
+    // A fully box-drawn item table (─│┌┬┐├┼┤└┴┘ via `box_row`/`box_line`) —
+    // outer border, a rule under the header, and a vertical rule between
+    // every column, so it reads as an actual table rather than a list under
+    // a line. Same box-drawing vocabulary as the contact card above it, so
+    // the two blocks look like they belong on the same receipt.
+    //
+    // The borders cost 5 of the 42 columns, which is why the content widths
+    // here ([`ITEM_TABLE_COLS`], 37 columns) are narrower than the
+    // border-less layout's would be.
     out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top));
     out.push(b'\n');
     out.extend(bold(true));
-    out.extend(box_row(&[("Item", ITEM_TABLE_COLS[0], false), ("Qty", ITEM_TABLE_COLS[1], true), ("Rate", ITEM_TABLE_COLS[2], true), ("Amount", ITEM_TABLE_COLS[3], true)]));
+    out.extend(box_row(&[
+        ("ITEM", ITEM_TABLE_COLS[0], false),
+        ("QTY", ITEM_TABLE_COLS[1], true),
+        ("RATE", ITEM_TABLE_COLS[2], true),
+        ("AMOUNT", ITEM_TABLE_COLS[3], true),
+    ]));
     out.push(b'\n');
     out.extend(bold(false));
     out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Middle));
@@ -414,28 +517,55 @@ pub fn build_receipt_bytes(
     out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom));
     out.push(b'\n');
 
-    out.extend(two_col("Subtotal", &format!("{} {}", currency, format_minor(sale.subtotal_minor))).as_bytes());
+    out.extend(two_col("Subtotal:", &format!("{} {}", currency, format_minor(sale.subtotal_minor))).as_bytes());
     out.push(b'\n');
     if sale.discount_minor > 0 {
         out.extend(
-            two_col("Discount", &format!("-{} {}", currency, format_minor(sale.discount_minor))).as_bytes(),
+            two_col("Discount:", &format!("-{} {}", currency, format_minor(sale.discount_minor))).as_bytes(),
         );
         out.push(b'\n');
     }
     if sale.tax_minor > 0 {
-        out.extend(two_col("Tax", &format!("{} {}", currency, format_minor(sale.tax_minor))).as_bytes());
+        out.extend(two_col("Tax:", &format!("{} {}", currency, format_minor(sale.tax_minor))).as_bytes());
         out.push(b'\n');
     }
-    out.extend(double_divider().as_bytes());
+    // A plain rule, not `double_divider` — the reference separates the
+    // grand total with the same light ruling used everywhere else, letting
+    // the bold TOTAL row carry the emphasis on its own.
+    out.extend(divider().as_bytes());
     out.push(b'\n');
     out.extend(bold(true));
-    out.extend(two_col("TOTAL", &format!("{} {}", currency, format_minor(sale.total_minor))).as_bytes());
+    out.extend(two_col("TOTAL:", &format!("{} {}", currency, format_minor(sale.total_minor))).as_bytes());
     out.push(b'\n');
     out.extend(bold(false));
+    out.extend(divider().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
     out.extend(truncate_line(&format!("Paid by: {}", sale.payment_method)).as_bytes());
     out.push(b'\n');
+    out.extend(bold(false));
 
-    close_out(&mut out, &config.receipt_footer);
+    // Closing block: the configured thank-you line, then the developer
+    // credit. Built here rather than through `close_out` (every other
+    // template's closer) because only the customer receipt carries a
+    // credit block.
+    footer_block(&mut out, &config.receipt_footer);
+    out.push(b'\n');
+    // A dashed rule closes off the transaction and opens the credit block —
+    // still lighter than the solid rules bracketing the totals, so it reads
+    // as a change of subject rather than a structural boundary.
+    out.extend(align_left());
+    out.extend(dashed_divider().as_bytes());
+    out.push(b'\n');
+    out.push(b'\n');
+    developer_credit_block(&mut out);
+
+    // The pre-cut padding stays below the credit block, so the cutter never
+    // runs through it — see `close_out`'s doc comment on why this margin
+    // sits on top of the cut command's own built-in feed.
+    out.push(b'\n');
+    out.push(b'\n');
+    out.extend(feed_and_cut());
     out
 }
 
@@ -584,8 +714,15 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
     out.push(b'\n');
     out.extend(align_left());
 
-    // Body: item + qty only — no rate, no amount, no total. A token is a
-    // working document, not a record; kitchen staff don't need money on it.
+    // Body: item + qty only — no rate, no total. A token is a working
+    // document, not a record; kitchen staff don't need money on it. The one
+    // exception is a `sold_by_amount` line's bracketed rupee amount, on its
+    // own line right under the qty (rather than appended inline, which
+    // would overflow `two_col`'s fixed value column and get silently
+    // truncated) — e.g. "Channa    0.33 kg" / "         (100.00)" — since
+    // its qty alone (a computed fraction, not what the cashier actually
+    // typed) isn't enough for the cashier/customer to double check the
+    // amount asked for was what got rung up.
     for line in &token.items {
         let qty_text = match &line.unit {
             Some(unit) => format!("{} {}", format_qty(line.qty), unit),
@@ -593,6 +730,10 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
         };
         out.extend(two_col(&line.item_name, &qty_text).as_bytes());
         out.push(b'\n');
+        if line.sold_by_amount {
+            out.extend(two_col("", &format!("({})", format_minor(line.amount_minor))).as_bytes());
+            out.push(b'\n');
+        }
     }
 
     // No footer text, no counter/table/`Item`/`Qty` header row — `close_out`
@@ -1651,12 +1792,12 @@ mod tests {
 
     #[test]
     fn build_receipt_bytes_never_lets_a_long_phone_or_delivery_number_spill_onto_another_line() {
-        use crate::printer::layout::two_col;
+        use crate::printer::layout::LINE_WIDTH;
 
-        // Business and Delivery are now their own two_col rows (label-left,
-        // value-right, padded/truncated to LINE_WIDTH) rather than one
-        // combined centered line — each row's `pad` truncation is what
-        // guards against overflow here.
+        // Business and Delivery are rows of a box-drawn contact card
+        // (label-left, value-right, each cell padded/truncated by
+        // `box_row`'s `pad`) — that per-cell truncation is what guards
+        // against overflow here.
         let long_phone = "+92 300 1234567 (also a needlessly long phone line to test with)";
         let long_delivery = "0300-9999999 (a needlessly long delivery contact line to test with)";
 
@@ -1668,11 +1809,17 @@ mod tests {
         let text = String::from_utf8_lossy(&bytes);
         assert!(!text.contains(long_phone), "the untruncated phone must not appear at all");
         assert!(!text.contains(long_delivery), "the untruncated delivery number must not appear at all");
-        assert!(text.contains(&two_col("Business", long_phone)), "the Business row must appear, cut to one line's width");
-        assert!(
-            text.contains(&two_col("Delivery", long_delivery)),
-            "the Delivery row must appear, cut to one line's width"
-        );
+
+        // Box-drawing bytes aren't valid UTF-8, so match the raw rows.
+        for (label, value) in [("Business:", long_phone), ("Delivery:", long_delivery)] {
+            let expected =
+                box_row(&[(label, CONTACT_BOX_COLS[0], false), (value, CONTACT_BOX_COLS[1], true)]);
+            assert_eq!(expected.len(), LINE_WIDTH, "a contact row must fill exactly one printed line");
+            assert!(
+                bytes.windows(expected.len()).any(|w| w == expected.as_slice()),
+                "the {label} row must appear, cut to one line's width"
+            );
+        }
     }
 
     #[test]
@@ -1821,15 +1968,15 @@ mod tests {
         use crate::printer::layout::LINE_WIDTH;
         let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
         // Every item row (and the header) must be exactly LINE_WIDTH bytes,
-        // bordered by the CP437 vertical rule on both sides — that's what
-        // "columns line up" with a real visible grid verifies. Real
-        // box-drawing bytes aren't valid UTF-8, so this checks raw bytes in
-        // `bytes` directly rather than a lossy-decoded string.
+        // bordered by the CP437 vertical rule on both sides and between
+        // every column — that's what "columns line up" with a real visible
+        // grid verifies. Box-drawing bytes aren't valid UTF-8, so this
+        // checks raw bytes rather than a lossy-decoded string.
         let header_row = box_row(&[
-            ("Item", ITEM_TABLE_COLS[0], false),
-            ("Qty", ITEM_TABLE_COLS[1], true),
-            ("Rate", ITEM_TABLE_COLS[2], true),
-            ("Amount", ITEM_TABLE_COLS[3], true),
+            ("ITEM", ITEM_TABLE_COLS[0], false),
+            ("QTY", ITEM_TABLE_COLS[1], true),
+            ("RATE", ITEM_TABLE_COLS[2], true),
+            ("AMOUNT", ITEM_TABLE_COLS[3], true),
         ]);
         let item_row = box_row(&[
             ("Cola 500ml", ITEM_TABLE_COLS[0], false),
@@ -1850,22 +1997,129 @@ mod tests {
     }
 
     #[test]
-    fn build_receipt_bytes_draws_a_real_box_drawn_item_table() {
+    fn build_receipt_bytes_draws_the_item_table_as_a_fully_bordered_grid() {
         let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        // Real box-drawing rules (┌┬┐ / ├┼┤ / └┴┘), not ASCII `+---+` — this
-        // is the whole point of the change: it should read as an actual
-        // table, not typed punctuation.
-        let top = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top);
-        let middle = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Middle);
-        let bottom = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom);
-        for (name, rule) in [("top", &top), ("middle", &middle), ("bottom", &bottom)] {
+        // Real box-drawing rules (┌┬┐ / ├┼┤ / └┴┘) on all three edges, not
+        // ASCII `+---+` and not bare horizontal rules — the item table
+        // should read as an actual table.
+        for (name, rule) in [
+            ("top", box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top)),
+            ("middle", box_line(&ITEM_TABLE_COLS, BoxLinePosition::Middle)),
+            ("bottom", box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom)),
+        ] {
             assert!(
                 bytes.windows(rule.len()).any(|w| w == rule.as_slice()),
-                "expected the {name} box-drawing rule somewhere in the receipt"
+                "expected the {name} box-drawing rule around the item table"
             );
         }
-        assert!(!bytes.contains(&b'|'), "receipt item table must not use ASCII pipe borders any more");
-        assert!(!bytes.contains(&b'+'), "receipt item table must not use ASCII plus-corner borders any more");
+        // Scoped to the table itself, not the whole receipt: a `|` is
+        // legitimate elsewhere (the developer credit separates its site and
+        // phone with one), it just must never be used as a table border.
+        let table_top = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top);
+        let table_bottom = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom);
+        let top_at = bytes.windows(table_top.len()).position(|w| w == table_top.as_slice()).unwrap();
+        let bottom_at = bytes.windows(table_bottom.len()).position(|w| w == table_bottom.as_slice()).unwrap();
+        let table_region = &bytes[top_at..bottom_at + table_bottom.len()];
+        assert!(!table_region.contains(&b'|'), "the item table must not use ASCII pipe borders");
+        assert!(!table_region.contains(&b'+'), "the item table must not use ASCII plus-corner borders");
+
+        // The table's own rules are solid box-drawing, never dashed. A
+        // dashed rule elsewhere on the receipt is fine (one opens the credit
+        // block below) — it just must never appear *inside* the table.
+        let dashed = dashed_divider();
+        assert!(
+            !table_region.windows(dashed.len()).any(|w| w == dashed.as_bytes()),
+            "the item table must be ruled with solid box-drawing, never a dashed divider"
+        );
+    }
+
+    #[test]
+    fn build_receipt_bytes_draws_the_contact_numbers_as_a_box_drawn_card() {
+        let mut config = sample_config();
+        config.phone = Some("0313474231928".into());
+        config.delivery_number = Some("03123234432".into());
+        let bytes = build_receipt_bytes(&sample_sale(), &config, None, true);
+        // The contact block keeps a real box-drawing border (┌┬┐ / └┴┘) —
+        // it's the one section the reference design reads as a distinct
+        // card, unlike the item table below it.
+        for (name, rule) in [
+            ("top", box_line(&CONTACT_BOX_COLS, BoxLinePosition::Top)),
+            ("bottom", box_line(&CONTACT_BOX_COLS, BoxLinePosition::Bottom)),
+        ] {
+            assert!(
+                bytes.windows(rule.len()).any(|w| w == rule.as_slice()),
+                "expected the {name} box-drawing rule around the contact card"
+            );
+        }
+    }
+
+    #[test]
+    fn build_receipt_bytes_ends_with_the_developer_credit_and_no_qr_code() {
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        let text = String::from_utf8_lossy(&bytes);
+
+        assert!(text.contains(DEVELOPER_CREDIT), "the developer credit line must appear");
+        assert!(text.contains(DEVELOPER_SITE), "the developer site must appear");
+        assert!(text.contains(DEVELOPER_PHONE), "the developer phone must appear, spaced as configured");
+
+        // The QR is gone entirely — no `GS ( k` command of any function,
+        // and no payload URL left behind in the stream.
+        assert!(!text.contains("codehunts.co.uk/"), "no QR payload URL should remain");
+        let gs_paren_k = [0x1D, 0x28, 0x6B];
+        assert!(
+            !bytes.windows(gs_paren_k.len()).any(|w| w == gs_paren_k),
+            "no GS ( k QR command may remain anywhere in the receipt"
+        );
+        assert!(!text.contains("Powered by"), "the old brand attribution must be gone");
+    }
+
+    #[test]
+    fn developer_credit_fits_one_line_at_the_current_width_and_never_wraps() {
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        let text = String::from_utf8_lossy(&bytes);
+
+        // At LINE_WIDTH = 42 the site and phone share one line; the check
+        // in `developer_credit_block` derives that from LINE_WIDTH, so this
+        // pins the *behaviour* rather than the current width: whichever
+        // branch is taken, no printed line may exceed the budget.
+        let combined = format!("{}{}{}", DEVELOPER_SITE, CREDIT_SEPARATOR, DEVELOPER_PHONE);
+        if combined.chars().count() <= LINE_WIDTH {
+            assert!(text.contains(&combined), "site and phone must share one line while they fit");
+        } else {
+            assert!(!text.contains(&combined), "the combined line must not print when it doesn't fit");
+        }
+
+        for line in [DEVELOPER_CREDIT, DEVELOPER_SITE, DEVELOPER_PHONE] {
+            assert!(line.chars().count() <= LINE_WIDTH, "{line:?} must fit one line on its own");
+            // The printer is in CP437 for the whole job (see `init`), whose
+            // low 128 codepoints are ASCII and whose upper half holds no
+            // punctuation we spell anything with. A non-ASCII character
+            // here would be sent as multi-byte UTF-8 and print as that many
+            // unrelated CP437 glyphs — which is exactly why the trademark
+            // is written "(TM)" rather than "™" on this path.
+            assert!(
+                line.is_ascii(),
+                "{line:?} must be pure ASCII — CP437 cannot render a non-ASCII character here"
+            );
+        }
+    }
+
+    #[test]
+    fn developer_credit_prints_above_the_pre_cut_padding() {
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        // The cutter must never run through the credit: the cut command has
+        // to come after the last credit byte, with the feed padding between.
+        let credit_at = bytes
+            .windows(DEVELOPER_CREDIT.len())
+            .position(|w| w == DEVELOPER_CREDIT.as_bytes())
+            .expect("credit block must be present");
+        let cut = [GS, b'V', 66, CUT_FEED_LINES];
+        let cut_at = bytes.windows(cut.len()).position(|w| w == cut).expect("cut command must be present");
+        assert!(cut_at > credit_at, "the cut must come after the credit block, never through it");
+        assert!(
+            bytes[credit_at + DEVELOPER_CREDIT.len()..cut_at].iter().filter(|b| **b == b'\n').count() >= 2,
+            "at least the two-line feed margin must sit between the credit and the cut"
+        );
     }
 
     #[test]
@@ -2077,14 +2331,28 @@ mod tests {
             printed_by_name: Some("Ali".into()),
             status: "printed".into(),
             items: vec![
-                TokenLine { item_id: 1, item_name: "Channa".into(), qty: 2.0, unit: Some("kg".into()) },
-                TokenLine { item_id: 2, item_name: "Cola 500ml".into(), qty: 3.0, unit: None },
+                TokenLine {
+                    item_id: 1,
+                    item_name: "Channa".into(),
+                    qty: 2.0,
+                    unit: Some("kg".into()),
+                    sold_by_amount: true,
+                    amount_minor: 10000,
+                },
+                TokenLine {
+                    item_id: 2,
+                    item_name: "Cola 500ml".into(),
+                    qty: 3.0,
+                    unit: None,
+                    sold_by_amount: false,
+                    amount_minor: 0,
+                },
             ],
         }
     }
 
     #[test]
-    fn build_token_bytes_shows_the_date_time_token_number_and_items_with_unit_but_no_money() {
+    fn build_token_bytes_shows_the_date_time_token_number_and_items_with_unit_but_no_rate_or_total() {
         let bytes = build_token_bytes(&sample_token(), false);
         let text = String::from_utf8_lossy(&bytes);
         assert!(text.contains("2026-01-01"), "date must appear");
@@ -2092,8 +2360,14 @@ mod tests {
         assert!(text.contains("TOKEN #14"));
         assert!(!text.contains("REPRINT"), "a first print must not show the reprint banner");
         assert!(text.contains("2 kg"), "a sold-by-amount line shows its unit on a token (unlike the bill)");
+        assert!(
+            text.contains("(100.00)"),
+            "a sold-by-amount line also shows its computed rupee amount in brackets, under the qty"
+        );
         assert!(text.contains("Cola 500ml"));
-        // No prices/totals anywhere — this is a kitchen ticket, not a bill.
+        // No prices/totals anywhere except the sold-by-amount bracket above
+        // — this is a kitchen ticket, not a bill, and never shows a
+        // currency-formatted (symbol-prefixed) amount either way.
         assert!(!text.contains(&config_currency_marker()), "must not print a currency-formatted amount");
         // Stripped down deliberately — no business identity or counter
         // identity on the paper itself, see `build_token_bytes`'s doc
@@ -2143,7 +2417,14 @@ mod tests {
         // characters in a lossy-decoded string).
         let mut token = sample_token();
         let long_name = "A Very Long Item Name That Would Otherwise Wrap Onto A Second Physical Line";
-        token.items = vec![TokenLine { item_id: 1, item_name: long_name.into(), qty: 1.0, unit: None }];
+        token.items = vec![TokenLine {
+            item_id: 1,
+            item_name: long_name.into(),
+            qty: 1.0,
+            unit: None,
+            sold_by_amount: false,
+            amount_minor: 0,
+        }];
 
         let bytes = build_token_bytes(&token, false);
         let text = String::from_utf8_lossy(&bytes);

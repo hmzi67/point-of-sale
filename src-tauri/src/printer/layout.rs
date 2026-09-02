@@ -67,6 +67,14 @@ pub fn double_divider() -> String {
     "=".repeat(LINE_WIDTH)
 }
 
+/// A dashed divider: a dash every other column, so it reads as a lighter
+/// separation than [`divider`]'s solid run without dropping to invisibility.
+/// A fixed character grid has no line weight to vary — the *density* of ink
+/// along the row is the only lever this trades in.
+pub fn dashed_divider() -> String {
+    (0..LINE_WIDTH).map(|i| if i % 2 == 0 { '-' } else { ' ' }).collect()
+}
+
 /// `label` left-aligned, `value` right-aligned in the last [`VALUE_WIDTH`]
 /// columns — the "Subtotal ... 123.45"-style row every totals block uses.
 pub fn two_col(label: &str, value: &str) -> String {
@@ -217,6 +225,21 @@ pub fn format_minor(minor: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dashed_rule_fills_exactly_one_line_and_stays_lighter_than_a_solid_divider() {
+        // A rule wider than LINE_WIDTH would wrap onto a second physical
+        // line on the printer — the one failure mode these can have.
+        assert_eq!(dashed_divider().chars().count(), LINE_WIDTH, "the dotted rule must fill exactly one line");
+        // Ink density is the only "line weight" a fixed character grid has,
+        // so the ordering solid > dotted > light dotted is what actually
+        // makes these read as a hierarchy on paper.
+        let ink = |s: &str| s.chars().filter(|c| !c.is_whitespace()).count();
+        assert!(
+            ink(&divider()) > ink(&dashed_divider()),
+            "a dashed rule must be lighter than a solid one"
+        );
+    }
 
     #[test]
     fn two_col_lines_up_the_value_at_the_right_edge() {

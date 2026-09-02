@@ -204,6 +204,7 @@ export function BillingPage() {
         {tablesEnabled && (
           <OrderTypeAndTable
             taxPercent={config.taxPercent}
+            currency={config.currency}
             onParked={(message) => {
               setNotice(message);
               window.setTimeout(() => setNotice(null), 4000);

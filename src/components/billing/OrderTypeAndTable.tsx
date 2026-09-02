@@ -10,6 +10,9 @@ import type { TableSummary } from "../../types";
 
 interface OrderTypeAndTableProps {
   taxPercent: number;
+  /** Passed straight through to `TokenPrintDialog` for its sold-by-amount
+   * lines' bracketed rupee amount. */
+  currency: string;
   onParked: (message: string) => void;
   /** Bumped by `BillingPage` on every Ctrl/Cmd+K press (see
    * `useFastBillingHotkeys`) — this component owns the actual "Print Token"
@@ -52,6 +55,7 @@ const STATUS_LABEL: Record<TableSummary["status"], string> = {
  */
 export function OrderTypeAndTable({
   taxPercent,
+  currency,
   onParked,
   tokenPrintRequestId,
   onTokenDialogOpenChange,
@@ -294,7 +298,9 @@ export function OrderTypeAndTable({
         </button>
       )}
 
-      {tokenSource && <TokenPrintDialog source={tokenSource} onClose={() => setTokenSource(null)} />}
+      {tokenSource && (
+        <TokenPrintDialog source={tokenSource} currency={currency} onClose={() => setTokenSource(null)} />
+      )}
     </div>
   );
 }

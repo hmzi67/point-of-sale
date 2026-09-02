@@ -40,6 +40,21 @@ pub struct TokenLine {
     pub item_name: String,
     pub qty: f64,
     pub unit: Option<String>,
+    /// Whether this item is sold by amount (its `qty` was computed from a
+    /// rupee amount ÷ price, not typed directly — see `billingStore.ts`'s
+    /// `addItemByAmount`). Only used to decide whether `amount_minor` is
+    /// worth showing on a token: a normal item's qty is already exactly
+    /// what the customer asked for, so the rupee figure adds nothing there.
+    pub sold_by_amount: bool,
+    /// `qty × item.price_minor`, rounded to the nearest minor unit — the
+    /// rupee amount this line represents, computed fresh from the item's
+    /// *current* price (a token isn't a financial record — the bill's
+    /// `price_at_sale_minor` is — so there's no staleness concern re-reading
+    /// it live). Shown in brackets after the quantity on a `sold_by_amount`
+    /// line only, e.g. "0.33 kg (Rs 100)", so the kitchen still sees the
+    /// weight to prepare while the cashier/customer can double check the
+    /// amount matches what was asked for.
+    pub amount_minor: i64,
 }
 
 /// Everything still un-tokenized for one counter, on one table order.
@@ -192,14 +207,14 @@ fn group_by_counter(
             continue;
         }
 
-        let item: Option<(String, Option<String>, Option<i64>, Option<String>)> = conn
+        let item: Option<(String, Option<String>, Option<i64>, Option<String>, bool, i64)> = conn
             .query_row(
-                "SELECT i.name, i.unit, i.counter_id, c.name
+                "SELECT i.name, i.unit, i.counter_id, c.name, i.sold_by_amount, i.price_minor
                    FROM items i
                    LEFT JOIN counters c ON c.id = i.counter_id
                   WHERE i.id = ?1",
                 params![item_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
             )
             .optional()?;
 
@@ -207,13 +222,17 @@ fn group_by_counter(
         // never sold, per `items::delete_item`'s soft-delete rule) — same
         // "skip it, don't fail the whole read" the frontend's own
         // `loadParkedCart` already does for this exact situation.
-        let Some((item_name, unit, Some(counter_id), Some(counter_name))) = item else { continue };
+        let Some((item_name, unit, Some(counter_id), Some(counter_name), sold_by_amount, price_minor)) = item else {
+            continue;
+        };
 
         groups.entry(counter_id).or_insert_with(|| (counter_name, Vec::new())).1.push(TokenLine {
             item_id,
             item_name,
             qty,
             unit,
+            sold_by_amount,
+            amount_minor: (qty * price_minor as f64).round() as i64,
         });
     }
 
@@ -386,7 +405,7 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
     };
 
     let mut stmt = conn.prepare(
-        "SELECT ti.item_id, i.name, ti.qty_on_token, i.unit
+        "SELECT ti.item_id, i.name, ti.qty_on_token, i.unit, i.sold_by_amount, i.price_minor
            FROM token_items ti
            JOIN items i ON i.id = ti.item_id
           WHERE ti.token_id = ?1
@@ -394,7 +413,17 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
     )?;
     let items = stmt
         .query_map(params![token_id], |row| {
-            Ok(TokenLine { item_id: row.get(0)?, item_name: row.get(1)?, qty: row.get(2)?, unit: row.get(3)? })
+            let qty: f64 = row.get(2)?;
+            let sold_by_amount: bool = row.get(4)?;
+            let price_minor: i64 = row.get(5)?;
+            Ok(TokenLine {
+                item_id: row.get(0)?,
+                item_name: row.get(1)?,
+                qty,
+                unit: row.get(3)?,
+                sold_by_amount,
+                amount_minor: (qty * price_minor as f64).round() as i64,
+            })
         })?
         .collect::<Result<Vec<_>, _>>()?;
 

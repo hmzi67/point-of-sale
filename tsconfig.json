@@ -5,6 +5,15 @@
     "module": "ESNext",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
+    /* This is a browser/Tauri frontend: only DOM globals should be in
+       ambient scope. Without this, *every* `@types/*` package that happens
+       to land in node_modules (e.g. `@types/node`, pulled in transitively
+       by a tooling dependency) is auto-injected globally and silently
+       re-types DOM APIs — `window.setTimeout` starts returning Node's
+       `Timeout` instead of `number`, and unrelated files stop compiling.
+       Explicit `import`s of a package's types still work exactly as
+       before; this only governs automatic *global* inclusion. */
+    "types": [],
 
     /* Bundler mode */
     "moduleResolution": "bundler",

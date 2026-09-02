@@ -9,7 +9,7 @@ import {
   reprintToken,
 } from "../../services/tokensService";
 import { getCounters } from "../../services/countersService";
-import { formatQty } from "../../utils/format";
+import { formatMinor, formatQty } from "../../utils/format";
 import type { AdhocTokenLine, CounterPrintResult, Counter, PendingCounterGroup, TokenSummary } from "../../types";
 
 /** Where a "Print Token" dialog gets its pending items from — a dine-in
@@ -23,6 +23,8 @@ export type TokenPrintSource =
 
 interface TokenPrintDialogProps {
   source: TokenPrintSource;
+  /** For a sold-by-amount line's bracketed rupee amount below its qty. */
+  currency: string;
   onClose: () => void;
 }
 
@@ -37,7 +39,7 @@ interface TokenPrintDialogProps {
  * and instead removes a counter from the list locally right after printing
  * it, so the same items can't be immediately reprinted by accident.
  */
-export function TokenPrintDialog({ source, onClose }: TokenPrintDialogProps) {
+export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialogProps) {
   const [pending, setPending] = useState<PendingCounterGroup[]>([]);
   const [printed, setPrinted] = useState<TokenSummary[]>([]);
   const [counters, setCounters] = useState<Counter[]>([]);
@@ -246,7 +248,14 @@ export function TokenPrintDialog({ source, onClose }: TokenPrintDialogProps) {
                       {group.items.map((line) => (
                         <li key={line.itemId} className="flex justify-between">
                           <span>{line.itemName}</span>
-                          <span className="font-medium">{formatQty(line.qty, line.unit)}</span>
+                          <span className="font-medium">
+                            {formatQty(line.qty, line.unit)}
+                            {line.soldByAmount && (
+                              <span className="ml-1 text-slate-400">
+                                ({formatMinor(line.amountMinor, currency)})
+                              </span>
+                            )}
+                          </span>
                         </li>
                       ))}
                     </ul>
