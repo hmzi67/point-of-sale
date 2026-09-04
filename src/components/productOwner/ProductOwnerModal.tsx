@@ -14,7 +14,7 @@ type Stage = "loading" | "setup" | "login" | "panel";
  * `useSecretTapTrigger`, never from any visible button or menu. Deliberately
  * plain: no "Product Owner" marketing chrome, no claim that this is
  * unbreakable (it isn't, against someone with filesystem access to the
- * machine — see SUPPORT.md). On mount it tries to load the module list
+ * machine — see docs/SUPPORT.md). On mount it tries to load the module list
  * directly first: if an elevated session from an earlier tap-trigger in
  * this same app run is still valid, that succeeds and skips straight past
  * the password prompt; if not, it falls back to asking for the credential

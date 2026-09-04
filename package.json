@@ -2,6 +2,8 @@
   "name": "diwan",
   "private": true,
   "version": "1.0.0",
+  "description": "Offline-first, module-configurable point of sale for retail and restaurant shops",
+  "license": "LicenseRef-Proprietary",
   "type": "module",
   "scripts": {
     "dev": "vite",

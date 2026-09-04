@@ -368,7 +368,7 @@ jobs:
       # keystore.properties written by the next step is inert and the build
       # silently produces an unsigned APK/AAB. scripts/patch_android_signing.py
       # is idempotent (safe to re-run) and is the same script a developer
-      # runs locally after `npm run tauri android init` — see DEPLOYMENT.md.
+      # runs locally after `npm run tauri android init` — see docs/DEPLOYMENT.md.
       - name: Patch Android Gradle project to use keystore.properties
         run: python3 scripts/patch_android_signing.py
 

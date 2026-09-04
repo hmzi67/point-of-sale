@@ -10,7 +10,7 @@
 //! staff session (`product_owner_session.rs`), never `session::Session`.
 //!
 //! There is deliberately no password-reset path here reachable by any
-//! client role — see SUPPORT.md for what recovering a forgotten credential
+//! client role — see docs/SUPPORT.md for what recovering a forgotten credential
 //! on a given install actually looks like (manual, vendor-side, requires
 //! filesystem access to that install).
 //!

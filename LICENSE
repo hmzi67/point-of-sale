@@ -1,0 +1,108 @@
+Diwan — Proprietary Software License
+Copyright © 2026 Applr. All rights reserved.
+
+1. Ownership
+
+   Diwan (the "Software"), including its source code, object code, user
+   interface, database schema, documentation, icons, and all other
+   materials distributed with it, is the proprietary and confidential
+   property of Applr (the "Licensor"). The Software is licensed, not
+   sold. Licensor retains all right, title, and interest in and to the
+   Software, including all intellectual property rights therein.
+
+2. Grant of License
+
+   No license, express or implied, is granted by the mere possession of
+   this repository or of a build of the Software. Rights to install and
+   use the Software are granted only under a separate written agreement
+   executed with Licensor (a "Client Agreement").
+
+   Where a valid Client Agreement is in force, Licensor grants the party
+   named in it a non-exclusive, non-transferable, revocable license to
+   install and use the Software in object-code form, on the number of
+   devices and for the business locations stated in that agreement, for
+   that party's own internal business operations only, for the term
+   stated in that agreement.
+
+3. Restrictions
+
+   Except to the extent this restriction is prohibited by applicable law
+   or expressly permitted in writing by Licensor, no person may:
+
+   a. copy, publish, distribute, sublicense, sell, rent, lease, lend, or
+      otherwise transfer the Software or any part of it to any third
+      party;
+   b. modify, adapt, translate, or create derivative works of the
+      Software;
+   c. reverse engineer, decompile, or disassemble the Software, or
+      otherwise attempt to derive its source code;
+   d. remove, obscure, or alter any copyright, trademark, or other
+      proprietary notice contained in the Software;
+   e. rebrand, white-label, or redistribute the Software as their own
+      product or as part of any other product or service;
+   f. use the Software to provide a commercial hosting, service-bureau,
+      or software-as-a-service offering to third parties;
+   g. circumvent, disable, or interfere with any licensing, module
+      configuration, authorization, or access-control mechanism of the
+      Software.
+
+4. Client Data
+
+   All business data a licensee enters into the Software is stored
+   locally on that licensee's own device and belongs to that licensee.
+   Licensor claims no ownership of it and, because the Software operates
+   offline, receives no copy of it.
+
+5. Third-Party Components
+
+   The Software incorporates third-party open-source components, each of
+   which remains subject to its own license. Those licenses govern the
+   respective components and are not superseded by this License. A list
+   of such components and their licenses is generated from `package.json`
+   and `src-tauri/Cargo.toml` and is available from Licensor on request.
+
+6. Confidentiality
+
+   The source code and internal documentation of the Software are
+   confidential information of Licensor. Any person granted access to
+   them must not disclose them to any third party and must use them only
+   for the purpose for which access was granted.
+
+7. Termination
+
+   This License and any rights granted under a Client Agreement
+   terminate automatically upon breach of any term of this License. On
+   termination, all use of the Software must cease and all copies in the
+   licensee's possession or control must be destroyed or uninstalled.
+
+8. No Warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+   NONINFRINGEMENT. LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE
+   UNINTERRUPTED OR ERROR-FREE.
+
+9. Limitation of Liability
+
+   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL
+   LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL,
+   CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS,
+   REVENUE, BUSINESS, OR DATA, ARISING OUT OF OR RELATING TO THE
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+   LICENSOR'S TOTAL AGGREGATE LIABILITY ARISING OUT OF OR RELATING TO
+   THE SOFTWARE SHALL NOT EXCEED THE AMOUNTS PAID BY THE LICENSEE TO
+   LICENSOR UNDER THE APPLICABLE CLIENT AGREEMENT IN THE TWELVE (12)
+   MONTHS PRECEDING THE EVENT GIVING RISE TO THE CLAIM.
+
+   Nothing in this License excludes or limits liability that cannot be
+   excluded or limited under applicable law.
+
+10. Entire Agreement
+
+   This License, together with any applicable Client Agreement,
+   constitutes the entire agreement concerning the Software and
+   supersedes all prior understandings relating to it. If any provision
+   is held unenforceable, the remaining provisions remain in full force.
+
+For licensing enquiries, contact Applr.

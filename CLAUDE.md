@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**Diwan** — a Tauri 2 desktop point-of-sale app, white-label by design: one codebase configured per client, with modules toggled on/off rather than forked. Read `projectGoal.md` for the "why" and `buildPlan.md` for the phase-by-phase "how" — every change should fit somewhere in that plan.
+**Diwan** — a Tauri 2 desktop point-of-sale app, white-label by design: one codebase configured per client, with modules toggled on/off rather than forked. Read `docs/projectGoal.md` for the "why" and `docs/buildPlan.md` for the phase-by-phase "how" — every change should fit somewhere in that plan.
 
 Phases 0–4 are complete: the app shell, the module-configuration system, PIN auth, the full database schema with demo seed data, Inventory (CRUD, search/filter, low-stock flagging, product photos), and Billing/POS (search-and-scan cart, atomic sale transaction, discount/tax, dine-in table park-and-resume, PDF receipt, ESC/POS stub). The remaining feature modules are still placeholder pages.
 

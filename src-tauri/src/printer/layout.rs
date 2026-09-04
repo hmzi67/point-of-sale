@@ -8,7 +8,7 @@
 //! paper — used to be 48, the number genuine Epson TM-series printers use
 //! and the one every ESC/POS spec sheet quotes. It was wrong for real
 //! client hardware: a generic/clone 80mm thermal printer (common on the
-//! low-spec, local-market hardware this app targets — see `projectGoal.md`)
+//! low-spec, local-market hardware this app targets — see `docs/projectGoal.md`)
 //! physically prints fewer columns at its default font, because its
 //! margins eat more of the 80mm width than the spec implies. 48 was never
 //! measured against real hardware; it was copied from a datasheet.

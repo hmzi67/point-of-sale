@@ -22,3 +22,21 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Internal documentation — kept locally, not tracked in the repo.
+# docs/SUPPORT.md in particular describes the vendor override gate and
+# must not be published. See README.md's "Documentation" section.
+docs/
+
+# Signing keys and secrets — never commit these
+*.keystore
+*.jks
+*.p12
+*.pem
+.env
+.env.*
+!.env.example
+
+# Python bytecode (scripts/)
+__pycache__/
+*.pyc

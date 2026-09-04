@@ -1428,7 +1428,7 @@ pub fn tables_delete_table(db: State<'_, Db>, session: State<'_, Session>, table
 /// `start_table_order` is two writes (the order upsert, then the table's
 /// status flip) — run inside a transaction so a crash between them can never
 /// leave a table marked occupied with no order behind it, or vice versa
-/// (Phase 13 transaction audit; see `TESTING_CHECKLIST.md`).
+/// (Phase 13 transaction audit; see `docs/TESTING_CHECKLIST.md`).
 #[tauri::command]
 pub fn tables_assign_order_to_table(
     db: State<'_, Db>,
@@ -2245,7 +2245,7 @@ pub fn dashboard_get_summary(
 // Users or any client-facing query; gated by `ProductOwnerSession`, never
 // `session::Session`, so reaching it neither requires nor disturbs whatever
 // staff account is currently signed in. See `db::product_owner`'s module
-// doc for the full rationale, and SUPPORT.md for the (deliberately
+// doc for the full rationale, and docs/SUPPORT.md for the (deliberately
 // non-in-app) credential-recovery process.
 // ---------------------------------------------------------------------------
 
