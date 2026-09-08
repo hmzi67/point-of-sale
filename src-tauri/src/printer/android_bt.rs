@@ -1,43 +1,17 @@
-//! Android Bluetooth Classic (SPP) printer transport.
+//! Android Bluetooth Classic (SPP) printer transport — one of the two
+//! Android transports, alongside `android_usb` (USB-OTG). Which one a given
+//! install uses is `AppConfig.printer_connection_type`, chosen in Settings;
+//! see `printer::escpos::send_to_printer_dispatch`.
 //!
 //! Talks to `android.bluetooth.*` directly via JNI rather than through a
 //! full Tauri mobile plugin (a separate crate + Kotlin module) — everything
 //! this needs (list bonded devices, connect, write bytes, check permission)
 //! is a handful of standard-library Android SDK calls with no UI of their
-//! own, so the extra plugin scaffolding wasn't worth it.
-//!
-//! Getting a `JavaVM`/`Context` without Tauri's cooperation (its own JNI
-//! plumbing — `AppHandle::runtime()`, `run_on_android_context` — is
-//! `pub(crate)`-sealed, unreachable from application code, and this crate
-//! deliberately isn't a full Tauri plugin, the only other thing that gets
-//! it) took two false starts before landing on [`JNI_OnLoad`], the one
-//! genuinely reliable mechanism:
-//!
-//! 1. `ndk_context::android_context()` — the usual answer for a winit-family
-//!    app — panics "android context was not initialized" on a real device:
-//!    nothing in this Tauri version's actual Android dependency chain calls
-//!    `ndk_context::initialize_android_context` at all.
-//! 2. `JNI_GetCreatedJavaVMs` (the "just ask for any VM in this process"
-//!    invocation-API call, which works fine on desktop JVMs) doesn't even
-//!    link on Android — the library fails to load at all with
-//!    `UnsatisfiedLinkError: dlopen failed: cannot locate symbol
-//!    "JNI_GetCreatedJavaVMs"`, which is worse than either bug above: it
-//!    takes the *entire app* down on every launch, not just this feature.
-//!
-//! [`JNI_OnLoad`] is different: it's a guarantee of the JNI specification
-//! itself (any native library loaded via `System.loadLibrary` gets it
-//! called automatically, with a live `JavaVM*`, the moment the library
-//! loads) — not something Tauri/tao/`ndk-context` need to have specifically
-//! wired up for this to work. It stores the `JavaVM` in the static
-//! [`JAVA_VM`]; everything else in this module reads that.
-//!
-//! For the `Context` half, `android.app.ActivityThread.currentApplication()`
-//! — a long-stable, widely-used-by-libraries reflection call — returns the
-//! app's `Application`, which is sufficient for every call this module
-//! makes *except* requesting a runtime permission
-//! (`ActivityCompat.requestPermissions` needs a real `Activity`, which isn't
-//! obtainable this way) — see `request_permission`'s doc comment for how
-//! that one's designed around not needing one either.
+//! own, so the extra plugin scaffolding wasn't worth it. The `JavaVM`/
+//! `Context` plumbing that makes those calls possible at all is shared with
+//! `android_usb` and lives in `printer::android_jni` — read that module's
+//! doc comment first; it explains why `JNI_OnLoad` is the only mechanism
+//! that works here.
 //!
 //! Deliberately connect-only, no discovery/scan: this only reaches devices
 //! already paired through the OS Bluetooth settings (`getBondedDevices`),
@@ -46,21 +20,22 @@
 //! location permission, for a use case (a shop's one till printer) that's
 //! always already paired anyway.
 //!
-//! Every JNI call here returns `jni::errors::Result` and is propagated with
-//! `?` — nothing is `.unwrap()`/`.expect()`d. Any pending Java exception
-//! (e.g. `SecurityException` from a missing permission) is explicitly
-//! cleared before returning our own error, so a failure here can never
-//! leave a dangling exception to trip up unrelated JNI calls elsewhere in
-//! the app afterwards. This is deliberately the *only* place in the app
-//! that touches JNI directly — see `Cargo.toml`'s comment on why USB (the
-//! previous Android attempt, via `rusb`/libusb) was dropped instead of
-//! fixed: hand-written JNI is real hardware I/O and can't be made
-//! panic-proof against a genuinely wrong method signature the way pure
-//! Rust can, so keeping that surface as small and single-purpose as
-//! possible is the actual safety measure, not a nice-to-have.
+//! **The permissions this needs must be declared in `AndroidManifest.xml`**
+//! (`BLUETOOTH`/`BLUETOOTH_ADMIN` with `maxSdkVersion="30"`, plus
+//! `BLUETOOTH_CONNECT` for API 31+). They were missing for a while, and the
+//! symptom was not the obvious "permission denied" — [`permission_granted`]
+//! returns `true` on API < 31 without checking anything (correctly: there
+//! is no runtime permission to check there), so the first call that
+//! actually touched the radio, `BluetoothAdapter.isEnabled()`, threw a bare
+//! `SecurityException` surfacing as "isEnabled check failed: Java
+//! exception". `tauri android init` regenerates the manifest from scratch
+//! and `gen/android` is gitignored, so the declarations are (re)applied by
+//! `scripts/patch_android_manifest.py` — run it after any `android init`,
+//! exactly like `patch_android_signing.py`.
 
+use crate::printer::android_jni::{io_err, jstring_to_string, sdk_int, with_env};
 use crate::printer::escpos::PrinterError;
-use jni::objects::{JObject, JString, JValue};
+use jni::objects::{JObject, JValue};
 use jni::JNIEnv;
 
 const BLUETOOTH_CONNECT_PERMISSION: &str = "android.permission.BLUETOOTH_CONNECT";
@@ -73,98 +48,16 @@ pub struct BluetoothDeviceInfo {
     pub address: String,
 }
 
-/// The app's one JVM, captured by [`jni_on_load`] the moment Android loads
-/// this library — the only reliable way to get it. `JNI_GetCreatedJavaVMs`
-/// (the "just ask the JVM for any VM in this process" invocation-API call
-/// that works on desktop JVMs) was tried first and doesn't work on Android
-/// at all: it isn't a symbol the dynamic linker can resolve there, so a
-/// build calling it doesn't even get as far as running — the library fails
-/// to load with `UnsatisfiedLinkError: dlopen failed: cannot locate symbol
-/// "JNI_GetCreatedJavaVMs"` (confirmed on a real device), taking the whole
-/// app down before any of its own code runs, not just this module's.
-/// `JavaVM` is `Send + Sync` (attaching per-thread is its whole purpose),
-/// so a `'static` reference here is safe to use from any Tauri command's
-/// worker thread.
-static JAVA_VM: std::sync::OnceLock<jni::JavaVM> = std::sync::OnceLock::new();
-
-/// The one JNI entry point every native library gets called on automatically
-/// by the JVM immediately after `System.loadLibrary` loads it — a guarantee
-/// of the JNI specification itself, not something Tauri needs to
-/// opt into or cooperate with (unlike `ndk-context`, which nothing in this
-/// Tauri version's Android runtime turns out to populate — see this
-/// module's doc comment). Exported via `#[no_mangle]`/the standard
-/// `JNI_OnLoad` name so the JVM finds it without any registration.
-#[no_mangle]
-pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _reserved: *mut std::ffi::c_void) -> jni::sys::jint {
-    match unsafe { jni::JavaVM::from_raw(vm) } {
-        Ok(java_vm) => {
-            let _ = JAVA_VM.set(java_vm); // already set is fine — JNI_OnLoad only ever fires once in practice
-            jni::sys::JNI_VERSION_1_6
-        }
-        Err(_) => jni::sys::JNI_ERR,
-    }
-}
-
-/// Attaches the current thread to [`JAVA_VM`] and runs `f` with the
-/// resulting `JNIEnv` and the app's `Application` object (a valid `Context`
-/// for everything except requesting a permission) — a callback rather than
-/// returning the attached environment directly because `AttachGuard`
-/// borrows from the `JavaVM` reference. A fresh attach per call rather than
-/// a cached one, since
-/// Tauri commands can run on any thread pool worker and JNI attachment is
-/// per-thread.
-fn with_env<T>(f: impl FnOnce(&mut JNIEnv, &JObject) -> Result<T, PrinterError>) -> Result<T, PrinterError> {
-    let vm = JAVA_VM.get().ok_or_else(|| {
-        PrinterError::Io("Android JNI unavailable — the app's JNI_OnLoad hasn't run yet".to_string())
-    })?;
-    let mut env = vm.attach_current_thread().map_err(|e| PrinterError::Io(format!("JNI attach failed: {e}")))?;
-
-    let activity_thread_class = env
-        .find_class("android/app/ActivityThread")
-        .map_err(|e| io_err(&mut env, "ActivityThread lookup failed", e))?;
-    let context = env
-        .call_static_method(activity_thread_class, "currentApplication", "()Landroid/app/Application;", &[])
-        .and_then(|v| v.l())
-        .map_err(|e| io_err(&mut env, "currentApplication failed", e))?;
-    if context.is_null() {
-        return Err(PrinterError::Io("Android application context unavailable".to_string()));
-    }
-
-    f(&mut env, &context)
-}
-
-/// Clears whatever Java exception is currently pending (if any) so it can't
-/// affect the next unrelated JNI call — see this module's doc comment.
-fn clear_exception(env: &mut JNIEnv) {
-    if env.exception_check().unwrap_or(false) {
-        let _ = env.exception_clear();
-    }
-}
-
-fn io_err(env: &mut JNIEnv, context: &str, e: jni::errors::Error) -> PrinterError {
-    clear_exception(env);
-    PrinterError::Io(format!("{context}: {e}"))
-}
-
-/// `android.os.Build.VERSION.SDK_INT` — the runtime Bluetooth permission
-/// only exists (and is only enforced) from API 31 (Android 12) onward; on
-/// older versions `BLUETOOTH`/`BLUETOOTH_ADMIN` are install-time manifest
-/// permissions the OS grants automatically, so there is nothing to check or
-/// request there.
-fn sdk_int(env: &mut JNIEnv) -> Result<i32, PrinterError> {
-    let class = env
-        .find_class("android/os/Build$VERSION")
-        .map_err(|e| io_err(env, "Build.VERSION lookup failed", e))?;
-    env.get_static_field(class, "SDK_INT", "I")
-        .and_then(|v| v.i())
-        .map_err(|e| io_err(env, "SDK_INT read failed", e))
-}
-
 /// Whether this app currently holds `BLUETOOTH_CONNECT` — always `true` on
-/// API < 31 (see [`sdk_int`]'s doc comment).
+/// API < 31, where `BLUETOOTH`/`BLUETOOTH_ADMIN` are install-time manifest
+/// permissions the OS grants automatically and there is nothing to request.
+/// Note that "nothing to request" is not "nothing to declare": both still
+/// have to be in the manifest, and their absence is what produced the
+/// long-standing `isEnabled` `SecurityException` — see this module's doc
+/// comment.
 ///
 /// Calls the plain framework `Context.checkSelfPermission` (added in API 23,
-/// this app's `minSdk`), not `androidx.core.content.ContextCompat`'s
+/// below this app's `minSdk` of 24), not `androidx.core.content.ContextCompat`'s
 /// identical-behavior wrapper — deliberately, after that version threw on a
 /// real device's *release* build specifically: R8 had stripped
 /// `ContextCompat` as an apparently-unused class, since nothing in the
@@ -198,16 +91,20 @@ pub fn permission_granted() -> Result<bool, PrinterError> {
 /// in-app dialog directly. Two independent reasons this is the better fit
 /// here, not just a fallback: (1) `requestPermissions` needs a real
 /// `Activity`, which — unlike everything else in this module — isn't
-/// obtainable through `with_env`'s `Application`-context approach (see this
-/// module's doc comment); (2) even with one, its result is asynchronous
-/// (`onRequestPermissionsResult`, delivered on the Activity's UI thread),
-/// and synchronously bridging that back to whichever background thread a
-/// Tauri command runs on would need either fragile polling or a custom
-/// `MainActivity` override wired to a static channel — real, but
+/// obtainable through `android_jni::with_env`'s `Application`-context
+/// approach (see that module's doc comment); (2) even with one, its result is
+/// asynchronous (`onRequestPermissionsResult`, delivered on the Activity's UI
+/// thread), and synchronously bridging that back to whichever background
+/// thread a Tauri command runs on would need either fragile polling or a
+/// custom `MainActivity` override wired to a static channel — real, but
 /// meaningfully more moving parts than "open Settings, let the user flip it,
 /// re-check when they come back", which needs neither. The Settings screen
 /// re-checks [`permission_granted`] itself when it regains focus — see
 /// `PrinterSettingsSection.tsx`.
+///
+/// (`android_usb`'s equivalent *can* use the real in-app dialog, because
+/// `UsbManager.requestPermission` takes a `PendingIntent` rather than
+/// needing an `Activity` — see [`crate::printer::android_usb::request_permission`].)
 pub fn request_permission() -> Result<(), PrinterError> {
     if permission_granted()? {
         return Ok(());
@@ -247,7 +144,7 @@ pub fn request_permission() -> Result<(), PrinterError> {
             .map_err(|e| io_err(env, "Intent construction failed", e))?;
 
         // Required when starting an Activity from a non-Activity Context
-        // (here, the Application context — see this module's doc comment).
+        // (here, the Application context — see `android_jni`'s doc comment).
         const FLAG_ACTIVITY_NEW_TASK: i32 = 0x1000_0000;
         env.call_method(&intent, "addFlags", "(I)Landroid/content/Intent;", &[JValue::Int(FLAG_ACTIVITY_NEW_TASK)])
             .map_err(|e| io_err(env, "addFlags failed", e))?;
@@ -277,10 +174,27 @@ fn default_adapter<'a>(env: &mut JNIEnv<'a>) -> Result<Option<JObject<'a>>, Prin
     Ok(if adapter.is_null() { None } else { Some(adapter) })
 }
 
-fn jstring_to_string(env: &mut JNIEnv, obj: JObject) -> Result<String, PrinterError> {
-    let jstr = JString::from(obj);
-    let s = env.get_string(&jstr).map_err(|e| io_err(env, "string decode failed", e))?;
-    Ok(s.into())
+/// `BluetoothAdapter.isEnabled()`, with the one failure mode that isn't
+/// "the radio is off" spelled out.
+///
+/// This call needs `BLUETOOTH` (API < 31) or `BLUETOOTH_CONNECT` (31+) to be
+/// *declared in the manifest*, and throws a bare `SecurityException` if it
+/// isn't — which JNI surfaces as an opaque "Java exception" with nothing in
+/// it pointing at the cause. That was the exact shape of a real bug here (see
+/// this module's doc comment), so the error text says what to check rather
+/// than passing the opaque one straight through.
+fn require_enabled(env: &mut JNIEnv, adapter: &JObject) -> Result<(), PrinterError> {
+    let enabled = env.call_method(adapter, "isEnabled", "()Z", &[]).and_then(|v| v.z()).map_err(|e| {
+        io_err(
+            env,
+            "couldn't read the Bluetooth adapter state — the app may be missing the Bluetooth permission",
+            e,
+        )
+    })?;
+    if !enabled {
+        return Err(PrinterError::Io("Bluetooth is turned off".into()));
+    }
+    Ok(())
 }
 
 /// Every device already paired through the OS Bluetooth settings — the
@@ -297,13 +211,7 @@ pub fn list_bonded_devices() -> Result<Vec<BluetoothDeviceInfo>, PrinterError> {
             return Err(PrinterError::Io("This device has no Bluetooth hardware".into()));
         };
 
-        let enabled = env
-            .call_method(&adapter, "isEnabled", "()Z", &[])
-            .and_then(|v| v.z())
-            .map_err(|e| io_err(env, "isEnabled check failed", e))?;
-        if !enabled {
-            return Err(PrinterError::Io("Bluetooth is turned off".into()));
-        }
+        require_enabled(env, &adapter)?;
 
         let bonded_set = env
             .call_method(&adapter, "getBondedDevices", "()Ljava/util/Set;", &[])
@@ -356,13 +264,7 @@ pub fn send(address: &str, bytes: &[u8]) -> Result<(), PrinterError> {
         let Some(adapter) = default_adapter(env)? else {
             return Err(PrinterError::Io("This device has no Bluetooth hardware".into()));
         };
-        let enabled = env
-            .call_method(&adapter, "isEnabled", "()Z", &[])
-            .and_then(|v| v.z())
-            .map_err(|e| io_err(env, "isEnabled check failed", e))?;
-        if !enabled {
-            return Err(PrinterError::Io("Bluetooth is turned off".into()));
-        }
+        require_enabled(env, &adapter)?;
 
         let address_jstr = env.new_string(address).map_err(|e| io_err(env, "address string alloc failed", e))?;
         let device = env

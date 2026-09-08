@@ -6,7 +6,8 @@
 //!
 //! [`send_to_printer`] dispatches by platform and by what's stored in
 //! `AppConfig`'s `printer_connection_type` and whichever transport-specific
-//! field goes with it (`printer_bluetooth_address`, `printer_windows_name`)
+//! field goes with it (`printer_bluetooth_address`, `printer_usb_device`,
+//! `printer_windows_name`)
 //! — set from Settings' "Select printer" step, see `commands::printer_*`:
 //!
 //! - **Windows**: the Print Spooler (`winspool`), RAW datatype, to whichever
@@ -27,18 +28,23 @@
 //!   analogous to Windows' RAW datatype — but that's unbuilt; this crate's
 //!   raw-USB path is what macOS gets today, same as before this fix, which
 //!   was scoped to Windows specifically.)
-//! - **Android**: Bluetooth Classic (SPP) to whichever *already-paired*
-//!   device was selected in Settings — see `printer::android_bt`. There is
-//!   deliberately no "select any nearby device" scan step (that needs
-//!   `BLUETOOTH_SCAN` + a location permission on older Android versions on
-//!   top of `BLUETOOTH_CONNECT`, for a use case — a shop's one till printer
-//!   — that's always already paired via the OS Bluetooth settings anyway).
-//!   USB-on-Android was tried first and dropped: raw libusb was never
-//!   designed for Android's USB-permission model, and calling it there
-//!   crashed the whole app natively (a libusb-level fault, not a catchable
-//!   Rust panic) — see `Cargo.toml`'s doc comment on why `rusb` is now
-//!   `cfg`'d out of Android (and Windows) builds entirely, not just unused
-//!   there.
+//! - **Android**: two transports, whichever one Settings selected.
+//!   `"bluetooth"` is Bluetooth Classic (SPP) to an *already-paired* device
+//!   — see `printer::android_bt`; there is deliberately no "select any
+//!   nearby device" scan step (that needs `BLUETOOTH_SCAN` + a location
+//!   permission on older Android versions on top of `BLUETOOTH_CONNECT`,
+//!   for a use case — a shop's one till printer — that's always already
+//!   paired via the OS Bluetooth settings anyway). `"usb"` is Android's USB
+//!   Host API to an OTG-connected printer, matched by vendor:product id —
+//!   see `printer::android_usb`; it exists because plenty of till printers
+//!   (the client's Gainscha GA-E200 among them) have no Bluetooth radio at
+//!   all. Note that raw libusb on Android *was* tried, and dropped: it was
+//!   never designed for Android's USB-permission model and crashed the whole
+//!   app natively (a libusb-level fault, not a catchable Rust panic). See
+//!   `Cargo.toml`'s doc comment on why `rusb` is still `cfg`'d out of
+//!   Android (and Windows) builds entirely — `android_usb` goes through
+//!   `UsbManager`, which is that permission model rather than a fight with
+//!   it.
 //!
 //! If no printer has been selected at all, this returns
 //! [`PrinterError::NoPrinterSelected`] immediately, on every platform,
@@ -1295,6 +1301,13 @@ fn send_to_printer_dispatch(bytes: &[u8], config: &AppConfig) -> Result<(), Prin
                 let address = config.printer_bluetooth_address.as_deref().ok_or(PrinterError::NoPrinterSelected)?;
                 crate::printer::android_bt::send(address, bytes)
             }
+            // USB-OTG. Note this arm never touches any Bluetooth API — an
+            // install configured for USB shouldn't be able to fail on a
+            // Bluetooth adapter question it has no reason to be asking.
+            Some("usb") => {
+                let device = config.printer_usb_device.as_deref().ok_or(PrinterError::NoPrinterSelected)?;
+                crate::printer::android_usb::send(device, bytes)
+            }
             // No `printer_connection_type` stored at all — Settings'
             // "Select printer" step has never been used on this install.
             // `NoPrinterSelected`, not `NotConfigured`: the latter's message
@@ -1533,6 +1546,8 @@ mod tests {
             printer_connection_type: None,
             printer_bluetooth_address: None,
             printer_bluetooth_name: None,
+            printer_usb_device: None,
+            printer_usb_name: None,
             printer_windows_name: None,
         }
     }

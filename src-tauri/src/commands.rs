@@ -833,13 +833,15 @@ pub fn billing_print_receipt_thermal(app: AppHandle, db: State<'_, Db>, sale_id:
 // ---------------------------------------------------------------------------
 // Printer selection (Settings' "Select printer" step)
 //
-// Android only in practice — desktop's USB transport is auto-detected (see
+// Android (two transports — Bluetooth and USB-OTG) and Windows have real
+// pickers; macOS/Linux's USB transport is auto-detected (see
 // `printer::escpos`'s module doc comment) and needs no selection step, so
-// these three simply report "not applicable" there rather than being
-// registered conditionally, which would mean the frontend service layer
-// needing to know at compile/call time which platform it's running on
-// before even trying (it already knows via `IS_ANDROID`, but keeping the
-// command surface uniform across platforms is one less thing to get wrong).
+// every command here simply reports "not applicable" off its own platform
+// rather than being registered conditionally, which would mean the frontend
+// service layer needing to know at compile/call time which platform it's
+// running on before even trying (it already knows via `IS_ANDROID`, but
+// keeping the command surface uniform across platforms is one less thing to
+// get wrong).
 // ---------------------------------------------------------------------------
 
 /// Every Bluetooth device already paired through the OS settings — the
@@ -893,6 +895,78 @@ pub fn printer_request_bluetooth_permission() -> Result<(), String> {
     }
     #[cfg(not(target_os = "android"))]
     {
+        Ok(())
+    }
+}
+
+/// Every USB device currently attached (Android USB-OTG) — the candidate
+/// list for Settings' printer picker in USB mode. Android only; always empty
+/// elsewhere, same "uniform command surface, empty result off-platform"
+/// convention as the Bluetooth commands above.
+///
+/// Nothing is filtered out by device class: many thermal printers, the
+/// client's Gainscha GA-E200 included, report a vendor-specific interface
+/// rather than the standard Printer class, so `isPrinterClass` sorts and
+/// labels the list instead of gating it — see `printer::android_usb`.
+#[tauri::command]
+pub fn printer_list_usb_devices() -> Result<Vec<crate::db::config::UsbDeviceOption>, String> {
+    #[cfg(target_os = "android")]
+    {
+        catch_panic(|| {
+            crate::printer::android_usb::list_devices()
+                .map(|devices| {
+                    devices
+                        .into_iter()
+                        .map(|d| crate::db::config::UsbDeviceOption {
+                            name: d.name,
+                            id: d.id,
+                            is_printer_class: d.is_printer_class,
+                            has_permission: d.has_permission,
+                        })
+                        .collect()
+                })
+                .map_err(|e| e.to_string())
+        })
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(Vec::new())
+    }
+}
+
+/// Whether the user has approved this specific attached USB device.
+///
+/// Per *device*, unlike `printer_bluetooth_permission_granted`'s app-wide
+/// answer — that's Android's USB model, not a quirk of ours: the grant is
+/// tied to the device and is dropped when it's unplugged. Always `true` on
+/// desktop (nothing to grant).
+#[tauri::command]
+pub fn printer_usb_permission_granted(device_id: String) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        catch_panic(|| crate::printer::android_usb::permission_granted(&device_id).map_err(|e| e.to_string()))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = device_id;
+        Ok(true)
+    }
+}
+
+/// Fires Android's system "Allow access to the USB device?" dialog for this
+/// device. Fire-and-forget: nothing receives the grant broadcast, so the
+/// frontend re-checks `printer_usb_permission_granted` afterwards — see
+/// `android_usb::request_permission`'s doc comment for why that's the right
+/// shape rather than a limitation. A no-op on desktop.
+#[tauri::command]
+pub fn printer_request_usb_permission(device_id: String) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        catch_panic(|| crate::printer::android_usb::request_permission(&device_id).map_err(|e| e.to_string()))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = device_id;
         Ok(())
     }
 }

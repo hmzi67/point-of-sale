@@ -28,11 +28,18 @@ pub struct AppConfig {
     /// step (see `commands::printer_*` and `printer::escpos::send_to_printer`
     /// for how this is used) — `None` until a cashier/owner has actually
     /// gone through that step once, which is deliberately the same as "no
-    /// printer": printing must never guess at a transport. `"usb"`
-    /// (macOS/Linux, informational — USB is auto-detected either way),
-    /// `"bluetooth"` (Android), or `"windows"` (an installed printer chosen
-    /// by name, sent to via the Print Spooler — see
+    /// printer": printing must never guess at a transport. One of
+    /// `"bluetooth"` (Android, to a paired device — see
+    /// `printer::android_bt`), `"usb"`, or `"windows"` (an installed printer
+    /// chosen by name, sent to via the Print Spooler — see
     /// `printer::windows_spool`).
+    ///
+    /// `"usb"` means two different things by platform, which is fine because
+    /// nothing ever dispatches on it without already being on one: on
+    /// **Android** it is a real selection, naming an OTG-attached device in
+    /// `printer_usb_device` (see `printer::android_usb`); on **macOS/Linux**
+    /// it is informational only, since USB is auto-detected on every print
+    /// there and needs no stored device.
     pub printer_connection_type: Option<String>,
     /// The paired device's MAC address (Android Bluetooth only). Present
     /// only when `printer_connection_type == Some("bluetooth")`.
@@ -41,6 +48,21 @@ pub struct AppConfig {
     /// purely so Settings can show "Selected: <name>" without needing a
     /// live Bluetooth query just to render the current selection.
     pub printer_bluetooth_name: Option<String>,
+    /// The chosen USB printer's `vendor_id:product_id` pair, lowercase hex
+    /// (e.g. `"1a2b:3c4d"`) — Android USB-OTG only. Present only when
+    /// `printer_connection_type == Some("usb")` *on Android*; on macOS/Linux
+    /// that same connection type is informational and USB is auto-detected,
+    /// so this stays `NULL` there.
+    ///
+    /// Vendor/product rather than `UsbDevice.getDeviceName()`'s
+    /// `/dev/bus/usb/...` path because that path is reassigned on every
+    /// replug, which for an OTG till printer would invalidate the saved
+    /// selection daily — see `printer::android_usb::UsbDeviceInfo::id`.
+    pub printer_usb_device: Option<String>,
+    /// The chosen USB printer's display label, stored alongside the id for
+    /// the same reason `printer_bluetooth_name` is: so Settings can render
+    /// the current selection without re-enumerating hardware.
+    pub printer_usb_name: Option<String>,
     /// The selected Windows printer's name, exactly as `winspool` reports
     /// it (e.g. `"POS-80 Thermal Printer"`) — this *is* the address on
     /// Windows, unlike Bluetooth's separate address/name pair, since
@@ -60,6 +82,31 @@ pub struct AppConfig {
 pub struct BluetoothDeviceOption {
     pub name: String,
     pub address: String,
+}
+
+/// One attached USB device in Settings' Android "Select printer" list, in
+/// USB mode — a plain serializable DTO for `commands::printer_list_usb_devices`,
+/// kept separate from `printer::android_usb::UsbDeviceInfo` for the same
+/// reason `BluetoothDeviceOption` is kept separate from
+/// `android_bt::BluetoothDeviceInfo`: this one can be referenced from
+/// cross-platform command signatures without pulling an Android-only module
+/// into desktop builds.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsbDeviceOption {
+    /// Display label, e.g. `"Gainscha GA-E200"`.
+    pub name: String,
+    /// `"vendor:product"` in lowercase hex — what gets stored as
+    /// `AppConfig::printer_usb_device`.
+    pub id: String,
+    /// Whether the device advertises the standard USB Printer class (0x07).
+    /// The picker uses this to sort and label, never to filter — see
+    /// `printer::android_usb::UsbDeviceInfo::is_printer_class`.
+    pub is_printer_class: bool,
+    /// Whether the user has already approved this specific device. Android's
+    /// USB grant is per-device and doesn't survive an unplug, so this is a
+    /// property of a row rather than of the app.
+    pub has_permission: bool,
 }
 
 /// One installed printer in Settings' Windows "Select printer" list — a
@@ -94,6 +141,8 @@ pub struct AppConfigUpdate {
     pub printer_connection_type: Option<String>,
     pub printer_bluetooth_address: Option<String>,
     pub printer_bluetooth_name: Option<String>,
+    pub printer_usb_device: Option<String>,
+    pub printer_usb_name: Option<String>,
     pub printer_windows_name: Option<String>,
 }
 
@@ -111,6 +160,8 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
         printer_connection_type: row.get("printer_connection_type")?,
         printer_bluetooth_address: row.get("printer_bluetooth_address")?,
         printer_bluetooth_name: row.get("printer_bluetooth_name")?,
+        printer_usb_device: row.get("printer_usb_device")?,
+        printer_usb_name: row.get("printer_usb_name")?,
         printer_windows_name: row.get("printer_windows_name")?,
     })
 }
@@ -120,7 +171,7 @@ pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
         "SELECT business_name, business_type, logo_path, currency, tax_percent, receipt_footer,
                 phone, delivery_number, onboarding_completed,
                 printer_connection_type, printer_bluetooth_address, printer_bluetooth_name,
-                printer_windows_name
+                printer_usb_device, printer_usb_name, printer_windows_name
            FROM app_config WHERE id = 1",
         [],
         from_row,
@@ -144,7 +195,9 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
                 printer_connection_type = COALESCE(?10, printer_connection_type),
                 printer_bluetooth_address = COALESCE(?11, printer_bluetooth_address),
                 printer_bluetooth_name = COALESCE(?12, printer_bluetooth_name),
-                printer_windows_name = COALESCE(?13, printer_windows_name)
+                printer_usb_device = COALESCE(?13, printer_usb_device),
+                printer_usb_name = COALESCE(?14, printer_usb_name),
+                printer_windows_name = COALESCE(?15, printer_windows_name)
           WHERE id = 1",
         params![
             patch.business_name,
@@ -159,6 +212,8 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
             patch.printer_connection_type,
             patch.printer_bluetooth_address,
             patch.printer_bluetooth_name,
+            patch.printer_usb_device,
+            patch.printer_usb_name,
             patch.printer_windows_name,
         ],
     )?;

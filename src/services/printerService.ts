@@ -1,4 +1,4 @@
-import type { BluetoothDeviceOption, WindowsPrinterOption } from "../types";
+import type { BluetoothDeviceOption, UsbDeviceOption, WindowsPrinterOption } from "../types";
 import { call } from "./tauriClient";
 
 /** Every Bluetooth device already paired through the OS settings — the
@@ -7,6 +7,32 @@ import { call } from "./tauriClient";
  * picker below — see `PrinterSettingsSection.tsx`). */
 export function listBluetoothDevices(): Promise<BluetoothDeviceOption[]> {
   return call<BluetoothDeviceOption[]>("printer_list_bluetooth_devices");
+}
+
+/** Every USB device currently attached over OTG — the candidate list for
+ * Settings' printer picker in USB mode. Always empty outside Android.
+ *
+ * Deliberately not filtered to Printer-class devices: many thermal printers
+ * (the Gainscha GA-E200 among them) report a vendor-specific interface
+ * class, so `isPrinterClass` only sorts and labels the list. */
+export function listUsbDevices(): Promise<UsbDeviceOption[]> {
+  return call<UsbDeviceOption[]>("printer_list_usb_devices");
+}
+
+/** Whether the user has approved this specific attached USB device. Android
+ * grants USB access per device, and the grant is dropped on unplug — so
+ * unlike `bluetoothPermissionGranted()` this is asked per device rather than
+ * once for the app. Always `true` on desktop. */
+export function usbPermissionGranted(deviceId: string): Promise<boolean> {
+  return call<boolean>("printer_usb_permission_granted", { deviceId });
+}
+
+/** Fires Android's system "Allow access to the USB device?" dialog. Same
+ * fire-and-forget shape as `requestBluetoothPermission()` — re-check
+ * `usbPermissionGranted()` afterwards rather than relying on this call's
+ * return to know the outcome. */
+export function requestUsbPermission(deviceId: string): Promise<void> {
+  return call<void>("printer_request_usb_permission", { deviceId });
 }
 
 /** Every printer installed on this machine (the same list "Devices and

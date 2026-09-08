@@ -8,20 +8,27 @@
 //! billing/refund/shift commands. `escpos` holds the thermal-printer path:
 //! byte-sequence construction for every template (customer receipt, refund,
 //! shift close-out, category-wise sale) is complete and tested, built on
-//! the shared column/alignment primitives in `layout` — three entirely
+//! the shared column/alignment primitives in `layout` — four entirely
 //! separate transports send those same bytes to hardware, because "how you
 //! reach a printer" differs enough per platform that sharing one
 //! implementation would mean neither one fitting its platform well:
 //! `android_bt` (Bluetooth Classic/SPP to an already-paired device),
-//! `windows_spool` (the Print Spooler, RAW datatype, by installed printer
-//! name), and `escpos`'s own raw-USB code (macOS/Linux only — see
-//! `windows_spool`'s module doc comment for why that approach doesn't work
-//! on Windows once a printer driver is installed).
+//! `android_usb` (Android's USB Host API, for an OTG-connected printer —
+//! chosen instead of Bluetooth per install, since plenty of till printers
+//! have no Bluetooth radio at all), `windows_spool` (the Print Spooler, RAW
+//! datatype, by installed printer name), and `escpos`'s own raw-USB code
+//! (macOS/Linux only — see `windows_spool`'s module doc comment for why that
+//! approach doesn't work on Windows once a printer driver is installed).
+//! Both Android transports sit on the shared `android_jni` plumbing.
 
 pub mod escpos;
 pub mod layout;
 #[cfg(target_os = "android")]
 pub mod android_bt;
+#[cfg(target_os = "android")]
+pub mod android_jni;
+#[cfg(target_os = "android")]
+pub mod android_usb;
 #[cfg(target_os = "windows")]
 pub mod windows_spool;
 

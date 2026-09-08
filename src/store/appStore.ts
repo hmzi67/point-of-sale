@@ -33,6 +33,8 @@ const placeholderConfig: AppConfig = {
   printerConnectionType: null,
   printerBluetoothAddress: null,
   printerBluetoothName: null,
+  printerUsbDevice: null,
+  printerUsbName: null,
   printerWindowsName: null,
 };
 

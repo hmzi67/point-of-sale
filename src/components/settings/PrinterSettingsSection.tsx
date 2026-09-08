@@ -1,27 +1,43 @@
-import { useEffect, useState } from "react";
-import { Bluetooth, CheckCircle2, Loader2, Printer, Ruler, RefreshCw, Usb } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  Bluetooth,
+  CheckCircle2,
+  Loader2,
+  Printer,
+  Ruler,
+  RefreshCw,
+  Usb,
+} from "lucide-react";
 import {
   bluetoothPermissionGranted,
   listBluetoothDevices,
+  listUsbDevices,
   listWindowsPrinters,
   printDiagnostic,
   requestBluetoothPermission,
+  requestUsbPermission,
+  usbPermissionGranted,
 } from "../../services/printerService";
 import { useAppStore } from "../../store";
 import { IS_ANDROID, IS_WINDOWS } from "../../types";
-import type { AppConfig, BluetoothDeviceOption, WindowsPrinterOption } from "../../types";
+import type { AppConfig, BluetoothDeviceOption, UsbDeviceOption, WindowsPrinterOption } from "../../types";
 
 interface PrinterSettingsSectionProps {
   config: AppConfig;
 }
 
 /**
- * "Select printer" — Part 1 of the printer-crash fix: printing must never
- * guess at a transport, so this is the one place a cashier/owner actually
- * chooses one. Three platform-specific bodies, matching
- * `printer::escpos::send_to_printer_dispatch` on the Rust side:
+ * "Select printer" — printing must never guess at a transport, so this is the
+ * one place a cashier/owner actually chooses one. Three platform-specific
+ * bodies, matching `printer::escpos::send_to_printer_dispatch` on the Rust
+ * side:
  *
- * - **Android**: a Bluetooth picker (paired devices only).
+ * - **Android**: two transports the client picks between —
+ *   Bluetooth (paired devices) or USB (an OTG-attached printer). USB exists
+ *   because plenty of till printers have no Bluetooth radio at all; the
+ *   client hardware that forced it, a Gainscha GA-E200, is labelled
+ *   "Interface: Serial & USB & Ethernet".
  * - **Windows**: a picker of printers Windows has installed — this exists
  *   because a USB thermal printer with a driver installed can't reliably be
  *   found by raw USB scanning (the driver's own service binds the
@@ -32,9 +48,9 @@ interface PrinterSettingsSectionProps {
  *   a picker with nothing to pick.
  */
 export function PrinterSettingsSection({ config }: PrinterSettingsSectionProps) {
-  if (IS_ANDROID) return <BluetoothPrinterSettings config={config} />;
+  if (IS_ANDROID) return <AndroidPrinterSettings config={config} />;
   if (IS_WINDOWS) return <WindowsPrinterSettings config={config} />;
-  return <UsbPrinterSettings />;
+  return <DesktopUsbPrinterSettings />;
 }
 
 function SectionShell({ description, children }: { description: string; children: React.ReactNode }) {
@@ -59,6 +75,11 @@ function SectionShell({ description, children }: { description: string; children
  * `printer::layout`'s doc comment on the Rust side); if a *different*
  * printer needs a *different* number, this is how to find it without
  * another round of "it printed wrong, send me a photo."
+ *
+ * Transport-agnostic on purpose: it goes through the same
+ * `send_to_printer` dispatch as a real receipt, so a USB-connected printer
+ * is measured exactly the way a Bluetooth one is. Paper width is a property
+ * of the printer, not of the cable.
  */
 function DiagnosticPrintButton() {
   const [status, setStatus] = useState<"idle" | "printing" | "done" | "error">("idle");
@@ -102,7 +123,7 @@ function DiagnosticPrintButton() {
   );
 }
 
-function UsbPrinterSettings() {
+function DesktopUsbPrinterSettings() {
   return (
     <SectionShell description="USB thermal printers are found automatically — plug one in and Print (thermal) on a receipt uses it. No selection needed.">
       <div className="flex items-center gap-2 px-6 py-4 text-sm text-slate-500">
@@ -113,7 +134,113 @@ function UsbPrinterSettings() {
   );
 }
 
-function BluetoothPrinterSettings({ config }: PrinterSettingsSectionProps) {
+function ErrorNote({ message }: { message: string }) {
+  return <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>;
+}
+
+function SelectedNote({ label }: { label: string }) {
+  return (
+    <p className="mb-3 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+      <CheckCircle2 className="h-4 w-4 shrink-0" />
+      Selected: {label}
+    </p>
+  );
+}
+
+function ListHeader({ label, isLoading, onRefresh }: { label: string; isLoading: boolean; onRefresh: () => void }) {
+  return (
+    <div className="mb-3 flex items-center justify-between">
+      <p className="text-sm font-medium text-slate-700">{label}</p>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={isLoading}
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+      >
+        <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+        Refresh
+      </button>
+    </div>
+  );
+}
+
+type AndroidConnectionType = "bluetooth" | "usb";
+
+const ANDROID_DESCRIPTIONS: Record<AndroidConnectionType, string> = {
+  bluetooth: "Choose which paired Bluetooth printer receipts print to.",
+  usb: "Choose which USB printer, connected through an OTG cable, receipts print to.",
+};
+
+/**
+ * The Android printer section: a connection-type switch over two independent
+ * pickers.
+ *
+ * The switch is not cosmetic — it decides which native APIs get touched at
+ * all. Only the selected tab's body mounts, so a shop configured for USB
+ * never calls a Bluetooth command, and vice versa. That is what stopped the
+ * Bluetooth adapter check (and the "isEnabled check failed" error it used to
+ * raise) from appearing on installs that print over USB and have no business
+ * asking about a Bluetooth radio.
+ *
+ * The tab starts on whatever `printerConnectionType` is stored, defaulting to
+ * Bluetooth — so an install that was already configured for Bluetooth opens
+ * exactly where it did before this second transport existed. Switching tabs
+ * changes nothing that is saved; picking a device is what commits both the
+ * device and the connection type.
+ */
+function AndroidPrinterSettings({ config }: PrinterSettingsSectionProps) {
+  const [mode, setMode] = useState<AndroidConnectionType>(
+    config.printerConnectionType === "usb" ? "usb" : "bluetooth",
+  );
+
+  // Only meaningful once *something* has been selected: before that,
+  // `printerConnectionType` is null and there is nothing to contradict.
+  const savedMode = config.printerConnectionType === "usb" || config.printerConnectionType === "bluetooth"
+    ? config.printerConnectionType
+    : null;
+  const isBrowsingOtherMode = savedMode !== null && savedMode !== mode;
+
+  return (
+    <SectionShell description={ANDROID_DESCRIPTIONS[mode]}>
+      <div className="px-6 pt-6">
+        <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5" role="tablist">
+          {(["bluetooth", "usb"] as const).map((option) => {
+            const isActive = mode === option;
+            const Icon = option === "bluetooth" ? Bluetooth : Usb;
+            return (
+              <button
+                key={option}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setMode(option)}
+                className={[
+                  "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors",
+                  isActive ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                ].join(" ")}
+              >
+                <Icon className="h-4 w-4" />
+                {option === "bluetooth" ? "Bluetooth" : "USB"}
+              </button>
+            );
+          })}
+        </div>
+
+        {isBrowsingOtherMode && (
+          <p className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            Receipts still print over {savedMode === "usb" ? "USB" : "Bluetooth"}. Pick a printer below to switch to{" "}
+            {mode === "usb" ? "USB" : "Bluetooth"}.
+          </p>
+        )}
+      </div>
+
+      {mode === "bluetooth" ? <BluetoothPrinterPicker config={config} /> : <AndroidUsbPrinterPicker config={config} />}
+    </SectionShell>
+  );
+}
+
+function BluetoothPrinterPicker({ config }: PrinterSettingsSectionProps) {
   const save = useAppStore((state) => state.save);
 
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
@@ -142,7 +269,8 @@ function BluetoothPrinterSettings({ config }: PrinterSettingsSectionProps) {
   useEffect(() => {
     void refresh();
     // Only on mount — this is a manual "Refresh" list, not a live one, same
-    // as the rest of Settings.
+    // as the rest of Settings. Mount only happens on the Bluetooth tab, which
+    // is what keeps these calls off USB-configured installs entirely.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -185,83 +313,262 @@ function BluetoothPrinterSettings({ config }: PrinterSettingsSectionProps) {
       : null;
 
   return (
-    <SectionShell description="Choose which paired Bluetooth printer receipts print to.">
-      <div className="p-6">
-        {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+    <div className="p-6">
+      {error && <ErrorNote message={error} />}
+      {selected && <SelectedNote label={selected.name} />}
 
-        {selected && (
-          <p className="mb-3 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-            Selected: {selected.name}
+      {permissionGranted === false ? (
+        <div className="space-y-2">
+          <p className="text-sm text-slate-600">Bluetooth permission is needed to see and print to paired printers.</p>
+          <button
+            type="button"
+            onClick={() => void grantPermission()}
+            disabled={requestingPermission}
+            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            {requestingPermission ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bluetooth className="h-4 w-4" />}
+            Grant Bluetooth permission
+          </button>
+          <p className="text-xs text-slate-500">
+            If the printer connects by cable instead, switch to USB above — no Bluetooth permission is needed there.
           </p>
-        )}
+        </div>
+      ) : (
+        <>
+          <ListHeader label="Paired devices" isLoading={isLoading} onRefresh={() => void refresh()} />
 
-        {permissionGranted === false ? (
-          <div className="space-y-2">
-            <p className="text-sm text-slate-600">Bluetooth permission is needed to see and print to paired printers.</p>
-            <button
-              type="button"
-              onClick={() => void grantPermission()}
-              disabled={requestingPermission}
-              className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-            >
-              {requestingPermission ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bluetooth className="h-4 w-4" />}
-              Grant Bluetooth permission
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-medium text-slate-700">Paired devices</p>
-              <button
-                type="button"
-                onClick={() => void refresh()}
-                disabled={isLoading}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-                Refresh
-              </button>
-            </div>
+          {isLoading ? (
+            <p className="text-sm text-slate-400">Loading…</p>
+          ) : devices.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              No paired devices found. Pair the printer in your phone's Bluetooth settings first, then Refresh.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100 rounded-md border border-slate-100">
+              {devices.map((device) => {
+                const isSelected = selected?.address === device.address;
+                return (
+                  <li key={device.address} className="flex items-center justify-between px-3 py-2.5">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-slate-900">{device.name}</span>
+                      <span className="block text-xs text-slate-400">{device.address}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void selectDevice(device)}
+                      disabled={isSaving === device.address || isSelected}
+                      className={[
+                        "shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold",
+                        isSelected
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50",
+                      ].join(" ")}
+                    >
+                      {isSaving === device.address ? "Saving…" : isSelected ? "Selected" : "Select"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
-            {isLoading ? (
-              <p className="text-sm text-slate-400">Loading…</p>
-            ) : devices.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                No paired devices found. Pair the printer in your phone's Bluetooth settings first, then Refresh.
-              </p>
-            ) : (
-              <ul className="divide-y divide-slate-100 rounded-md border border-slate-100">
-                {devices.map((device) => {
-                  const isSelected = selected?.address === device.address;
-                  return (
-                    <li key={device.address} className="flex items-center justify-between px-3 py-2.5">
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-slate-900">{device.name}</span>
-                        <span className="block text-xs text-slate-400">{device.address}</span>
+/** How long to keep re-checking a USB permission after the system dialog has
+ * been shown, and how often. Android's `requestPermission` returns as soon as
+ * the dialog is *up*, not when it's answered, and nothing in this app
+ * receives the grant broadcast (see `android_usb::request_permission` for why
+ * that's deliberate) — so the answer has to be observed by asking again. The
+ * window is generous because the user has to read a dialog, and the poll is
+ * cheap: one `hasPermission` call against an already-enumerated device. */
+const USB_PERMISSION_POLL_MS = 700;
+const USB_PERMISSION_TIMEOUT_MS = 60_000;
+
+/**
+ * The USB (OTG) printer picker.
+ *
+ * Two things here differ from the Bluetooth picker in ways that come from
+ * Android rather than from taste:
+ *
+ * 1. **Permission is per device, not per app.** There is no single "USB
+ *    permission" to grant once — the user approves one `UsbDevice`, and the
+ *    approval is dropped when that device is unplugged. So permission state
+ *    lives on each row, and a printer that worked yesterday can need
+ *    re-approving today. Nothing is broken when that happens; the row just
+ *    offers "Allow access" again.
+ * 2. **Nothing is filtered by device class.** The standard Printer class
+ *    (0x07) is shown as a badge and sorts matching devices to the top, but
+ *    the client's Gainscha GA-E200 — the printer this mode was written for —
+ *    reports a vendor-specific class instead, and so do many thermal
+ *    printers. A class filter would have hidden exactly the hardware that
+ *    needed listing, so the user picks from everything attached.
+ */
+function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
+  const save = useAppStore((state) => state.save);
+
+  const [devices, setDevices] = useState<UsbDeviceOption[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState<string | null>(null); // device id being saved, for a per-row spinner
+  const [awaitingPermission, setAwaitingPermission] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Guards the permission poll below against setting state after the user has
+  // navigated away mid-dialog.
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  const refresh = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      setDevices(await listUsbDevices());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+    // Only on mount — a manual "Refresh" list, same as every other picker in
+    // Settings. Replugging the printer is a Refresh away.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Shows the system dialog for `deviceId`, then watches for the answer —
+   * see `USB_PERMISSION_POLL_MS` for why watching is necessary. */
+  const grantAccess = async (deviceId: string) => {
+    setAwaitingPermission(deviceId);
+    setError(null);
+    try {
+      await requestUsbPermission(deviceId);
+
+      const deadline = Date.now() + USB_PERMISSION_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, USB_PERMISSION_POLL_MS));
+        if (!isMounted.current) return;
+        if (await usbPermissionGranted(deviceId)) break;
+      }
+
+      if (isMounted.current) await refresh();
+    } catch (e) {
+      if (isMounted.current) setError((e as Error).message);
+    } finally {
+      if (isMounted.current) setAwaitingPermission(null);
+    }
+  };
+
+  const selectDevice = async (device: UsbDeviceOption) => {
+    setIsSaving(device.id);
+    setError(null);
+    try {
+      await save({
+        printerConnectionType: "usb",
+        printerUsbDevice: device.id,
+        printerUsbName: device.name,
+      });
+    } catch (e) {
+      setError((e as Error).message);
+      return;
+    } finally {
+      setIsSaving(null);
+    }
+
+    // Saving the choice and holding the OS grant are separate steps, so the
+    // dialog follows the selection rather than needing a second deliberate
+    // tap for the case that always applies on a fresh pick.
+    if (!device.hasPermission) await grantAccess(device.id);
+  };
+
+  const selectedId = config.printerConnectionType === "usb" ? config.printerUsbDevice : null;
+
+  return (
+    <div className="p-6">
+      {error && <ErrorNote message={error} />}
+      {selectedId && <SelectedNote label={config.printerUsbName ?? selectedId} />}
+
+      <ListHeader label="Connected USB devices" isLoading={isLoading} onRefresh={() => void refresh()} />
+
+      {isLoading ? (
+        <p className="text-sm text-slate-400">Loading…</p>
+      ) : devices.length === 0 ? (
+        <p className="text-sm text-slate-400">
+          No USB devices found. Connect the printer with an OTG cable, switch it on, then Refresh. If nothing appears,
+          this phone may not support USB host (OTG) mode.
+        </p>
+      ) : (
+        <ul className="divide-y divide-slate-100 rounded-md border border-slate-100">
+          {devices.map((device) => {
+            const isSelected = selectedId === device.id;
+            const isWaiting = awaitingPermission === device.id;
+            return (
+              <li key={device.id} className="px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Printer className="h-4 w-4 shrink-0 text-slate-400" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-slate-900">{device.name}</span>
+                      <span className="flex items-center gap-1.5 text-xs text-slate-400">
+                        {device.id}
+                        {device.isPrinterClass && (
+                          <span className="rounded bg-slate-100 px-1.5 py-px font-medium text-slate-500">Printer</span>
+                        )}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => void selectDevice(device)}
-                        disabled={isSaving === device.address || isSelected}
-                        className={[
-                          "shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold",
-                          isSelected
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50",
-                        ].join(" ")}
-                      >
-                        {isSaving === device.address ? "Saving…" : isSelected ? "Selected" : "Select"}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </>
-        )}
-      </div>
-    </SectionShell>
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void selectDevice(device)}
+                    disabled={isSaving === device.id || isWaiting || isSelected}
+                    className={[
+                      "shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold",
+                      isSelected
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50",
+                    ].join(" ")}
+                  >
+                    {isSaving === device.id ? "Saving…" : isSelected ? "Selected" : "Select"}
+                  </button>
+                </div>
+
+                {isWaiting && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Waiting for you to allow access to this device…
+                  </p>
+                )}
+
+                {!isWaiting && isSelected && !device.hasPermission && (
+                  <div className="mt-1.5 flex items-center justify-between gap-3 rounded-md bg-amber-50 px-2 py-1.5">
+                    <p className="flex items-start gap-1.5 text-xs text-amber-800">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      Android hasn't been allowed to use this device yet. Access is asked for again each time the
+                      printer is unplugged and reconnected.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void grantAccess(device.id)}
+                      className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                    >
+                      Allow access
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -309,27 +616,10 @@ function WindowsPrinterSettings({ config }: PrinterSettingsSectionProps) {
   return (
     <SectionShell description="Choose which installed Windows printer receipts print to — the same one you'd pick in any other application's print dialog.">
       <div className="p-6">
-        {error && <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && <ErrorNote message={error} />}
+        {selectedName && <SelectedNote label={selectedName} />}
 
-        {selectedName && (
-          <p className="mb-3 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-            Selected: {selectedName}
-          </p>
-        )}
-
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-sm font-medium text-slate-700">Installed printers</p>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            disabled={isLoading}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
-        </div>
+        <ListHeader label="Installed printers" isLoading={isLoading} onRefresh={() => void refresh()} />
 
         {isLoading ? (
           <p className="text-sm text-slate-400">Loading…</p>

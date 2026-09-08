@@ -372,6 +372,15 @@ jobs:
       - name: Patch Android Gradle project to use keystore.properties
         run: python3 scripts/patch_android_signing.py
 
+      # Same reason as the step above — `tauri android init` regenerates
+      # AndroidManifest.xml from scratch too, and its template declares only
+      # INTERNET. Without this the Bluetooth printer transport throws a bare
+      # SecurityException from `isEnabled()` on a real device, and the
+      # USB-OTG transport has no `android.hardware.usb.host` feature
+      # declaration. Idempotent, same as the signing patch.
+      - name: Patch AndroidManifest.xml with printer permissions
+        run: python3 scripts/patch_android_manifest.py
+
       # Tauri's Android signing reads src-tauri/gen/android/keystore.properties
       # (see https://v2.tauri.app/distribute/sign/android/). The documented
       # format uses a single `password` field for the keystore; `keyPassword`

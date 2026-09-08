@@ -222,6 +222,13 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // `printer::windows_spool`. Same "NULL until chosen" convention as the
     // Bluetooth fields above.
     ("app_config", "printer_windows_name", "TEXT"),
+    // Android USB-OTG printer selection (vendor:product id + display label)
+    // — see `db::config::AppConfig::printer_usb_device` and
+    // `printer::android_usb`. Same "NULL until chosen" convention as the
+    // Bluetooth/Windows columns above; an install already configured for
+    // Bluetooth simply never sets these.
+    ("app_config", "printer_usb_device", "TEXT"),
+    ("app_config", "printer_usb_name", "TEXT"),
     // Business contact phone — shown in Settings and printed on receipts.
     // NULL until an owner/admin sets one via Settings' Store Identity
     // section; see `db::config::AppConfig::phone`.
