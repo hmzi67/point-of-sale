@@ -15,7 +15,7 @@ export function PaymentMethodSelector() {
   const setPaymentMethod = useBillingStore((state) => state.setPaymentMethod);
 
   return (
-    <div className="flex gap-1.5 rounded-full bg-slate-50 p-1">
+    <div className="flex gap-1.5 rounded-full bg-surface-2 p-1">
       {METHODS.map(({ value, label, icon: Icon }) => (
         <button
           key={value}
@@ -23,7 +23,7 @@ export function PaymentMethodSelector() {
           onClick={() => setPaymentMethod(value)}
           className={[
             "flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-semibold transition-colors",
-            paymentMethod === value ? "bg-white text-brand-700 shadow-soft" : "text-slate-500 hover:text-slate-700",
+            paymentMethod === value ? "bg-surface text-accent-text shadow-soft" : "text-fg-muted hover:text-fg-2",
           ].join(" ")}
         >
           <Icon className="h-3.5 w-3.5" />

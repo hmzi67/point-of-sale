@@ -102,13 +102,13 @@ export function ItemSearchBar({ onResultsChange }: ItemSearchBarProps) {
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder="Search something sweet on your mind…"
-        className="w-full rounded-2xl bg-white py-3.5 pl-5 pr-14 text-sm shadow-soft placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-200"
+        className="w-full rounded-2xl bg-surface py-3.5 pl-5 pr-14 text-sm shadow-soft placeholder:text-fg-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
       />
-      <span className="pointer-events-none absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-slate-100">
-        <Search className="h-4 w-4 text-slate-500" />
+      <span className="pointer-events-none absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-surface-3">
+        <Search className="h-4 w-4 text-fg-muted" />
       </span>
 
-      {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-1.5 text-sm text-danger-text">{error}</p>}
     </div>
   );
 }

@@ -60,19 +60,19 @@ function ActionCard({
     <div
       className={[
         "flex items-center gap-3 rounded-2xl border p-2.5 shadow-soft",
-        accent ? "border-brand-200 bg-brand-50" : "border-slate-200 bg-white",
+        accent ? "border-accent/40 bg-accent-soft" : "border-line bg-surface",
       ].join(" ")}
     >
       <div
         className={[
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-          accent ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-500",
+          accent ? "bg-accent text-accent-ink" : "bg-surface-3 text-fg-muted",
         ].join(" ")}
       >
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
-        <p className={["text-xs font-semibold uppercase tracking-wide", accent ? "text-brand-700" : "text-slate-500"].join(" ")}>
+        <p className={["text-xs font-semibold uppercase tracking-wide", accent ? "text-accent-text" : "text-fg-muted"].join(" ")}>
           {title}
         </p>
         <div className="mt-1 flex items-center gap-1.5">
@@ -82,7 +82,7 @@ function ActionCard({
             disabled={isDownloading}
             className={[
               "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-              accent ? "bg-brand-600 text-white hover:bg-brand-700" : "text-slate-600 hover:bg-slate-100",
+              accent ? "bg-accent text-accent-ink hover:bg-accent-hover" : "text-fg-2 hover:bg-surface-3",
             ].join(" ")}
           >
             <Download className="h-3.5 w-3.5" />
@@ -95,7 +95,7 @@ function ActionCard({
               disabled={isPrinting}
               className={[
                 "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                accent ? "text-brand-700 hover:bg-brand-100" : "text-slate-600 hover:bg-slate-100",
+                accent ? "text-accent-text hover:bg-accent-soft" : "text-fg-2 hover:bg-surface-3",
               ].join(" ")}
             >
               <Printer className="h-3.5 w-3.5" />
@@ -276,7 +276,7 @@ export function ExportButtons({
           accent
         />
       </div>
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-danger-text">{error}</p>}
     </div>
   );
 }

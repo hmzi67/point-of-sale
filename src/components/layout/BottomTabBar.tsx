@@ -4,7 +4,7 @@ import { useModules } from "../../hooks/useModules";
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   [
     "flex min-w-[64px] flex-1 flex-col items-center justify-center gap-1 py-1.5 text-[11px] font-medium transition-colors",
-    isActive ? "text-brand-600" : "text-slate-400",
+    isActive ? "text-accent-text" : "text-fg-muted",
   ].join(" ");
 
 /**
@@ -29,7 +29,7 @@ export function BottomTabBar() {
 
   return (
     <nav
-      className="flex shrink-0 items-stretch overflow-x-auto border-t border-slate-100 bg-white pb-[env(safe-area-inset-bottom)]"
+      className="flex shrink-0 items-stretch overflow-x-auto border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]"
       aria-label="Primary"
     >
       {visibleModules.map((module) => {

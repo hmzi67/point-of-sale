@@ -33,9 +33,9 @@ interface OrderTypeAndTableProps {
  * `TableCard` — a small dot next to each table option, restyled for a light
  * background instead of losing the status info in the redesign. */
 const STATUS_DOT: Record<TableSummary["status"], string> = {
-  free: "bg-emerald-500",
-  occupied: "bg-red-500",
-  reserved: "bg-amber-500",
+  free: "bg-success",
+  occupied: "bg-danger",
+  reserved: "bg-warning",
 };
 
 const STATUS_LABEL: Record<TableSummary["status"], string> = {
@@ -223,7 +223,7 @@ export function OrderTypeAndTable({
             value: table.id,
             label: table.name,
             meta: (
-              <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
                 <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[table.status]}`} />
                 {STATUS_LABEL[table.status]}
                 {table.hasParkedOrder ? " · parked" : ""}
@@ -245,14 +245,14 @@ export function OrderTypeAndTable({
         />
       </div>
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-danger-text">{error}</p>}
 
       {selectedTable?.hasParkedOrder && (
         <button
           type="button"
           onClick={() => void resumeParkedOrder()}
           disabled={isBusy}
-          className="w-full rounded-xl bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+          className="w-full rounded-xl bg-warning-soft px-3 py-1.5 text-xs font-medium text-warning-text hover:bg-warning-soft disabled:opacity-50"
         >
           Load parked order from {selectedTable.name}
         </button>
@@ -263,7 +263,7 @@ export function OrderTypeAndTable({
           type="button"
           onClick={() => void saveToTable()}
           disabled={isBusy}
-          className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className="w-full rounded-xl border border-line px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
         >
           Save to table (bill later)
         </button>
@@ -277,7 +277,7 @@ export function OrderTypeAndTable({
           type="button"
           onClick={() => void openTableTokenDialog()}
           disabled={isBusy}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-line px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
         >
           <Ticket className="h-3.5 w-3.5" />
           Print token
@@ -291,7 +291,7 @@ export function OrderTypeAndTable({
           type="button"
           onClick={openTakeawayTokenDialog}
           disabled={isBusy}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-line px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
         >
           <Ticket className="h-3.5 w-3.5" />
           Print token

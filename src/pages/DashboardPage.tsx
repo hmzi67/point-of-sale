@@ -45,15 +45,15 @@ export function DashboardPage() {
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Dashboard</h2>
-        <p className="text-sm text-slate-500">Today's snapshot and this month's trend.</p>
+        <h2 className="text-lg font-semibold text-fg">Dashboard</h2>
+        <p className="text-sm text-fg-muted">Today's snapshot and this month's trend.</p>
       </div>
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       <SnapshotCards summary={summary} currency={config.currency} isLoading={isLoading} />
 
-      <Suspense fallback={<div className="h-[21rem] animate-pulse rounded-lg border border-slate-200 bg-slate-50" />}>
+      <Suspense fallback={<div className="h-[21rem] animate-pulse rounded-lg border border-line bg-surface-2" />}>
         <MonthlyTrendChart series={series} currency={config.currency} isLoading={isLoading} />
       </Suspense>
 

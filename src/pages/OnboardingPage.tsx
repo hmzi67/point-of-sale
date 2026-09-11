@@ -94,19 +94,19 @@ export function OnboardingPage() {
   };
 
   return (
-    <div className="flex h-full items-center justify-center overflow-y-auto bg-slate-900 p-6">
-      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+    <div className="flex h-full items-center justify-center overflow-y-auto bg-bg p-6">
+      <div className="w-full max-w-lg rounded-xl bg-surface p-6 shadow-soft-lg">
         <div className="mb-1 flex items-center gap-2">
-          <Store className="h-6 w-6 text-brand-600" />
-          <h1 className="text-lg font-semibold text-slate-900">Welcome — let's set up your shop</h1>
+          <Store className="h-6 w-6 text-accent-text" />
+          <h1 className="text-lg font-semibold text-fg">Welcome — let's set up your shop</h1>
         </div>
-        <p className="mb-6 text-sm text-slate-500">
+        <p className="mb-6 text-sm text-fg-muted">
           Just a few basics to get started. Everything here can be changed later in Settings.
         </p>
 
         <form onSubmit={(e) => void submit(e)} className="space-y-5">
           <div>
-            <label className="block text-xs font-medium text-slate-500" htmlFor="business-name">
+            <label className="block text-xs font-medium text-fg-muted" htmlFor="business-name">
               Business name
             </label>
             <input
@@ -115,19 +115,19 @@ export function OnboardingPage() {
               onChange={(e) => setBusinessName(e.target.value)}
               placeholder="e.g. Al-Noor Store"
               autoFocus
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <span className="block text-xs font-medium text-slate-500">What kind of business is this?</span>
+            <span className="block text-xs font-medium text-fg-muted">What kind of business is this?</span>
             <div className="mt-2 space-y-2">
               {BUSINESS_TYPES.map((type) => (
                 <label
                   key={type.value}
                   className={[
                     "flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors",
-                    businessType === type.value ? "border-brand-400 bg-brand-50" : "border-slate-200 hover:bg-slate-50",
+                    businessType === type.value ? "border-accent bg-accent-soft" : "border-line hover:bg-surface-2",
                   ].join(" ")}
                 >
                   <input
@@ -139,8 +139,8 @@ export function OnboardingPage() {
                     className="mt-0.5"
                   />
                   <span>
-                    <span className="block font-medium text-slate-900">{type.label}</span>
-                    <span className="text-xs text-slate-500">{type.hint}</span>
+                    <span className="block font-medium text-fg">{type.label}</span>
+                    <span className="text-xs text-fg-muted">{type.hint}</span>
                   </span>
                 </label>
               ))}
@@ -149,7 +149,7 @@ export function OnboardingPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-500" htmlFor="currency">
+              <label className="block text-xs font-medium text-fg-muted" htmlFor="currency">
                 Currency
               </label>
               <input
@@ -158,7 +158,7 @@ export function OnboardingPage() {
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
                 placeholder="PKR"
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
               />
               <datalist id="currency-suggestions">
                 {CURRENCY_SUGGESTIONS.map((code) => (
@@ -168,7 +168,7 @@ export function OnboardingPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-500" htmlFor="tax-percent">
+              <label className="block text-xs font-medium text-fg-muted" htmlFor="tax-percent">
                 Tax rate (%)
               </label>
               <input
@@ -178,18 +178,18 @@ export function OnboardingPage() {
                 step="0.01"
                 value={taxPercent}
                 onChange={(e) => setTaxPercent(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
               />
             </div>
           </div>
 
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+          <div className="rounded-md border border-line bg-surface-2 p-3">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
               <BadgeCheck className="h-3.5 w-3.5" />
               Licence key
             </span>
             {licenseOk ? (
-              <p className="mt-1 text-sm font-medium text-emerald-700">Licence active on this device.</p>
+              <p className="mt-1 text-sm font-medium text-success-text">Licence active on this device.</p>
             ) : (
               <>
                 <div className="mt-1 flex gap-2">
@@ -209,32 +209,32 @@ export function OnboardingPage() {
                     autoCapitalize="characters"
                     autoCorrect="off"
                     spellCheck={false}
-                    className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm uppercase"
+                    className="min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 font-mono text-sm uppercase"
                   />
                   <button
                     type="button"
                     onClick={() => void activate()}
                     disabled={licenseBusy || licenseKey.trim().length < 10}
-                    className="shrink-0 rounded-md border border-brand-600 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                    className="shrink-0 rounded-md border border-accent px-3 py-2 text-sm font-semibold text-accent-text hover:bg-accent-soft disabled:opacity-50"
                   >
                     {licenseBusy ? "Activating…" : "Activate"}
                   </button>
                 </div>
-                <p className="mt-1.5 text-xs text-slate-500">
+                <p className="mt-1.5 text-xs text-fg-muted">
                   From your purchase email. Activating binds it to this device and needs an internet
                   connection — just this once.
                 </p>
-                {licenseError && <p className="mt-1.5 text-xs text-red-600">{licenseError}</p>}
+                {licenseError && <p className="mt-1.5 text-xs text-danger-text">{licenseError}</p>}
               </>
             )}
           </div>
 
-          {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
           <button
             type="submit"
             disabled={isSaving || !businessName.trim() || !currency.trim() || !licenseOk}
-            className="w-full rounded-md bg-brand-600 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-md bg-accent py-2.5 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Setting up…" : "Continue to module setup"}
           </button>

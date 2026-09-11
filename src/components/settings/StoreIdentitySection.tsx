@@ -124,23 +124,23 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-6">
-      <h2 className="text-lg font-semibold text-slate-900">Store Identity</h2>
-      <p className="mt-1 text-sm text-slate-600">
+    <div className="rounded-lg border border-line bg-surface p-6">
+      <h2 className="text-lg font-semibold text-fg">Store Identity</h2>
+      <p className="mt-1 text-sm text-fg-2">
         Shown in the app's top bar and on printed receipts. Changes apply immediately, no restart needed.
       </p>
 
       <div className="mt-4 flex flex-col gap-6 sm:flex-row sm:items-start">
         <div>
-          <span className="mb-1.5 block text-xs font-medium text-slate-500">Logo</span>
+          <span className="mb-1.5 block text-xs font-medium text-fg-muted">Logo</span>
           <div className="flex items-center gap-3">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-surface-2">
               {isUploadingLogo ? (
-                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                <Loader2 className="h-5 w-5 animate-spin text-fg-muted" />
               ) : logoDataUrl ? (
                 <img src={logoDataUrl} alt="Store logo" className="h-full w-full object-contain" />
               ) : (
-                <ImageOff className="h-6 w-6 text-slate-300" />
+                <ImageOff className="h-6 w-6 text-fg-faint" />
               )}
             </div>
             <div>
@@ -148,12 +148,12 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploadingLogo}
-                className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
               >
                 <ImagePlus className="h-3.5 w-3.5" />
                 Change Logo
               </button>
-              <p className="mt-1 text-[11px] text-slate-400">JPG, PNG or SVG, up to 2 MB.</p>
+              <p className="mt-1 text-[11px] text-fg-muted">JPG, PNG or SVG, up to 2 MB.</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -163,25 +163,25 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
               />
             </div>
           </div>
-          {logoError && <p className="mt-1.5 text-xs text-red-600">{logoError}</p>}
+          {logoError && <p className="mt-1.5 text-xs text-danger-text">{logoError}</p>}
         </div>
 
         <label className="block flex-1">
-          <span className="mb-1.5 block text-xs font-medium text-slate-500">Business name</span>
+          <span className="mb-1.5 block text-xs font-medium text-fg-muted">Business name</span>
           <input
             value={nameDraft}
             onChange={(e) => setNameDraft(e.target.value)}
             onBlur={() => void saveNameIfChanged()}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             disabled={isSavingName}
-            className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:opacity-50"
+            className="w-full max-w-xs rounded-md border border-line-strong px-3 py-2 text-sm focus:border-accent focus:outline-none disabled:opacity-50"
           />
-          {isSavingName && <p className="mt-1 text-xs text-slate-400">Saving…</p>}
-          {nameError && <p className="mt-1 text-xs text-red-600">{nameError}</p>}
+          {isSavingName && <p className="mt-1 text-xs text-fg-muted">Saving…</p>}
+          {nameError && <p className="mt-1 text-xs text-danger-text">{nameError}</p>}
         </label>
 
         <label className="block flex-1">
-          <span className="mb-1.5 block text-xs font-medium text-slate-500">Business phone</span>
+          <span className="mb-1.5 block text-xs font-medium text-fg-muted">Business phone</span>
           <input
             type="tel"
             value={phoneDraft}
@@ -190,14 +190,14 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             disabled={isSavingPhone}
             placeholder="e.g. 0300 1234567"
-            className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:opacity-50"
+            className="w-full max-w-xs rounded-md border border-line-strong px-3 py-2 text-sm focus:border-accent focus:outline-none disabled:opacity-50"
           />
-          {isSavingPhone && <p className="mt-1 text-xs text-slate-400">Saving…</p>}
-          {phoneError && <p className="mt-1 text-xs text-red-600">{phoneError}</p>}
+          {isSavingPhone && <p className="mt-1 text-xs text-fg-muted">Saving…</p>}
+          {phoneError && <p className="mt-1 text-xs text-danger-text">{phoneError}</p>}
         </label>
 
         <label className="block flex-1">
-          <span className="mb-1.5 block text-xs font-medium text-slate-500">
+          <span className="mb-1.5 block text-xs font-medium text-fg-muted">
             Delivery Contact Number (optional)
           </span>
           <input
@@ -208,13 +208,13 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             disabled={isSavingDelivery}
             placeholder="e.g. 0300 7654321"
-            className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none disabled:opacity-50"
+            className="w-full max-w-xs rounded-md border border-line-strong px-3 py-2 text-sm focus:border-accent focus:outline-none disabled:opacity-50"
           />
-          <p className="mt-1 text-[11px] text-slate-400">
+          <p className="mt-1 text-[11px] text-fg-muted">
             Optional — printed as its own "Delivery" row on receipts, only when set.
           </p>
-          {isSavingDelivery && <p className="mt-1 text-xs text-slate-400">Saving…</p>}
-          {deliveryError && <p className="mt-1 text-xs text-red-600">{deliveryError}</p>}
+          {isSavingDelivery && <p className="mt-1 text-xs text-fg-muted">Saving…</p>}
+          {deliveryError && <p className="mt-1 text-xs text-danger-text">{deliveryError}</p>}
         </label>
       </div>
     </div>

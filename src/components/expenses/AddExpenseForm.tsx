@@ -57,10 +57,10 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
   return (
     <form
       onSubmit={(e) => void submit(e)}
-      className="flex flex-wrap items-end gap-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+      className="flex flex-wrap items-end gap-3 rounded-md border border-line bg-surface-2 p-3"
     >
       <div>
-        <label className="block text-xs font-medium text-slate-500">Amount</label>
+        <label className="block text-xs font-medium text-fg-muted">Amount</label>
         <input
           type="number"
           min={0}
@@ -68,12 +68,12 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           placeholder="0.00"
-          className="mt-1 w-28 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+          className="mt-1 w-28 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
         />
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-slate-500">Category</label>
+        <label className="block text-xs font-medium text-fg-muted">Category</label>
         {isAddingCategory ? (
           <div className="mt-1 flex items-center gap-1.5">
             <input
@@ -81,7 +81,7 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
               onChange={(e) => setNewCategory(e.target.value)}
               placeholder="New category"
               autoFocus
-              className="w-36 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+              className="w-36 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
             />
             {categories.length > 0 && (
               <button
@@ -90,7 +90,7 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
                   setIsAddingCategory(false);
                   setNewCategory("");
                 }}
-                className="text-xs text-slate-500 hover:text-slate-700"
+                className="text-xs text-fg-muted hover:text-fg-2"
               >
                 Cancel
               </button>
@@ -101,7 +101,7 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+              className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
             >
               {categories.map((c) => (
                 <option key={c} value={c}>
@@ -112,7 +112,7 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
             <button
               type="button"
               onClick={() => setIsAddingCategory(true)}
-              className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700"
+              className="flex items-center gap-1 text-xs font-medium text-accent-text hover:text-accent-text"
             >
               <Plus className="h-3 w-3" />
               New
@@ -122,32 +122,32 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-slate-500">Date</label>
+        <label className="block text-xs font-medium text-fg-muted">Date</label>
         <input
           type="date"
           value={date}
           max={todayString()}
           onChange={(e) => setDate(e.target.value)}
-          className="mt-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+          className="mt-1 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
         />
       </div>
 
       <div className="min-w-[10rem] flex-1">
-        <label className="block text-xs font-medium text-slate-500">Note (optional)</label>
+        <label className="block text-xs font-medium text-fg-muted">Note (optional)</label>
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="e.g. Electricity bill"
-          className="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+          className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
         />
       </div>
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-danger-text">{error}</p>}
 
       <button
         type="submit"
         disabled={isSaving || !resolvedCategory || !amount}
-        className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
       >
         {isSaving ? "Adding…" : "Add expense"}
       </button>

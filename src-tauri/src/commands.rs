@@ -294,6 +294,26 @@ pub fn get_app_config(db: State<'_, Db>) -> Result<AppConfig, String> {
     db.with_conn(config::get).map_err(|e| e.to_string())
 }
 
+/// Read before login too — the login and lock screens are themed, and the
+/// window has already painted `index.html`'s static `data-theme="dark"` by
+/// the time this resolves, so a light-theme install sees at most one
+/// repaint. See `db::config::get_theme` for why this isn't on `AppConfig`.
+#[tauri::command]
+pub fn config_get_theme(db: State<'_, Db>) -> Result<String, String> {
+    db.with_conn(config::get_theme).map_err(|e| e.to_string())
+}
+
+/// Any signed-in user, not just Owner/Admin: a display preference on the
+/// till's own screen, with no business consequence.
+#[tauri::command]
+pub fn config_set_theme(db: State<'_, Db>, session: State<'_, Session>, theme: String) -> Result<(), String> {
+    require_signed_in(&session)?;
+    if theme != "dark" && theme != "light" {
+        return Err(format!("Unknown theme '{theme}' — expected 'dark' or 'light'"));
+    }
+    db.with_conn(|conn| config::set_theme(conn, &theme)).map_err(|e| e.to_string())
+}
+
 /// Settings-only write — Owner/Admin, same as the screen it backs.
 #[tauri::command]
 pub fn update_app_config(

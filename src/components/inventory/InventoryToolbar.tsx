@@ -17,19 +17,19 @@ export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv }: Invento
   return (
     <div className="flex flex-wrap items-center gap-3">
       <div className="relative min-w-[220px] flex-1">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name or scan barcode…"
-          className="w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm"
+          className="w-full rounded-md border border-line-strong py-2 pl-9 pr-3 text-sm"
         />
       </div>
 
       <select
         value={categoryId ?? ""}
         onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
-        className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+        className="rounded-md border border-line-strong px-3 py-2 text-sm"
       >
         <option value="">All categories</option>
         {categories.map((category) => (
@@ -44,7 +44,7 @@ export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv }: Invento
           <button
             type="button"
             onClick={onImportCsv}
-            className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-2 text-sm font-medium text-fg-2 hover:bg-surface-2"
           >
             <Upload className="h-4 w-4" />
             Import CSV
@@ -52,7 +52,7 @@ export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv }: Invento
           <button
             type="button"
             onClick={onAddItem}
-            className="flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover"
           >
             <Plus className="h-4 w-4" />
             Add item

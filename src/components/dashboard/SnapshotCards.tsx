@@ -22,16 +22,16 @@ function Card({
   isLoading: boolean;
 }) {
   const valueColor =
-    tone === "positive" ? "text-emerald-600" : tone === "negative" ? "text-red-600" : "text-slate-900";
+    tone === "positive" ? "text-success-text" : tone === "negative" ? "text-danger-text" : "text-fg";
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex items-center gap-2 text-slate-500">
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <div className="flex items-center gap-2 text-fg-muted">
         <Icon className="h-4 w-4" />
         <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
       </div>
       <p className={`mt-2 text-2xl font-bold ${valueColor}`}>
-        {isLoading ? <span className="inline-block h-7 w-24 animate-pulse rounded bg-slate-100" /> : value}
+        {isLoading ? <span className="inline-block h-7 w-24 animate-pulse rounded bg-surface-3" /> : value}
       </p>
     </div>
   );

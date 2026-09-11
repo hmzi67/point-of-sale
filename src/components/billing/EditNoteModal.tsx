@@ -77,13 +77,13 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <h3 className="text-sm font-semibold text-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h3 className="text-sm font-semibold text-fg">
             {amountEntry ? `${itemName} — qty & note` : `Note for ${itemName}`}
           </h3>
-          <button type="button" onClick={onClose} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+          <button type="button" onClick={onClose} className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -91,13 +91,13 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
         <div className="space-y-3 px-5 pt-4">
           {amountEntry && (
             <div>
-              <div className="mb-2 grid grid-cols-2 gap-1.5 rounded-xl bg-slate-100 p-1">
+              <div className="mb-2 grid grid-cols-2 gap-1.5 rounded-xl bg-surface-3 p-1">
                 <button
                   type="button"
                   onClick={() => setMode("qty")}
                   className={[
                     "rounded-lg py-1.5 text-xs font-semibold transition-colors",
-                    mode === "qty" ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                    mode === "qty" ? "bg-surface text-accent-text shadow-sm" : "text-fg-muted hover:text-fg-2",
                   ].join(" ")}
                 >
                   Quantity
@@ -107,7 +107,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
                   onClick={() => setMode("amount")}
                   className={[
                     "rounded-lg py-1.5 text-xs font-semibold transition-colors",
-                    mode === "amount" ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                    mode === "amount" ? "bg-surface text-accent-text shadow-sm" : "text-fg-muted hover:text-fg-2",
                   ].join(" ")}
                 >
                   Amount
@@ -116,7 +116,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
 
               {mode === "qty" ? (
                 <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-slate-500">
+                  <span className="mb-1 block text-xs font-medium text-fg-muted">
                     Quantity{amountEntry.unit ? ` (${amountEntry.unit})` : ""}
                   </span>
                   <input
@@ -127,15 +127,15 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
                     value={qtyText}
                     onChange={(e) => setQtyText(e.target.value)}
                     autoFocus
-                    className="w-32 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-brand-400 focus:outline-none"
+                    className="w-32 rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm focus:border-accent focus:outline-none"
                   />
-                  <span className="mt-1 block text-[11px] text-slate-400">
+                  <span className="mt-1 block text-[11px] text-fg-muted">
                     E.g. after weighing on a scale — this replaces the line's quantity.
                   </span>
                 </label>
               ) : (
                 <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-slate-500">Add amount (PKR)</span>
+                  <span className="mb-1 block text-xs font-medium text-fg-muted">Add amount (PKR)</span>
                   <input
                     type="number"
                     min="0"
@@ -151,26 +151,26 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
                     }}
                     autoFocus
                     placeholder="e.g. 100"
-                    className="w-32 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-brand-400 focus:outline-none"
+                    className="w-32 rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm focus:border-accent focus:outline-none"
                   />
-                  <div className="mt-2 rounded-xl bg-brand-50 px-3.5 py-2.5 text-xs text-brand-800">
+                  <div className="mt-2 rounded-xl bg-accent-soft px-3.5 py-2.5 text-xs text-accent-text">
                     {amountMinor > 0 ? (
                       <>
                         + {formatQty(addedQty, amountEntry.unit)} added to the {formatQty(amountEntry.qty, amountEntry.unit)}{" "}
                         already on this line — new total{" "}
                         <span className="font-semibold">{formatQty(combinedQty, amountEntry.unit)}</span>
                         {amountEntry.qty + addedQty > amountEntry.stockQty && (
-                          <span className="mt-1 block text-red-600">Capped by available stock.</span>
+                          <span className="mt-1 block text-danger-text">Capped by available stock.</span>
                         )}
                       </>
                     ) : (
-                      <span className="text-brand-400">
+                      <span className="text-accent">
                         Type an amount to add to the existing {formatQty(amountEntry.qty, amountEntry.unit)} on this
                         line.
                       </span>
                     )}
                   </div>
-                  <span className="mt-1 block text-[11px] text-slate-400">
+                  <span className="mt-1 block text-[11px] text-fg-muted">
                     E.g. "customer also wants {amountEntry.priceMinor > 0 ? formatMinor(amountEntry.priceMinor) : ""}{" "}
                     worth more" — this adds to the line, it doesn't replace it.
                   </span>
@@ -185,7 +185,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
             rows={3}
             autoFocus={!amountEntry}
             placeholder="Add notes to your order…"
-            className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
+            className="w-full resize-none rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm placeholder:text-fg-muted focus:border-accent focus:outline-none"
           />
         </div>
 
@@ -193,7 +193,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-2xl bg-slate-100 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-200"
+            className="flex-1 rounded-2xl bg-surface-3 py-3 text-sm font-semibold text-fg-2 hover:bg-surface-3"
           >
             Cancel
           </button>
@@ -201,7 +201,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
             type="button"
             onClick={save}
             disabled={amountEntry !== undefined && mode === "amount" && addedQty <= 0}
-            className="flex-1 rounded-2xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-soft hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {amountEntry && mode === "amount" ? "Add to Line" : "Save"}
           </button>

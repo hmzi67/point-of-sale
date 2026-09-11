@@ -223,6 +223,11 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // `printer::windows_spool`. Same "NULL until chosen" convention as the
     // Bluetooth fields above.
     ("app_config", "printer_windows_name", "TEXT"),
+    // UI colour theme — see `schema.sql`'s comment on the column and
+    // `db::config::{get_theme, set_theme}`. Dark by default on upgrade as
+    // well as fresh install: dark is the brand's primary look, and an
+    // upgrading install has never expressed a preference either way.
+    ("app_config", "theme", "TEXT NOT NULL DEFAULT 'dark'"),
     // Android USB-OTG printer selection (vendor:product id + display label)
     // — see `db::config::AppConfig::printer_usb_device` and
     // `printer::android_usb`. Same "NULL until chosen" convention as the

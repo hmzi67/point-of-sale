@@ -84,19 +84,19 @@ export function CountersSection() {
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Counters</h2>
-        <p className="mt-1 text-sm text-slate-600">
+    <div className="rounded-lg border border-line bg-surface">
+      <div className="border-b border-line p-6">
+        <h2 className="text-lg font-semibold text-fg">Counters</h2>
+        <p className="mt-1 text-sm text-fg-2">
           The kitchen/prep stations a KOT token can print to (e.g. "Channa Counter", "Drinks Counter",
           "Tandoor"). Assign items to a counter from the item's edit form — an item with no counter never
           prints a token.
         </p>
       </div>
 
-      {error && <p className="border-b border-red-100 bg-red-50 px-6 py-3 text-sm text-red-700">{error}</p>}
+      {error && <p className="border-b border-danger-line bg-danger-soft px-6 py-3 text-sm text-danger-text">{error}</p>}
 
-      <div className="flex gap-2 border-b border-slate-100 px-6 py-4">
+      <div className="flex gap-2 border-b border-line px-6 py-4">
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
@@ -107,13 +107,13 @@ export function CountersSection() {
             }
           }}
           placeholder="New counter name"
-          className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm"
+          className="w-full max-w-xs rounded-md border border-line-strong px-3 py-2 text-sm"
         />
         <button
           type="button"
           onClick={() => void submitNewCounter()}
           disabled={isAdding || !newName.trim()}
-          className="flex shrink-0 items-center gap-1 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
           Add
@@ -121,13 +121,13 @@ export function CountersSection() {
       </div>
 
       {isLoading ? (
-        <p className="px-6 py-4 text-sm text-slate-500">Loading…</p>
+        <p className="px-6 py-4 text-sm text-fg-muted">Loading…</p>
       ) : counters.length === 0 ? (
-        <p className="px-6 py-4 text-sm text-slate-500">
+        <p className="px-6 py-4 text-sm text-fg-muted">
           No counters yet — add one above before you can print tokens.
         </p>
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {counters.map((counter) => (
             <li key={counter.id} className="flex items-center justify-between px-6 py-3">
               {editingId === counter.id ? (
@@ -143,30 +143,30 @@ export function CountersSection() {
                       }
                       if (e.key === "Escape") setEditingId(null);
                     }}
-                    className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full max-w-xs rounded-md border border-line-strong px-3 py-2 text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => void submitRename(counter.id)}
                     disabled={pendingId === counter.id}
-                    className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+                    className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
                   >
                     Save
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditingId(null)}
-                    className="rounded-md px-3 py-2 text-sm text-slate-500 hover:bg-slate-100"
+                    className="rounded-md px-3 py-2 text-sm text-fg-muted hover:bg-surface-3"
                   >
                     Cancel
                   </button>
                 </div>
               ) : (
                 <>
-                  <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                  <p className="flex items-center gap-2 text-sm font-medium text-fg">
                     {counter.name}
                     {!counter.isActive && (
-                      <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-500">
+                      <span className="inline-flex items-center gap-1 rounded bg-surface-3 px-1.5 py-0.5 text-xs font-normal text-fg-muted">
                         <Lock className="h-3 w-3" />
                         Deactivated
                       </span>
@@ -179,7 +179,7 @@ export function CountersSection() {
                         setEditingId(counter.id);
                         setEditingName(counter.name);
                       }}
-                      className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-brand-600"
+                      className="flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-accent-text"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                       Rename
@@ -188,7 +188,7 @@ export function CountersSection() {
                       type="button"
                       onClick={() => void toggleActive(counter)}
                       disabled={pendingId === counter.id}
-                      className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-red-600 disabled:opacity-50"
+                      className="flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-danger-text disabled:opacity-50"
                     >
                       {counter.isActive ? (
                         "Deactivate"

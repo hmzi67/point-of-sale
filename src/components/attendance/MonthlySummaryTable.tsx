@@ -34,14 +34,14 @@ export function MonthlySummaryTable() {
         type="month"
         value={month}
         onChange={(e) => setMonth(e.target.value)}
-        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+        className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
       />
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+      <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+        <table className="min-w-full divide-y divide-line text-sm">
+          <thead className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-fg-muted">
             <tr>
               <th className="px-4 py-2">Employee</th>
               <th className="px-4 py-2 text-right">Days present</th>
@@ -49,36 +49,36 @@ export function MonthlySummaryTable() {
               <th className="px-4 py-2 text-right">Total hours</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line">
             {isLoading ? (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={4} className="px-4 py-6 text-center text-fg-muted">
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={4} className="px-4 py-6 text-center text-fg-muted">
                   No employees on file.
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
                 <tr key={row.employeeId}>
-                  <td className="px-4 py-2 text-slate-700">{row.employeeName}</td>
-                  <td className="px-4 py-2 text-right text-slate-700">
+                  <td className="px-4 py-2 text-fg-2">{row.employeeName}</td>
+                  <td className="px-4 py-2 text-right text-fg-2">
                     {row.daysPresent}
                     {row.incompleteDays > 0 && (
                       <span
                         title={`${row.incompleteDays} shift${row.incompleteDays === 1 ? "" : "s"} missing a check-out`}
-                        className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700"
+                        className="ml-1.5 rounded bg-warning-soft px-1.5 py-0.5 text-xs font-medium text-warning-text"
                       >
                         {row.incompleteDays} incomplete
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right text-slate-700">{row.daysAbsent}</td>
-                  <td className="px-4 py-2 text-right text-slate-700">{formatHours(row.totalHours)}</td>
+                  <td className="px-4 py-2 text-right text-fg-2">{row.daysAbsent}</td>
+                  <td className="px-4 py-2 text-right text-fg-2">{formatHours(row.totalHours)}</td>
                 </tr>
               ))
             )}

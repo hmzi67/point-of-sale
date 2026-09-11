@@ -30,11 +30,11 @@ export function AttendancePage() {
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Attendance</h2>
-        <p className="text-sm text-slate-500">Daily check-in/out, the shift log, and the monthly summary.</p>
+        <h2 className="text-lg font-semibold text-fg">Attendance</h2>
+        <p className="text-sm text-fg-muted">Daily check-in/out, the shift log, and the monthly summary.</p>
       </div>
 
-      <div className="flex rounded-md border border-slate-300 p-0.5 w-fit">
+      <div className="flex rounded-md border border-line-strong p-0.5 w-fit">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -42,7 +42,7 @@ export function AttendancePage() {
             onClick={() => setTab(t.key)}
             className={[
               "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-              tab === t.key ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100",
+              tab === t.key ? "bg-accent text-accent-ink" : "text-fg-2 hover:bg-surface-3",
             ].join(" ")}
           >
             {t.label}
@@ -52,7 +52,7 @@ export function AttendancePage() {
 
       {/* One plain-language line per tab so a non-technical shop owner
        * knows what it's for without guessing. */}
-      <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{activeTab.help}</p>
+      <p className="rounded-md bg-surface-2 px-3 py-2 text-sm text-fg-2">{activeTab.help}</p>
 
       {tab === "checkInOut" && <CheckInOutList />}
       {tab === "log" && <AttendanceLogTable />}

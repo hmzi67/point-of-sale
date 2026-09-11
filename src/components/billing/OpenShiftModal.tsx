@@ -36,25 +36,25 @@ export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <Wallet className="h-4 w-4 text-brand-600" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
+            <Wallet className="h-4 w-4 text-accent-text" />
             Open Shift
           </h3>
-          <button type="button" onClick={onClose} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+          <button type="button" onClick={onClose} className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="space-y-3 px-5 py-4">
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-fg-muted">
             Count the cash in the drawer before your first sale, so the close-out reconciliation has a starting
             point.
           </p>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Opening balance ({currency})</span>
+            <span className="mb-1 block text-xs font-medium text-fg-muted">Opening balance ({currency})</span>
             <input
               type="number"
               min={0}
@@ -63,18 +63,18 @@ export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalPr
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-brand-400 focus:outline-none"
+              className="w-full rounded-2xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm focus:border-accent focus:outline-none"
             />
           </label>
-          <p className="text-xs text-slate-400">{formatMinor(openingBalanceMinor, currency)}</p>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          <p className="text-xs text-fg-muted">{formatMinor(openingBalanceMinor, currency)}</p>
+          {error && <p className="text-sm text-danger-text">{error}</p>}
         </div>
 
         <div className="flex gap-2 p-5 pt-1">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            className="flex-1 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
           >
             Skip
           </button>
@@ -82,7 +82,7 @@ export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalPr
             type="button"
             onClick={() => void submit()}
             disabled={isSubmitting}
-            className="flex-1 rounded-2xl bg-brand-600 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-brand-700 disabled:opacity-50"
+            className="flex-1 rounded-2xl bg-accent py-2.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:opacity-50"
           >
             {isSubmitting ? "Opening…" : "Open Shift"}
           </button>

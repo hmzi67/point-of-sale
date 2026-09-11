@@ -24,7 +24,7 @@ export function ItemThumbnail({ imagePath, name, size = 36 }: ItemThumbnailProps
     return (
       <span
         style={style}
-        className="flex shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-300"
+        className="flex shrink-0 items-center justify-center rounded-md bg-surface-3 text-fg-faint"
       >
         <ImageOff className="h-4 w-4" />
       </span>
@@ -32,7 +32,7 @@ export function ItemThumbnail({ imagePath, name, size = 36 }: ItemThumbnailProps
   }
 
   if (!dataUrl) {
-    return <span style={style} className="shrink-0 animate-pulse rounded-md bg-slate-100" />;
+    return <span style={style} className="shrink-0 animate-pulse rounded-md bg-surface-3" />;
   }
 
   return (
@@ -40,7 +40,7 @@ export function ItemThumbnail({ imagePath, name, size = 36 }: ItemThumbnailProps
       src={dataUrl}
       alt={name}
       style={style}
-      className="shrink-0 rounded-md border border-slate-200 object-cover"
+      className="shrink-0 rounded-md border border-line object-cover"
     />
   );
 }

@@ -30,43 +30,43 @@ export function AddTableForm({ onAdd, onCancel }: AddTableFormProps) {
   return (
     <form
       onSubmit={(e) => void submit(e)}
-      className="flex flex-wrap items-end gap-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+      className="flex flex-wrap items-end gap-3 rounded-md border border-line bg-surface-2 p-3"
     >
       <div>
-        <label className="block text-xs font-medium text-slate-500">Table name</label>
+        <label className="block text-xs font-medium text-fg-muted">Table name</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Table 7"
           autoFocus
-          className="mt-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+          className="mt-1 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-slate-500">Seats</label>
+        <label className="block text-xs font-medium text-fg-muted">Seats</label>
         <input
           type="number"
           min={1}
           value={seats}
           onChange={(e) => setSeats(Math.max(1, Number(e.target.value) || 1))}
-          className="mt-1 w-20 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+          className="mt-1 w-20 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
         />
       </div>
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-danger-text">{error}</p>}
 
       <div className="flex gap-2">
         <button
           type="submit"
           disabled={isSaving || !name.trim()}
-          className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSaving ? "Adding…" : "Add table"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-white"
+          className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface"
         >
           Cancel
         </button>

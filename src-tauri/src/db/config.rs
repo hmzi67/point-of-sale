@@ -166,6 +166,23 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
     })
 }
 
+/// The UI colour theme, `"dark"` or `"light"`. Lives on `app_config` (the
+/// one place per-install preferences are persisted — no second storage
+/// mechanism just for this) but is deliberately *not* part of `AppConfig`
+/// / `AppConfigUpdate`: it is a display preference any signed-in user may
+/// flip from the top bar, whereas `update_app_config` is Owner/Admin-only.
+pub fn get_theme(conn: &Connection) -> Result<String, rusqlite::Error> {
+    conn.query_row("SELECT theme FROM app_config WHERE id = 1", [], |row| row.get("theme"))
+}
+
+/// Persists the theme. `theme` must be `"dark"` or `"light"` — the column's
+/// CHECK constraint rejects anything else, and `commands::config_set_theme`
+/// validates before calling so the UI gets a readable error, not SQL's.
+pub fn set_theme(conn: &Connection, theme: &str) -> Result<(), rusqlite::Error> {
+    conn.execute("UPDATE app_config SET theme = ?1 WHERE id = 1", params![theme])?;
+    Ok(())
+}
+
 pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
     conn.query_row(
         "SELECT business_name, business_type, logo_path, currency, tax_percent, receipt_footer,
@@ -246,6 +263,15 @@ mod tests {
         assert!(after.onboarding_completed);
         assert_eq!(after.business_name, before.business_name, "omitted fields must be left as-is");
         assert_eq!(after.tax_percent, before.tax_percent);
+    }
+
+    #[test]
+    fn theme_defaults_to_dark_and_round_trips() {
+        let conn = test_conn();
+        assert_eq!(get_theme(&conn).unwrap(), "dark", "dark is the brand's primary look");
+        set_theme(&conn, "light").unwrap();
+        assert_eq!(get_theme(&conn).unwrap(), "light");
+        assert!(set_theme(&conn, "sepia").is_err(), "the CHECK constraint must reject unknown themes");
     }
 
     #[test]

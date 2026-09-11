@@ -21,7 +21,7 @@ export function QuickLinks({ modules }: QuickLinksProps) {
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-slate-900">Go to</h3>
+      <h3 className="text-sm font-semibold text-fg">Go to</h3>
       <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {links.map((module) => {
           const Icon = module.nav.icon;
@@ -29,13 +29,13 @@ export function QuickLinks({ modules }: QuickLinksProps) {
             <Link
               key={module.key}
               to={module.nav.path}
-              className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-4 transition-colors hover:border-brand-300 hover:bg-brand-50"
+              className="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface p-4 transition-colors hover:border-accent/40 hover:bg-accent-soft"
             >
-              <span className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                <Icon className="h-4 w-4 text-slate-500" />
+              <span className="flex items-center gap-2 text-sm font-medium text-fg">
+                <Icon className="h-4 w-4 text-fg-muted" />
                 {module.name}
               </span>
-              <ChevronRight className="h-4 w-4 text-slate-400" />
+              <ChevronRight className="h-4 w-4 text-fg-muted" />
             </Link>
           );
         })}

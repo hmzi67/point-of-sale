@@ -75,14 +75,14 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
   const money = (minor: number) => formatMinor(minor, config.currency);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <Wallet className="h-4 w-4 text-brand-600" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
+            <Wallet className="h-4 w-4 text-accent-text" />
             {closed ? "Shift Closed" : "Close Shift"}
           </h3>
-          <button type="button" onClick={onClose} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+          <button type="button" onClick={onClose} className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -90,7 +90,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
         <div className="max-h-[70dvh] space-y-3 overflow-y-auto px-5 py-4">
           {!closed && (
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">
+              <span className="mb-1 block text-xs font-medium text-fg-muted">
                 Declared cash amount ({config.currency})
               </span>
               <input
@@ -101,13 +101,13 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
                 value={declaredInput}
                 onChange={(e) => setDeclaredInput(e.target.value)}
                 placeholder="0.00"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-brand-400 focus:outline-none"
+                className="w-full rounded-2xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm focus:border-accent focus:outline-none"
               />
             </label>
           )}
 
           {summary && (
-            <dl className="space-y-1.5 rounded-2xl bg-slate-50 p-3.5 text-sm">
+            <dl className="space-y-1.5 rounded-2xl bg-surface-2 p-3.5 text-sm">
               <Row label="Opening Balance" value={money(summary.openingBalanceMinor)} />
               <Row label="Cash Sale" value={money(summary.cashSalesMinor)} />
               <Row label="Card Sale" value={money(summary.cardSalesMinor)} />
@@ -115,7 +115,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
               <Row label="Other Sale" value={money(summary.otherSalesMinor)} />
               <Row label="Discount Today" value={money(summary.discountMinor)} />
               <Row label="Refund Today" value={money(summary.refundsMinor)} />
-              <div className="border-t border-slate-200 pt-1.5">
+              <div className="border-t border-line pt-1.5">
                 <Row label="Total Sale" value={money(summary.totalSalesMinor)} bold />
               </div>
               <Row label="Expected Cash" value={money(summary.expectedCashMinor)} bold />
@@ -123,11 +123,11 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
                 <Row label="Declared Amount" value={money(summary.declaredCashAmountMinor)} />
               )}
               {summary.differenceMinor !== null && (
-                <div className="flex justify-between border-t border-slate-200 pt-1.5 text-base font-bold">
-                  <dt className={summary.differenceMinor < 0 ? "text-red-600" : "text-emerald-600"}>
+                <div className="flex justify-between border-t border-line pt-1.5 text-base font-bold">
+                  <dt className={summary.differenceMinor < 0 ? "text-danger-text" : "text-success-text"}>
                     {summary.differenceMinor < 0 ? "Short" : "Over"}
                   </dt>
-                  <dd className={summary.differenceMinor < 0 ? "text-red-600" : "text-emerald-600"}>
+                  <dd className={summary.differenceMinor < 0 ? "text-danger-text" : "text-success-text"}>
                     {money(Math.abs(summary.differenceMinor))}
                   </dd>
                 </div>
@@ -135,8 +135,8 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
             </dl>
           )}
 
-          {previewError && <p className="text-sm text-red-600">{previewError}</p>}
-          {printStatus && <p className="text-center text-xs text-slate-500">{printStatus}</p>}
+          {previewError && <p className="text-sm text-danger-text">{previewError}</p>}
+          {printStatus && <p className="text-center text-xs text-fg-muted">{printStatus}</p>}
         </div>
 
         <div className="space-y-2 p-5 pt-1">
@@ -145,7 +145,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                className="flex-1 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
               >
                 Cancel
               </button>
@@ -153,7 +153,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
                 type="button"
                 onClick={() => void confirmClose()}
                 disabled={declaredMinor === null || isClosing}
-                className="flex-1 rounded-2xl bg-brand-600 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-brand-700 disabled:opacity-50"
+                className="flex-1 rounded-2xl bg-accent py-2.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:opacity-50"
               >
                 {isClosing ? "Closing…" : "Confirm Close"}
               </button>
@@ -164,7 +164,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
                 <button
                   type="button"
                   onClick={() => void downloadPdf()}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
                 >
                   <Download className="h-4 w-4" />
                   PDF
@@ -172,7 +172,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
                 <button
                   type="button"
                   onClick={() => void printThermal()}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
                 >
                   <Printer className="h-4 w-4" />
                   Print
@@ -181,7 +181,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full rounded-2xl bg-brand-600 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-brand-700"
+                className="w-full rounded-2xl bg-accent py-2.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover"
               >
                 Done
               </button>
@@ -195,7 +195,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
 
 function Row({ label, value, bold = false }: { label: string; value: string; bold?: boolean }) {
   return (
-    <div className={`flex justify-between ${bold ? "font-bold text-slate-900" : "text-slate-600"}`}>
+    <div className={`flex justify-between ${bold ? "font-bold text-fg" : "text-fg-2"}`}>
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>

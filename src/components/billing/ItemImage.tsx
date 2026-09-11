@@ -27,7 +27,7 @@ export function ItemImage({ imagePath, alt, className = "" }: ItemImageProps) {
   }
 
   return (
-    <div className={`flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400 ${className}`}>
+    <div className={`flex items-center justify-center bg-gradient-to-br from-surface-2 to-surface-3 text-fg-faint ${className}`}>
       <ImageOff className="h-1/3 w-1/3 min-h-4 min-w-4" />
     </div>
   );

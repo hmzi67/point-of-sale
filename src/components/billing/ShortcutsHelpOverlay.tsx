@@ -30,17 +30,17 @@ const SHORTCUTS: { keys: string; description: string; tablesOnly?: boolean }[] =
  */
 export function ShortcutsHelpOverlay({ tablesEnabled, onClose }: ShortcutsHelpOverlayProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim" onClick={onClose}>
       <div
-        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-soft-lg"
+        className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-soft-lg"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900">Keyboard shortcuts</h3>
+          <h3 className="text-sm font-semibold text-fg">Keyboard shortcuts</h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -50,15 +50,15 @@ export function ShortcutsHelpOverlay({ tablesEnabled, onClose }: ShortcutsHelpOv
         <ul className="mt-3 space-y-2">
           {SHORTCUTS.filter((s) => tablesEnabled || !s.tablesOnly).map((shortcut) => (
             <li key={shortcut.keys} className="flex items-center justify-between gap-3 text-sm">
-              <kbd className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
+              <kbd className="shrink-0 rounded-lg bg-surface-3 px-2 py-1 text-[11px] font-semibold text-fg-2">
                 {shortcut.keys}
               </kbd>
-              <span className="text-right text-slate-500">{shortcut.description}</span>
+              <span className="text-right text-fg-muted">{shortcut.description}</span>
             </li>
           ))}
         </ul>
 
-        <p className="mt-3 text-[11px] text-slate-400">
+        <p className="mt-3 text-[11px] text-fg-muted">
           Only active while typing isn't focused on a search box or other field.
         </p>
       </div>

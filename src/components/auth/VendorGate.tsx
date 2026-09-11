@@ -69,14 +69,14 @@ export function VendorGate() {
   if (!status.required || status.authorized) return <Outlet />;
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-100 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-7 shadow-soft">
+    <div className="flex min-h-dvh items-center justify-center bg-bg p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-surface p-7 shadow-soft">
         <div className="mb-5 flex flex-col items-center text-center">
-          <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-900">
-            <ShieldCheck className="h-5 w-5 text-white" />
+          <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-accent">
+            <ShieldCheck className="h-5 w-5 text-accent-ink" />
           </span>
-          <h1 className="text-lg font-semibold text-slate-900">Authorization required</h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <h1 className="text-lg font-semibold text-fg">Authorization required</h1>
+          <p className="mt-2 text-sm text-fg-2">
             Enter the vendor authorization password to set up this installation.
           </p>
         </div>
@@ -89,11 +89,11 @@ export function VendorGate() {
             placeholder="Authorization password"
             autoFocus
             autoComplete="off"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
+            className="w-full rounded-lg border border-line-strong px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40"
           />
 
           {error && (
-            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">
               {error}
             </p>
           )}
@@ -101,13 +101,13 @@ export function VendorGate() {
           <button
             type="submit"
             disabled={!password || isSubmitting}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+            className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
           >
             {isSubmitting ? "Checking…" : "Continue"}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-xs text-slate-400">
+        <p className="mt-5 text-center text-xs text-fg-muted">
           This installation has not been authorized yet. Contact your supplier to proceed.
         </p>
       </div>

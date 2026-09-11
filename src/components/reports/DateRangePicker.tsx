@@ -24,7 +24,7 @@ export function DateRangePicker() {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="flex rounded-md border border-slate-300 p-0.5">
+      <div className="flex rounded-md border border-line-strong p-0.5">
         {PRESETS.map((p) => (
           <button
             key={p}
@@ -36,7 +36,7 @@ export function DateRangePicker() {
             }}
             className={[
               "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-              preset === p ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100",
+              preset === p ? "bg-accent text-accent-ink" : "text-fg-2 hover:bg-surface-3",
             ].join(" ")}
           >
             {PRESET_LABELS[p]}
@@ -53,10 +53,10 @@ export function DateRangePicker() {
           onBlur={applyCustomRange}
           className={[
             "rounded-md border px-2.5 py-1.5 text-sm",
-            preset === "custom" ? "border-brand-400" : "border-slate-300",
+            preset === "custom" ? "border-accent" : "border-line-strong",
           ].join(" ")}
         />
-        <span className="text-slate-400">–</span>
+        <span className="text-fg-muted">–</span>
         <input
           type="date"
           value={draftEnd}
@@ -65,7 +65,7 @@ export function DateRangePicker() {
           onBlur={applyCustomRange}
           className={[
             "rounded-md border px-2.5 py-1.5 text-sm",
-            preset === "custom" ? "border-brand-400" : "border-slate-300",
+            preset === "custom" ? "border-accent" : "border-line-strong",
           ].join(" ")}
         />
       </div>

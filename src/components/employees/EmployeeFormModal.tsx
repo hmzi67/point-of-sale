@@ -54,36 +54,36 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h3 className="text-sm font-semibold text-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-sm rounded-lg bg-surface shadow-xl">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <h3 className="text-sm font-semibold text-fg">
             {isEditing ? `Edit ${employee.name}` : "Add employee"}
           </h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button type="button" onClick={onClose} className="text-fg-muted hover:text-fg-2">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <form onSubmit={(e) => void submit(e)} className="space-y-3 px-5 py-4">
           <div>
-            <label className="block text-xs font-medium text-slate-500">Name</label>
+            <label className="block text-xs font-medium text-fg-muted">Name</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
-              className="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-500">Role</label>
+            <label className="block text-xs font-medium text-fg-muted">Role</label>
             <input
               value={role}
               onChange={(e) => setRole(e.target.value)}
               list="employee-role-suggestions"
               placeholder="e.g. Cashier"
-              className="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
             />
             <datalist id="employee-role-suggestions">
               {ROLE_SUGGESTIONS.map((r) => (
@@ -93,17 +93,17 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-500">Contact number</label>
+            <label className="block text-xs font-medium text-fg-muted">Contact number</label>
             <input
               value={contact}
               onChange={(e) => setContact(e.target.value)}
               placeholder="Optional"
-              className="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-500">
+            <label className="block text-xs font-medium text-fg-muted">
               Base salary ({currency}) — used by the Salary module
             </label>
             <input
@@ -113,24 +113,24 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               value={baseSalary}
               onChange={(e) => setBaseSalary(e.target.value)}
               placeholder="0.00"
-              className="mt-1 w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
             />
           </div>
 
-          {error && <p className="text-xs text-red-600">{error}</p>}
+          {error && <p className="text-xs text-danger-text">{error}</p>}
 
           <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving || !name.trim()}
-              className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSaving ? "Saving…" : isEditing ? "Save changes" : "Add employee"}
             </button>

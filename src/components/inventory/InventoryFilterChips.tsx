@@ -57,8 +57,8 @@ export function InventoryFilterChips({ filters, onChange }: InventoryFilterChips
             className={[
               "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
               active
-                ? "border-brand-600 bg-brand-600 text-white"
-                : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50",
+                ? "border-accent bg-accent text-accent-ink"
+                : "border-line-strong bg-surface text-fg-2 hover:bg-surface-2",
             ].join(" ")}
           >
             <Icon className="h-3.5 w-3.5" />
@@ -67,8 +67,8 @@ export function InventoryFilterChips({ filters, onChange }: InventoryFilterChips
         );
       })}
 
-      <div className="flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs">
-        <span className="text-slate-500">Price</span>
+      <div className="flex items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3 py-1 text-xs">
+        <span className="text-fg-muted">Price</span>
         <input
           type="number"
           min={0}
@@ -78,7 +78,7 @@ export function InventoryFilterChips({ filters, onChange }: InventoryFilterChips
           placeholder="Min"
           className="w-16 rounded border-0 bg-transparent p-0 text-xs focus:outline-none focus:ring-0"
         />
-        <span className="text-slate-300">–</span>
+        <span className="text-fg-faint">–</span>
         <input
           type="number"
           min={0}
@@ -94,7 +94,7 @@ export function InventoryFilterChips({ filters, onChange }: InventoryFilterChips
         <button
           type="button"
           onClick={() => onChange(EMPTY_INVENTORY_FILTERS)}
-          className="flex items-center gap-1 rounded-full px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100"
+          className="flex items-center gap-1 rounded-full px-2 py-1.5 text-xs font-medium text-fg-muted hover:bg-surface-3"
         >
           <X className="h-3.5 w-3.5" />
           Clear filters

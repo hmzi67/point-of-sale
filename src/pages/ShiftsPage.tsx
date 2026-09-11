@@ -65,39 +65,39 @@ export function ShiftsPage() {
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Shifts</h2>
-        <p className="text-sm text-slate-500">Every cashier shift, opening balance, and close-out reconciliation.</p>
+        <h2 className="text-lg font-semibold text-fg">Shifts</h2>
+        <p className="text-sm text-fg-muted">Every cashier shift, opening balance, and close-out reconciliation.</p>
       </div>
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       {isLoading ? (
-        <div className="h-40 animate-pulse rounded-lg border border-slate-200 bg-slate-50" />
+        <div className="h-40 animate-pulse rounded-lg border border-line bg-surface-2" />
       ) : shifts.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-slate-300 py-10 text-center text-sm text-slate-400">
+        <p className="rounded-lg border border-dashed border-line-strong py-10 text-center text-sm text-fg-muted">
           No shifts opened yet.
         </p>
       ) : (
-        <div className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+        <div className="divide-y divide-line rounded-lg border border-line bg-surface">
           {shifts.map((shift) => (
             <div key={shift.id}>
               <button
                 type="button"
                 onClick={() => void toggle(shift)}
-                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm hover:bg-slate-50"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm hover:bg-surface-2"
               >
                 <span>
-                  <span className="block font-medium text-slate-900">
+                  <span className="block font-medium text-fg">
                     Shift #{shift.id} · {shift.cashierName ?? "—"}
                   </span>
-                  <span className="block text-xs text-slate-500">
+                  <span className="block text-xs text-fg-muted">
                     {shift.openedAt} {shift.closedAt ? `– ${shift.closedAt}` : "(open)"}
                   </span>
                 </span>
                 <span
                   className={[
                     "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
-                    shift.closedAt ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-600",
+                    shift.closedAt ? "bg-surface-3 text-fg-2" : "bg-success-soft text-success-text",
                   ].join(" ")}
                 >
                   {shift.closedAt ? "Closed" : "Open"}
@@ -105,7 +105,7 @@ export function ShiftsPage() {
               </button>
 
               {openId === shift.id && summary && (
-                <div className="space-y-2 border-t border-slate-100 bg-slate-50 px-4 py-3 text-sm">
+                <div className="space-y-2 border-t border-line bg-surface-2 px-4 py-3 text-sm">
                   <Row label="Opening Balance" value={formatMinor(summary.openingBalanceMinor, config.currency)} />
                   <Row label="Cash Sale" value={formatMinor(summary.cashSalesMinor, config.currency)} />
                   <Row label="Card Sale" value={formatMinor(summary.cardSalesMinor, config.currency)} />
@@ -121,7 +121,7 @@ export function ShiftsPage() {
                       label={summary.differenceMinor < 0 ? "Short" : "Over"}
                       value={formatMinor(Math.abs(summary.differenceMinor), config.currency)}
                       bold
-                      tone={summary.differenceMinor < 0 ? "text-red-600" : "text-emerald-600"}
+                      tone={summary.differenceMinor < 0 ? "text-danger-text" : "text-success-text"}
                     />
                   )}
 
@@ -129,7 +129,7 @@ export function ShiftsPage() {
                     <button
                       type="button"
                       onClick={() => void downloadPdf()}
-                      className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white"
+                      className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface"
                     >
                       <Download className="h-3.5 w-3.5" />
                       PDF
@@ -137,13 +137,13 @@ export function ShiftsPage() {
                     <button
                       type="button"
                       onClick={() => void printThermal(shift.id)}
-                      className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white"
+                      className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface"
                     >
                       <Printer className="h-3.5 w-3.5" />
                       Print
                     </button>
                   </div>
-                  {printStatus && <p className="text-xs text-slate-500">{printStatus}</p>}
+                  {printStatus && <p className="text-xs text-fg-muted">{printStatus}</p>}
                 </div>
               )}
             </div>
@@ -156,7 +156,7 @@ export function ShiftsPage() {
 
 function Row({ label, value, bold = false, tone }: { label: string; value: string; bold?: boolean; tone?: string }) {
   return (
-    <div className={`flex justify-between ${bold ? "font-semibold" : ""} ${tone ?? "text-slate-700"}`}>
+    <div className={`flex justify-between ${bold ? "font-semibold" : ""} ${tone ?? "text-fg-2"}`}>
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>

@@ -15,7 +15,10 @@ import type { LicenseState } from "../../services/licenseService";
  * Settings is Owner/Admin-only already (route guard) and `license_activate`
  * re-checks that in Rust, so there is no role check here to duplicate.
  * The banner's "Renew" button and the lock screen both deep-link here
- * with `#license`, which scrolls this section into view.
+ * with `#license`. `SettingsPage` reads that same hash as its active tab,
+ * so the link lands on the Licence tab (mounting this section); the
+ * scroll below then brings it into view — currently a near no-op since
+ * it's that tab's only card, kept so the link still works if more join.
  */
 export function LicenseSection() {
   const state = useLicenseStore((s) => s.state);
@@ -72,34 +75,34 @@ export function LicenseSection() {
   };
 
   return (
-    <div ref={sectionRef} id="license" className="scroll-mt-4 rounded-lg border border-slate-200 bg-white p-6">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-        <BadgeCheck className="h-4 w-4 text-slate-400" />
+    <div ref={sectionRef} id="license" className="scroll-mt-4 rounded-lg border border-line bg-surface p-6">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-fg">
+        <BadgeCheck className="h-4 w-4 text-fg-muted" />
         Licence
       </h2>
-      <p className="mt-1 text-sm text-slate-600">
+      <p className="mt-1 text-sm text-fg-2">
         This installation's licence is verified on every launch, including offline. Renewals made
         on the server are picked up automatically, or straight away with <em>Re-check now</em>.
       </p>
 
       <dl className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-slate-500">Status</dt>
-          <dd className="mt-0.5">{state ? <StatusLine state={state} /> : <span className="text-slate-400">Loading…</span>}</dd>
+          <dt className="text-fg-muted">Status</dt>
+          <dd className="mt-0.5">{state ? <StatusLine state={state} /> : <span className="text-fg-muted">Loading…</span>}</dd>
         </div>
         <div>
-          <dt className="text-slate-500">Licence key</dt>
-          <dd className="mt-0.5 font-mono text-slate-900">{info?.keyPrefix ?? "—"}</dd>
+          <dt className="text-fg-muted">Licence key</dt>
+          <dd className="mt-0.5 font-mono text-fg">{info?.keyPrefix ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-slate-500">Last checked with server</dt>
-          <dd className="mt-0.5 text-slate-900">
+          <dt className="text-fg-muted">Last checked with server</dt>
+          <dd className="mt-0.5 text-fg">
             {info?.lastOnlineCheck ? formatUnixDateTime(info.lastOnlineCheck) : "Never"}
           </dd>
         </div>
         <div>
-          <dt className="text-slate-500">Licence server</dt>
-          <dd className="mt-0.5 truncate text-slate-900" title={info?.apiBase}>
+          <dt className="text-fg-muted">Licence server</dt>
+          <dd className="mt-0.5 truncate text-fg" title={info?.apiBase}>
             {info?.apiBase ?? "—"}
           </dd>
         </div>
@@ -110,7 +113,7 @@ export function LicenseSection() {
           type="button"
           onClick={() => void onRefresh()}
           disabled={isBusy || keyMissing}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${isBusy ? "animate-spin" : ""}`} />
           Re-check now
@@ -122,7 +125,7 @@ export function LicenseSection() {
               setShowKeyForm((open) => !open);
               setMessage(null);
             }}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
           >
             {showKeyForm ? "Cancel" : "Change licence key"}
           </button>
@@ -132,7 +135,7 @@ export function LicenseSection() {
       {formOpen && (
         <form onSubmit={(e) => void onActivate(e)} className="mt-4 grid max-w-md gap-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
+            <span className="mb-1 block text-xs font-medium text-fg-muted">
               {keyMissing ? "Licence key" : "New licence key"}
             </span>
             <input
@@ -143,10 +146,10 @@ export function LicenseSection() {
               placeholder="DIWAN-XXXX-XXXX-XXXX-XXXX"
               value={key}
               onChange={(e) => setKey(e.target.value.toUpperCase())}
-              className="w-full rounded-md border border-slate-300 px-2.5 py-1.5 font-mono text-sm uppercase focus:border-brand-400 focus:outline-none"
+              className="w-full rounded-md border border-line-strong px-2.5 py-1.5 font-mono text-sm uppercase focus:border-accent focus:outline-none"
             />
           </label>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-fg-muted">
             Activating binds the key to this device and needs an internet connection. A key already
             in use on another device is refused — contact support to move it first.
           </p>
@@ -154,7 +157,7 @@ export function LicenseSection() {
             <button
               type="submit"
               disabled={isBusy || key.trim().length < 10}
-              className="rounded-md bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+              className="rounded-md bg-accent px-4 py-1.5 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:opacity-50"
             >
               {isBusy ? "Activating…" : "Activate on this device"}
             </button>
@@ -166,7 +169,7 @@ export function LicenseSection() {
         <p
           role="status"
           className={`mt-3 text-sm ${
-            message.tone === "ok" ? "text-emerald-700" : message.tone === "warn" ? "text-amber-700" : "text-red-600"
+            message.tone === "ok" ? "text-success-text" : message.tone === "warn" ? "text-warning-text" : "text-danger-text"
           }`}
         >
           {message.text}
@@ -206,12 +209,12 @@ function StatusLine({ state }: { state: LicenseState }) {
 }
 
 function Good({ children }: { children: React.ReactNode }) {
-  return <span className="font-medium text-emerald-700">{children}</span>;
+  return <span className="font-medium text-success-text">{children}</span>;
 }
 
 function Bad({ children, tone = "error" }: { children: React.ReactNode; tone?: "error" | "warn" }) {
   return (
-    <span className={`inline-flex items-center gap-1 font-medium ${tone === "warn" ? "text-amber-700" : "text-red-600"}`}>
+    <span className={`inline-flex items-center gap-1 font-medium ${tone === "warn" ? "text-warning-text" : "text-danger-text"}`}>
       <ShieldAlert className="h-3.5 w-3.5" />
       {children}
     </span>

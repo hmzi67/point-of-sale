@@ -22,7 +22,7 @@ export function MobileCategoryChips({ categories, selected, onSelect }: MobileCa
   const chipClass = (active: boolean) =>
     [
       "flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
-      active ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-white text-slate-600",
+      active ? "border-accent bg-accent text-accent-ink" : "border-line bg-surface text-fg-2",
     ].join(" ");
 
   return (
@@ -37,7 +37,7 @@ export function MobileCategoryChips({ categories, selected, onSelect }: MobileCa
         onClick={() => onSelect("best-seller")}
         className={chipClass(selected === "best-seller")}
       >
-        <Flame className={`h-3.5 w-3.5 ${selected === "best-seller" ? "text-white" : "text-orange-500"}`} />
+        <Flame className={`h-3.5 w-3.5 ${selected === "best-seller" ? "text-accent-ink" : "text-warning-text"}`} />
         Best Sellers
       </button>
 

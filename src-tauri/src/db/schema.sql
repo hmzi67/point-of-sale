@@ -86,7 +86,14 @@ CREATE TABLE IF NOT EXISTS app_config (
     -- "app_config is empty" can't be tested with a row-existence check — this
     -- flag is what actually distinguishes "never configured" from "configured
     -- with defaults nobody's looked at yet".
-    onboarding_completed INTEGER NOT NULL DEFAULT 0 CHECK (onboarding_completed IN (0, 1))
+    onboarding_completed INTEGER NOT NULL DEFAULT 0 CHECK (onboarding_completed IN (0, 1)),
+    -- UI colour theme for this install. Dark is the default because it is
+    -- the product's primary visual identity (matches the marketing site).
+    -- A device-level display preference, not a business setting, so it is
+    -- read/written through its own `config_get_theme`/`config_set_theme`
+    -- commands (any signed-in user) rather than the Owner/Admin-gated
+    -- `update_app_config` patch — see `db::config::{get_theme, set_theme}`.
+    theme           TEXT    NOT NULL DEFAULT 'dark' CHECK (theme IN ('dark', 'light'))
 );
 
 -- ---------------------------------------------------------------------------

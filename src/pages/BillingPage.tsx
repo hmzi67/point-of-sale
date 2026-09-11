@@ -182,8 +182,8 @@ export function BillingPage() {
           }}
         />
 
-        {loadError && <p className="rounded-2xl bg-red-50 px-4 py-2.5 text-sm text-red-700">{loadError}</p>}
-        {notice && <p className="rounded-2xl bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700">{notice}</p>}
+        {loadError && <p className="rounded-2xl bg-danger-soft px-4 py-2.5 text-sm text-danger-text">{loadError}</p>}
+        {notice && <p className="rounded-2xl bg-success-soft px-4 py-2.5 text-sm text-success-text">{notice}</p>}
 
         <div className="flex-1 overflow-y-auto pb-2">
           <ItemGrid
@@ -198,7 +198,7 @@ export function BillingPage() {
       </div>
 
       {/* Checkout column */}
-      <div className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-3xl bg-white p-5 shadow-soft lg:w-110">
+      <div className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-3xl bg-surface p-5 shadow-soft lg:w-110">
         <OrderSummaryHeader />
 
         {tablesEnabled && (
@@ -222,24 +222,24 @@ export function BillingPage() {
          * cart size, instead of trailing right under a short item list. */}
         <CartPanel currency={config.currency} onEditLine={setEditingItemId} />
 
-        <dl className="space-y-1.5 border-t border-slate-100 pt-3 text-sm">
-          <div className="flex justify-between text-slate-500">
+        <dl className="space-y-1.5 border-t border-line pt-3 text-sm">
+          <div className="flex justify-between text-fg-muted">
             <dt>Subtotal</dt>
             <dd>{formatMinor(totals.subtotalMinor, config.currency)}</dd>
           </div>
           {config.taxPercent > 0 && (
-            <div className="flex justify-between text-slate-500">
+            <div className="flex justify-between text-fg-muted">
               <dt>Tax ({config.taxPercent}%)</dt>
               <dd>{formatMinor(totals.taxMinor, config.currency)}</dd>
             </div>
           )}
           {totals.discountMinor > 0 && (
-            <div className="flex justify-between text-emerald-600">
+            <div className="flex justify-between text-success-text">
               <dt>Discount</dt>
               <dd>-{formatMinor(totals.discountMinor, config.currency)}</dd>
             </div>
           )}
-          <div className="flex justify-between border-t border-slate-100 pt-1.5 text-base font-bold text-slate-900">
+          <div className="flex justify-between border-t border-line pt-1.5 text-base font-bold text-fg">
             <dt>TOTAL</dt>
             <dd>{formatMinor(totals.totalMinor, config.currency)}</dd>
           </div>
@@ -250,13 +250,13 @@ export function BillingPage() {
           <PaymentMethodSelector />
         </div>
 
-        {error && <p className="rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {error && <p className="rounded-2xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
         <button
           type="button"
           onClick={() => void completeSale()}
           disabled={cartOrder.length === 0 || isSubmitting}
-          className="rounded-2xl bg-brand-600 py-3.5 text-base font-semibold text-white shadow-soft hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-2xl bg-accent py-3.5 text-base font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? "Placing order…" : `Place Order · ${formatMinor(totals.totalMinor, config.currency)}`}
         </button>
@@ -298,7 +298,7 @@ export function BillingPage() {
       {/* Keyboard fast billing UI — see `useFastBillingHotkeys`. */}
       {fastBilling.buffer && (
         <div
-          className="pointer-events-none fixed bottom-5 right-5 z-40 rounded-xl bg-slate-900/85 px-3 py-1.5 font-mono text-sm text-white shadow-soft-lg"
+          className="pointer-events-none fixed bottom-5 right-5 z-40 rounded-xl bg-black/80 px-3 py-1.5 font-mono text-sm text-white shadow-soft-lg"
           aria-live="polite"
         >
           {fastBilling.buffer}

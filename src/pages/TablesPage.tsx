@@ -151,13 +151,13 @@ export function TablesPage() {
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Tables</h2>
-          <p className="text-sm text-slate-500">Tap a table to start or resume its order.</p>
+          <h2 className="text-lg font-semibold text-fg">Tables</h2>
+          <p className="text-sm text-fg-muted">Tap a table to start or resume its order.</p>
         </div>
         <button
           type="button"
           onClick={() => setShowAddForm((v) => !v)}
-          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
         >
           <Plus className="h-4 w-4" />
           Add table
@@ -166,16 +166,16 @@ export function TablesPage() {
 
       {showAddForm && <AddTableForm onAdd={handleAddTable} onCancel={() => setShowAddForm(false)} />}
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       {isLoading ? (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-lg border border-slate-200 bg-slate-50" />
+            <div key={i} className="h-24 animate-pulse rounded-lg border border-line bg-surface-2" />
           ))}
         </div>
       ) : tables.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-400">
+        <p className="rounded-lg border border-dashed border-line-strong px-4 py-10 text-center text-sm text-fg-muted">
           No tables yet — add one to get started.
         </p>
       ) : (

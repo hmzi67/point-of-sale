@@ -223,16 +223,16 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h3 className="text-base font-semibold text-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-md rounded-lg bg-surface shadow-xl">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <h3 className="text-base font-semibold text-fg">
             {isEditing ? "Edit item" : "Add item"}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-md p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -246,15 +246,15 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
             void submit();
           }}
         >
-          {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
           <div>
-            <span className="block text-xs font-medium text-slate-500">Product image</span>
+            <span className="block text-xs font-medium text-fg-muted">Product image</span>
             <div className="mt-1 flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-dashed border-slate-300 bg-slate-50 text-slate-400 hover:border-brand-400 hover:text-brand-500"
+                className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-dashed border-line-strong bg-surface-2 text-fg-muted hover:border-accent hover:text-accent-text"
               >
                 {previewUrl ? (
                   <img src={previewUrl} alt="" className="h-full w-full object-cover" />
@@ -262,7 +262,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                   <ImagePlus className="h-5 w-5" />
                 )}
                 {isUploadingImage && (
-                  <span className="absolute inset-0 flex items-center justify-center bg-white/70 text-[10px] font-medium text-slate-600">
+                  <span className="absolute inset-0 flex items-center justify-center bg-surface/70 text-[10px] font-medium text-fg-2">
                     …
                   </span>
                 )}
@@ -272,7 +272,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="text-left text-sm font-medium text-brand-600 hover:text-brand-700"
+                  className="text-left text-sm font-medium text-accent-text hover:text-accent-text"
                 >
                   {previewUrl ? "Change photo" : "Upload photo"}
                 </button>
@@ -280,12 +280,12 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                   <button
                     type="button"
                     onClick={handleRemoveImage}
-                    className="text-left text-xs text-slate-500 hover:text-red-600"
+                    className="text-left text-xs text-fg-muted hover:text-danger-text"
                   >
                     Remove photo
                   </button>
                 )}
-                <span className="text-xs text-slate-400">JPG, PNG, WEBP or GIF, up to 5 MB</span>
+                <span className="text-xs text-fg-muted">JPG, PNG, WEBP or GIF, up to 5 MB</span>
               </div>
 
               <input
@@ -296,24 +296,24 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 onChange={(e) => void handleImageSelected(e.target.files?.[0])}
               />
             </div>
-            {imageError && <p className="mt-1.5 text-xs text-red-600">{imageError}</p>}
+            {imageError && <p className="mt-1.5 text-xs text-danger-text">{imageError}</p>}
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-500" htmlFor="item-name">
+            <label className="block text-xs font-medium text-fg-muted" htmlFor="item-name">
               Name
             </label>
             <input
               id="item-name"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
               autoFocus
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-500" htmlFor="item-barcode">
+            <label className="block text-xs font-medium text-fg-muted" htmlFor="item-barcode">
               SKU / Barcode
             </label>
             {/* A plain text input: scanners type the code and send Enter — no
@@ -326,13 +326,13 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 if (e.key === "Enter") e.preventDefault();
               }}
               placeholder="Scan or type…"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-500" htmlFor="item-short-code">
-              Quick code <span className="text-slate-400">(optional — for keyboard billing)</span>
+            <label className="block text-xs font-medium text-fg-muted" htmlFor="item-short-code">
+              Quick code <span className="text-fg-muted">(optional — for keyboard billing)</span>
             </label>
             <input
               id="item-short-code"
@@ -343,16 +343,16 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               }}
               inputMode="numeric"
               placeholder="e.g. 12"
-              className="mt-1 w-full max-w-[8rem] rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full max-w-[8rem] rounded-md border border-line-strong px-3 py-2 text-sm"
             />
-            <p className="mt-1 text-[11px] text-slate-400">
+            <p className="mt-1 text-[11px] text-fg-muted">
               2-4 digits. A cashier can type this straight into the billing screen instead of scanning a barcode.
             </p>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-500" htmlFor="item-description">
-              Description <span className="text-slate-400">(optional)</span>
+            <label className="block text-xs font-medium text-fg-muted" htmlFor="item-description">
+              Description <span className="text-fg-muted">(optional)</span>
             </label>
             <textarea
               id="item-description"
@@ -360,13 +360,13 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               onChange={(e) => set("description", e.target.value)}
               rows={2}
               placeholder="A short blurb shown when a cashier taps this item on the billing screen…"
-              className="mt-1 w-full resize-none rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full resize-none rounded-md border border-line-strong px-3 py-2 text-sm"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-500" htmlFor="item-price">
+              <label className="block text-xs font-medium text-fg-muted" htmlFor="item-price">
                 Price
               </label>
               <input
@@ -377,11 +377,11 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 inputMode="decimal"
                 value={form.price}
                 onChange={(e) => set("price", e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-500" htmlFor="item-cost">
+              <label className="block text-xs font-medium text-fg-muted" htmlFor="item-cost">
                 Cost
               </label>
               <input
@@ -392,14 +392,14 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 inputMode="decimal"
                 value={form.cost}
                 onChange={(e) => set("cost", e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-500" htmlFor="item-stock">
+              <label className="block text-xs font-medium text-fg-muted" htmlFor="item-stock">
                 Stock qty
               </label>
               <input
@@ -410,11 +410,11 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 inputMode="decimal"
                 value={form.stockQty}
                 onChange={(e) => set("stockQty", e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-500" htmlFor="item-threshold">
+              <label className="block text-xs font-medium text-fg-muted" htmlFor="item-threshold">
                 Low-stock at
               </label>
               <input
@@ -425,29 +425,29 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 inputMode="numeric"
                 value={form.lowStockThreshold}
                 onChange={(e) => set("lowStockThreshold", e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
               />
             </div>
           </div>
 
-          <div className="rounded-md border border-slate-200 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <div className="rounded-md border border-line p-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-fg-2">
               <input
                 type="checkbox"
                 checked={form.soldByAmount}
                 onChange={(e) => set("soldByAmount", e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400"
+                className="h-4 w-4 rounded border-line-strong text-accent-text focus:ring-accent"
               />
               Sold by amount
             </label>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-fg-muted">
               For loose/weighed items (channa, rice, dry fruits) — on the billing screen, a cashier can type a rupee
               amount ("100 rupees worth") instead of a quantity, and the app works out how much that buys from this
               item's price.
             </p>
             {form.soldByAmount && (
               <div className="mt-2">
-                <label className="block text-xs font-medium text-slate-500" htmlFor="item-unit">
+                <label className="block text-xs font-medium text-fg-muted" htmlFor="item-unit">
                   Unit
                 </label>
                 <input
@@ -455,9 +455,9 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                   value={form.unit}
                   onChange={(e) => set("unit", e.target.value)}
                   placeholder="e.g. kg"
-                  className="mt-1 w-full max-w-[8rem] rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full max-w-[8rem] rounded-md border border-line-strong px-3 py-2 text-sm"
                 />
-                <p className="mt-1 text-[11px] text-slate-400">
+                <p className="mt-1 text-[11px] text-fg-muted">
                   Shown on the cart line and receipt, e.g. "0.77 kg". Optional.
                 </p>
               </div>
@@ -465,7 +465,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-500" htmlFor="item-category">
+            <label className="block text-xs font-medium text-fg-muted" htmlFor="item-category">
               Category
             </label>
 
@@ -482,12 +482,12 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                     }
                   }}
                   placeholder="New category name"
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-line-strong px-3 py-2 text-sm"
                 />
                 <button
                   type="button"
                   onClick={() => void submitNewCategory()}
-                  className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                  className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover"
                 >
                   Add
                 </button>
@@ -497,7 +497,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                     setIsAddingCategory(false);
                     setNewCategoryName("");
                   }}
-                  className="rounded-md px-3 py-2 text-sm text-slate-500 hover:bg-slate-100"
+                  className="rounded-md px-3 py-2 text-sm text-fg-muted hover:bg-surface-3"
                 >
                   Cancel
                 </button>
@@ -508,7 +508,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                   id="item-category"
                   value={form.categoryId ?? ""}
                   onChange={(e) => set("categoryId", e.target.value ? Number(e.target.value) : null)}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-line-strong px-3 py-2 text-sm"
                 >
                   <option value="">Uncategorized</option>
                   {categories.map((category) => (
@@ -520,7 +520,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 <button
                   type="button"
                   onClick={() => setIsAddingCategory(true)}
-                  className="flex shrink-0 items-center gap-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  className="flex shrink-0 items-center gap-1 rounded-md border border-line-strong px-3 py-2 text-sm text-fg-2 hover:bg-surface-2"
                 >
                   <Plus className="h-4 w-4" />
                   New
@@ -531,14 +531,14 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
 
           {tokensEnabled && (
             <div>
-              <label className="block text-xs font-medium text-slate-500" htmlFor="item-counter">
-                Counter <span className="text-slate-400">(optional — leave empty if this item doesn't need a token)</span>
+              <label className="block text-xs font-medium text-fg-muted" htmlFor="item-counter">
+                Counter <span className="text-fg-muted">(optional — leave empty if this item doesn't need a token)</span>
               </label>
               <select
                 id="item-counter"
                 value={form.counterId ?? ""}
                 onChange={(e) => set("counterId", e.target.value ? Number(e.target.value) : null)}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
               >
                 <option value="">No counter — never prints a token</option>
                 {counters.map((counter) => (
@@ -547,24 +547,24 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-fg-muted">
                 The kitchen/prep station this item's KOT token prints to when a cashier prints tokens for a table.
               </p>
             </div>
           )}
 
-          <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <div className="flex justify-end gap-2 border-t border-line pt-4">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-3"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving || isUploadingImage}
-              className="rounded-md bg-brand-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
             >
               {isSaving ? "Saving…" : isUploadingImage ? "Uploading photo…" : isEditing ? "Save changes" : "Add item"}
             </button>

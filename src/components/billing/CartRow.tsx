@@ -43,18 +43,25 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
       // active row's border is a uniform brand-300 rectangle, no divider
       // fighting it on the last real edge case: an active row that isn't
       // the last one in the cart), avoids that conflict entirely.
+      //
+      // No negative margin here: the 8px the highlight bleeds past the text
+      // column comes from the parent `<ul>`'s `-mx-2 px-2` instead. That list
+      // is a scroll container (`overflow-y-auto`), which clips horizontally
+      // too — a row that reached into it with its own `-mx-2` had its left
+      // padding, border and rounded corner cut off, leaving the thumbnail
+      // flush against the clipped edge whenever the row was active.
       className={[
-        "flex cursor-pointer items-center gap-3 rounded-xl py-3 px-2 -mx-2 border transition-colors",
+        "flex cursor-pointer items-center gap-3 rounded-xl border px-2 py-3 transition-colors",
         isActive
-          ? "border-brand-300 bg-brand-50"
-          : "border-transparent [&:not(:last-child)]:border-b-slate-100",
+          ? "border-accent/40 bg-accent-soft"
+          : "border-transparent [&:not(:last-child)]:border-b-line",
       ].join(" ")}
     >
       <ItemImage imagePath={entry.imagePath} alt={entry.name} className="h-12 w-12 shrink-0 rounded-xl" />
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-900">{entry.name}</p>
-        <p className="text-xs text-slate-500">{formatMinor(entry.priceMinor, currency)}</p>
+        <p className="truncate text-sm font-medium text-fg">{entry.name}</p>
+        <p className="text-xs text-fg-muted">{formatMinor(entry.priceMinor, currency)}</p>
       </div>
 
       <button
@@ -64,7 +71,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
         title={entry.notes || "Add a note"}
         className={[
           "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
-          entry.notes ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-400 hover:bg-slate-200",
+          entry.notes ? "bg-accent text-accent-ink" : "bg-surface-3 text-fg-muted hover:bg-surface-3",
         ].join(" ")}
       >
         <NotebookPen className="h-3 w-3" />
@@ -83,19 +90,19 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
             // modal, which has a real decimal input.
             entry.qty <= 1 ? removeItem(itemId) : setQty(itemId, entry.qty - 1)
           }
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-30"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-fg-muted hover:bg-surface-3 disabled:opacity-30"
           aria-label={`Decrease quantity of ${entry.name}`}
         >
           <Minus className="h-3 w-3" />
         </button>
-        <span className="min-w-5 text-center text-sm font-medium text-slate-900">
+        <span className="min-w-5 text-center text-sm font-medium text-fg">
           {formatQty(entry.qty, entry.unit)}
         </span>
         <button
           type="button"
           onClick={() => setQty(itemId, entry.qty + 1)}
           disabled={entry.qty >= entry.stockQty}
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 disabled:opacity-30"
+          className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-fg-muted hover:bg-surface-3 disabled:opacity-30"
           aria-label={`Increase quantity of ${entry.name}`}
         >
           <Plus className="h-3 w-3" />
@@ -105,7 +112,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
       <button
         type="button"
         onClick={() => removeItem(itemId)}
-        className="shrink-0 rounded-full p-1 text-slate-300 hover:bg-red-50 hover:text-red-500"
+        className="shrink-0 rounded-full p-1 text-fg-faint hover:bg-danger-soft hover:text-danger-text"
         aria-label={`Remove ${entry.name} from cart`}
       >
         <Trash2 className="h-3.5 w-3.5" />

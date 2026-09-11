@@ -51,34 +51,34 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
   return (
     <div
       className={[
-        "flex flex-col overflow-hidden rounded-2xl bg-white text-left shadow-soft ring-1 ring-slate-900/[0.03] transition-all duration-200 ease-out",
-        outOfStock ? "opacity-50" : "hover:-translate-y-1 hover:shadow-soft-lg hover:ring-brand-200",
+        "flex flex-col overflow-hidden rounded-2xl bg-surface text-left shadow-soft ring-1 ring-line/60 transition-all duration-200 ease-out",
+        outOfStock ? "opacity-50" : "hover:-translate-y-1 hover:shadow-soft-lg hover:ring-accent/40",
       ].join(" ")}
     >
       {/* Padded, tinted mount for the photo instead of an edge-to-edge crop —
        * reads as a framed thumbnail floating on a soft neutral surface,
        * inset within the card, not filling its whole top edge. */}
       <div className="p-2.5 pb-0">
-        <div className="relative overflow-hidden rounded-xl bg-slate-50">
+        <div className="relative overflow-hidden rounded-xl bg-surface-2">
           <ItemImage imagePath={item.imagePath} alt={item.name} className="h-28 w-full" />
           <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
             {item.shortCode && (
               <span
-                className="rounded-full bg-slate-900/80 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-white"
+                className="rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-white"
                 title={`Quick code ${item.shortCode}`}
               >
                 #{item.shortCode}
               </span>
             )}
             {outOfStock && (
-              <span className="rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-semibold text-white">
+              <span className="rounded-full bg-danger/90 px-2 py-0.5 text-[10px] font-semibold text-white">
                 Out of stock
               </span>
             )}
           </div>
           {isBestSeller && !outOfStock && (
             <span
-              className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-orange-500/90 text-white shadow-sm"
+              className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-warning/90 text-white shadow-sm"
               title="Best seller"
               aria-label="Best seller"
             >
@@ -92,7 +92,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
        * consistent padding all round so image → name → row reads as one
        * block instead of separately-spaced pieces. */}
       <div className="flex flex-1 flex-col gap-1.5 p-3 pt-2.5">
-        <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
+        <p className="truncate text-sm font-semibold text-fg">{item.name}</p>
         <div className="flex items-center justify-between gap-2">
           {item.categoryName ? (
             <span className={`truncate rounded-full px-2 py-0.5 text-[10.5px] font-medium ${color.bg} ${color.text}`}>
@@ -101,27 +101,27 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
           ) : (
             <span />
           )}
-          <span className="shrink-0 text-base font-extrabold tracking-tight text-slate-900">
+          <span className="shrink-0 text-base font-extrabold tracking-tight text-fg">
             {formatMinor(item.priceMinor, currency)}
           </span>
         </div>
 
         {inCart ? (
-          <div className="mt-1 flex items-center justify-between rounded-xl bg-slate-100 p-1">
+          <div className="mt-1 flex items-center justify-between rounded-xl bg-surface-3 p-1">
             <button
               type="button"
               onClick={decrement}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2"
               aria-label={`Decrease quantity of ${item.name}`}
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
-            <span className="text-sm font-semibold text-slate-900">{formatQty(qty, item.unit)}</span>
+            <span className="text-sm font-semibold text-fg">{formatQty(qty, item.unit)}</span>
             <button
               type="button"
               onClick={increment}
               disabled={qty >= item.stockQty}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-slate-600 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
               aria-label={`Increase quantity of ${item.name}`}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -135,7 +135,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
               if (!outOfStock) addItem(item);
             }}
             disabled={outOfStock}
-            className="mt-1 rounded-xl bg-brand-600 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+            className="mt-1 rounded-xl bg-accent py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
           >
             Add to Cart
           </button>

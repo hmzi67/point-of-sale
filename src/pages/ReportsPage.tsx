@@ -28,7 +28,7 @@ const TopEntriesChart = lazy(() => import("../components/reports/TopEntriesChart
 
 type View = "overview" | "tables" | "products" | "refunds";
 
-const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />;
+const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border border-line bg-surface-2" />;
 
 export function ReportsPage() {
   const { config } = useAppConfig();
@@ -134,8 +134,8 @@ export function ReportsPage() {
     <section className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Reports</h2>
-          <p className="text-sm text-slate-500">Daily sales summary and top-selling items.</p>
+          <h2 className="text-lg font-semibold text-fg">Reports</h2>
+          <p className="text-sm text-fg-muted">Daily sales summary and top-selling items.</p>
         </div>
         <ExportButtons
           view={view}
@@ -151,10 +151,10 @@ export function ReportsPage() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-2 shadow-soft">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface p-2 shadow-soft">
         <DateRangePicker />
 
-        <div className="flex shrink-0 rounded-xl bg-slate-100 p-1">
+        <div className="flex shrink-0 rounded-xl bg-surface-3 p-1">
           {(["overview", "products", ...(tablesEnabled ? (["tables"] as const) : []), "refunds"] as const).map((v) => (
             <button
               key={v}
@@ -162,7 +162,7 @@ export function ReportsPage() {
               onClick={() => setView(v)}
               className={[
                 "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                view === v ? "bg-brand-600 text-white shadow-soft" : "text-slate-600 hover:bg-white",
+                view === v ? "bg-accent text-accent-ink shadow-soft" : "text-fg-2 hover:bg-surface",
               ].join(" ")}
             >
               {v === "overview"
@@ -177,7 +177,7 @@ export function ReportsPage() {
         </div>
       </div>
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       {view === "overview" ? (
         <>
@@ -192,7 +192,7 @@ export function ReportsPage() {
       ) : view === "products" ? (
         <>
           {productSalesError && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{productSalesError}</p>
+            <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{productSalesError}</p>
           )}
           <Suspense fallback={chartFallback}>
             <TopEntriesChart
@@ -216,7 +216,7 @@ export function ReportsPage() {
       ) : view === "tables" ? (
         <>
           {tableSalesError && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{tableSalesError}</p>
+            <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{tableSalesError}</p>
           )}
           <Suspense fallback={chartFallback}>
             <TopEntriesChart
@@ -230,7 +230,7 @@ export function ReportsPage() {
         </>
       ) : (
         <>
-          {refundsError && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{refundsError}</p>}
+          {refundsError && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{refundsError}</p>}
           <RefundsTable data={refundsSummary} currency={config.currency} isLoading={isLoadingRefunds} />
         </>
       )}

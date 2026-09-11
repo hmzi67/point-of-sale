@@ -19,9 +19,9 @@ export function CartPanel({ currency, onEditLine }: CartPanelProps) {
     // header and the totals/Place Order footer, just with centered empty-
     // state content instead of rows.
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-slate-300">
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-fg-faint">
         <ClipboardList className="h-10 w-10" />
-        <p className="text-sm font-medium text-slate-400">No Item Selected</p>
+        <p className="text-sm font-medium text-fg-muted">No Item Selected</p>
       </div>
     );
   }
@@ -42,7 +42,12 @@ export function CartPanel({ currency, onEditLine }: CartPanelProps) {
     // of its border color (see its doc comment); a parent-level `divide-y`
     // border-top competes with a row's own border and wins on specificity,
     // which was producing the broken active-row top-left corner.
-    <ul className="min-h-0 flex-1 overflow-y-auto">
+    // `-mx-2 px-2`: rows keep their text aligned with the panel while the
+    // active row's highlight extends 8px into the gutter on each side. The
+    // bleed has to be the list's padding (never a row's negative margin) —
+    // this is a scroll container, and anything a child pushes outside it
+    // is clipped. See `CartRow`'s className comment.
+    <ul className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
       {cartOrder.map((itemId) => (
         <CartRow key={itemId} itemId={itemId} currency={currency} onEditLine={onEditLine} />
       ))}

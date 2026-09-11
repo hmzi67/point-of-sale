@@ -1,4 +1,4 @@
-import type { AppConfig } from "../types";
+import type { AppConfig, Theme } from "../types";
 import { call } from "./tauriClient";
 
 export function getAppConfig(): Promise<AppConfig> {
@@ -20,4 +20,17 @@ export function uploadLogo(dataBase64: string, extension: string): Promise<AppCo
  * `<img src>`. */
 export function getLogoDataUrl(fileName: string): Promise<string> {
   return call<string>("config_get_logo", { fileName });
+}
+
+/** The persisted UI theme. Readable before login — the login and lock
+ * screens are themed too — and never a reason to block boot: callers fall
+ * back to dark (the `index.html` default) if this fails. */
+export function getTheme(): Promise<Theme> {
+  return call<Theme>("config_get_theme");
+}
+
+/** Persists the theme for this install (any signed-in user — it's a
+ * display preference for the till's own screen, not a business setting). */
+export function setTheme(theme: Theme): Promise<void> {
+  return call<void>("config_set_theme", { theme });
 }

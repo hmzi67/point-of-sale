@@ -139,8 +139,8 @@ export function InventoryPage() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Inventory</h2>
-          <p className="text-sm text-slate-500">
+          <h2 className="text-lg font-semibold text-fg">Inventory</h2>
+          <p className="text-sm text-fg-muted">
             {filteredItems.length} item{filteredItems.length === 1 ? "" : "s"}
             {filteredItems.length !== items.length && ` (of ${items.length})`}
             {isReadOnly && " · read-only for your role"}
@@ -157,15 +157,15 @@ export function InventoryPage() {
       <InventoryFilterChips filters={filters} onChange={setFilters} />
 
       {!isReadOnly && selectedIds.size > 0 && (
-        <div className="flex items-center justify-between rounded-md border border-brand-200 bg-brand-50 px-4 py-2.5">
-          <span className="text-sm font-medium text-brand-800">
+        <div className="flex items-center justify-between rounded-md border border-accent/40 bg-accent-soft px-4 py-2.5">
+          <span className="text-sm font-medium text-accent-text">
             {selectedIds.size} item{selectedIds.size === 1 ? "" : "s"} selected
           </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setSelectedIds(new Set())}
-              className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-100"
+              className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-sm font-medium text-accent-text hover:bg-accent-soft"
             >
               <X className="h-4 w-4" />
               Clear
@@ -173,7 +173,7 @@ export function InventoryPage() {
             <button
               type="button"
               onClick={() => setIsConfirmingBulkDelete(true)}
-              className="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+              className="flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white hover:bg-danger/85"
             >
               <Trash2 className="h-4 w-4" />
               Delete selected
@@ -182,11 +182,11 @@ export function InventoryPage() {
         </div>
       )}
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-      {toast && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{toast}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+      {toast && <p className="rounded-md bg-success-soft px-3 py-2 text-sm text-success-text">{toast}</p>}
 
       {isLoading && items.length === 0 ? (
-        <p className="py-16 text-center text-sm text-slate-500">Loading items…</p>
+        <p className="py-16 text-center text-sm text-fg-muted">Loading items…</p>
       ) : (
         <ItemTable
           items={filteredItems}

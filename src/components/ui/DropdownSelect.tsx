@@ -63,15 +63,15 @@ export function DropdownSelect<T extends string | number>({
         type="button"
         onClick={() => setIsOpen((o) => !o)}
         disabled={disabled}
-        className="flex w-full items-center justify-between gap-2 rounded-2xl bg-slate-50 py-2.5 pl-4 pr-3 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex w-full items-center justify-between gap-2 rounded-2xl bg-surface-2 py-2.5 pl-4 pr-3 text-sm font-medium text-fg-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="truncate">{selected ? selected.label : placeholder}</span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-4 w-4 shrink-0 text-fg-muted transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl bg-white p-1.5 shadow-soft-lg ring-1 ring-slate-900/[0.06]">
-          <ul className="max-h-64 divide-y divide-slate-100 overflow-y-auto">
+        <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl bg-surface p-1.5 shadow-soft-lg ring-1 ring-line">
+          <ul className="max-h-64 divide-y divide-line overflow-y-auto">
             {options.map((option) => {
               const isSelected = option.value === value;
               return (
@@ -86,14 +86,14 @@ export function DropdownSelect<T extends string | number>({
                     className={[
                       "flex w-full items-center justify-between gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm transition-colors",
                       option.disabled
-                        ? "cursor-not-allowed text-slate-300"
+                        ? "cursor-not-allowed text-fg-faint"
                         : isSelected
-                          ? "bg-brand-50 text-brand-700"
-                          : "text-slate-700 hover:bg-slate-50",
+                          ? "bg-accent-soft text-accent-text"
+                          : "text-fg-2 hover:bg-surface-2",
                     ].join(" ")}
                   >
                     <span className="flex min-w-0 items-center gap-2">
-                      <Check className={`h-3.5 w-3.5 shrink-0 ${isSelected ? "text-brand-600" : "text-transparent"}`} />
+                      <Check className={`h-3.5 w-3.5 shrink-0 ${isSelected ? "text-accent-text" : "text-transparent"}`} />
                       <span className="truncate font-medium">{option.label}</span>
                     </span>
                     {option.meta && <span className="shrink-0">{option.meta}</span>}

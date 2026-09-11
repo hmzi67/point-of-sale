@@ -83,3 +83,9 @@ export interface UsbDeviceOption {
 export interface WindowsPrinterOption {
   name: string;
 }
+
+/** The two UI colour themes. Dark is the default and the brand's primary
+ * look (it matches the marketing site); light flips the neutrals and keeps
+ * the same green accent. Persisted on `app_config.theme` — see
+ * `store/themeStore.ts`. */
+export type Theme = "dark" | "light";

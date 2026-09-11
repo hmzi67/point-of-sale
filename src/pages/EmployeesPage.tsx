@@ -49,8 +49,8 @@ export function EmployeesPage() {
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Employees</h2>
-          <p className="text-sm text-slate-500">
+          <h2 className="text-lg font-semibold text-fg">Employees</h2>
+          <p className="text-sm text-fg-muted">
             Add and manage staff records used by Attendance and Salary — deactivate someone who's left instead of
             deleting them, so past attendance and pay history stay intact.
           </p>
@@ -58,14 +58,14 @@ export function EmployeesPage() {
         <button
           type="button"
           onClick={() => setEditingEmployee("new")}
-          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
         >
           <Plus className="h-4 w-4" />
           Add employee
         </button>
       </div>
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       <EmployeeTable
         employees={employees}

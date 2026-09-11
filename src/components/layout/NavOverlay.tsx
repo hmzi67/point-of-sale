@@ -21,7 +21,7 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
     // min-h-11 (44px): py-2.5 alone comes out a little short of a
     // comfortable phone touch target.
     "flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors",
-    isActive ? "bg-brand-600 text-white shadow-soft" : "text-slate-600 hover:bg-slate-100",
+    isActive ? "bg-accent text-accent-ink shadow-soft" : "text-fg-2 hover:bg-surface-3",
   ].join(" ");
 
 /**
@@ -63,13 +63,13 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
         type="button"
         aria-label="Close navigation"
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/30"
+        className="absolute inset-0 bg-scrim"
         tabIndex={open ? 0 : -1}
       />
 
       <aside
         className={[
-          "relative flex h-full w-[300px] max-w-[85vw] flex-col bg-white shadow-soft-lg transition-transform duration-200",
+          "relative flex h-full w-[300px] max-w-[85vw] flex-col bg-surface shadow-soft-lg transition-transform duration-200",
           open ? "translate-x-0" : "-translate-x-full",
         ].join(" ")}
       >
@@ -77,15 +77,15 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
             padding — same edge-to-edge reasoning as TopBar. This overlay
             covers the full screen (including behind the status bar), so it
             needs its own inset handling independent of TopBar's. */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
+        <div className="flex items-center justify-between border-b border-line px-5 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)]">
           {user && (
             <div className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
                 <User className="h-4 w-4" />
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold text-slate-900">{user.name}</span>
-                <span className="block text-xs text-slate-500">{ROLE_LABEL[user.role] ?? user.role}</span>
+                <span className="block truncate text-sm font-semibold text-fg">{user.name}</span>
+                <span className="block text-xs text-fg-muted">{ROLE_LABEL[user.role] ?? user.role}</span>
               </span>
             </div>
           )}
@@ -93,7 +93,7 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
             type="button"
             onClick={onClose}
             aria-label="Close navigation"
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-fg-muted hover:bg-surface-3 hover:text-fg-2"
           >
             <X className="h-4 w-4" />
           </button>
@@ -101,7 +101,7 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
 
         <nav className="flex-1 overflow-y-auto px-3 py-3">
           {!isLoaded ? (
-            <p className="px-3.5 py-2 text-sm text-slate-400">Loading…</p>
+            <p className="px-3.5 py-2 text-sm text-fg-muted">Loading…</p>
           ) : (
             <ul className="space-y-1">
               {visibleModules.map((module) => {
@@ -145,14 +145,14 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
 
         {/* pb adds the gesture-nav-bar inset on top of the section's own
             padding, same pattern BottomTabBar already uses. */}
-        <div className="border-t border-slate-100 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+        <div className="border-t border-line p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           <button
             type="button"
             onClick={() => {
               onClose();
               logout();
             }}
-            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50"
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-danger-text hover:bg-danger-soft"
           >
             <LogOut className="h-4 w-4" />
             Log Out

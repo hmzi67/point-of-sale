@@ -62,14 +62,14 @@ export function ExpensesPage() {
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Expenses</h2>
-        <p className="text-sm text-slate-500">Log daily shop expenses and see where the money's going.</p>
+        <h2 className="text-lg font-semibold text-fg">Expenses</h2>
+        <p className="text-sm text-fg-muted">Log daily shop expenses and see where the money's going.</p>
       </div>
 
       <AddExpenseForm categories={categories} onAdded={reload} />
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-md border border-slate-300 p-0.5">
+        <div className="flex rounded-md border border-line-strong p-0.5">
           {PRESETS.map((p) => (
             <button
               key={p}
@@ -77,7 +77,7 @@ export function ExpensesPage() {
               onClick={() => applyPreset(p)}
               className={[
                 "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-                preset === p ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100",
+                preset === p ? "bg-accent text-accent-ink" : "text-fg-2 hover:bg-surface-3",
               ].join(" ")}
             >
               {PRESET_LABELS[p]}
@@ -94,9 +94,9 @@ export function ExpensesPage() {
               setPreset("custom");
               setStartDate(e.target.value);
             }}
-            className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+            className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
           />
-          <span className="text-slate-400">–</span>
+          <span className="text-fg-muted">–</span>
           <input
             type="date"
             value={endDate}
@@ -105,14 +105,14 @@ export function ExpensesPage() {
               setPreset("custom");
               setEndDate(e.target.value);
             }}
-            className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+            className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
           />
         </div>
 
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+          className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
         >
           <option value="">All categories</option>
           {categories.map((c) => (
@@ -123,7 +123,7 @@ export function ExpensesPage() {
         </select>
       </div>
 
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">

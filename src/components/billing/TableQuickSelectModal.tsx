@@ -61,14 +61,14 @@ export function TableQuickSelectModal({ onClose }: TableQuickSelectModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[16rem] rounded-2xl bg-white p-4 shadow-soft-lg"
+        className="w-full max-w-[16rem] rounded-2xl bg-surface p-4 shadow-soft-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <label className="block text-xs font-medium text-slate-500" htmlFor="quick-table-number">
+        <label className="block text-xs font-medium text-fg-muted" htmlFor="quick-table-number">
           Go to table
         </label>
         <input
@@ -90,10 +90,10 @@ export function TableQuickSelectModal({ onClose }: TableQuickSelectModalProps) {
           }}
           inputMode="numeric"
           placeholder="Table number…"
-          className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-brand-200"
+          className="mt-1.5 w-full rounded-xl border border-line-strong px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-accent/40"
         />
-        {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
-        <p className="mt-2 text-[11px] text-slate-400">Enter to select · Esc to cancel</p>
+        {error && <p className="mt-1.5 text-xs text-danger-text">{error}</p>}
+        <p className="mt-2 text-[11px] text-fg-muted">Enter to select · Esc to cancel</p>
       </div>
     </div>
   );

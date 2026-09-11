@@ -6,7 +6,7 @@ import { RequireAuth } from "./components/auth/RequireAuth";
 import { RequireOnboarding } from "./components/auth/RequireOnboarding";
 import { VendorGate } from "./components/auth/VendorGate";
 import { AppLayout } from "./components/layout/AppLayout";
-import { useAppStore, useAuthStore, useLicenseStore, useModuleStore } from "./store";
+import { useAppStore, useAuthStore, useLicenseStore, useModuleStore, useThemeStore } from "./store";
 import {
   AttendancePage,
   BillingPage,
@@ -34,6 +34,14 @@ function useBootstrap() {
   const loadConfig = useAppStore((state) => state.load);
   const loadModules = useModuleStore((state) => state.load);
   const initLicense = useLicenseStore((state) => state.init);
+  const initTheme = useThemeStore((state) => state.init);
+
+  // Theme is the one thing read *before* login — the login screen is themed
+  // too. It falls back to the `index.html` default (dark) if the read fails,
+  // so it can't make login unusable the way a failed config read could.
+  useEffect(() => {
+    void initTheme();
+  }, [initTheme]);
 
   useEffect(() => {
     if (userId === null) return;

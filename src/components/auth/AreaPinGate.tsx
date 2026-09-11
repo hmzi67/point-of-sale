@@ -66,13 +66,13 @@ export function AreaPinGate({ label, children }: AreaPinGateProps) {
   if (unlocked) return <>{children}</>;
 
   return (
-    <div className="mx-auto flex max-w-sm flex-col items-center gap-4 rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+    <div className="mx-auto flex max-w-sm flex-col items-center gap-4 rounded-lg border border-line bg-surface p-8 text-center shadow-sm">
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-soft text-accent-text">
         <Lock className="h-5 w-5" />
       </span>
       <div>
-        <h2 className="text-base font-semibold text-slate-900">Enter the area PIN</h2>
-        <p className="mt-1 text-sm text-slate-500">Required to open {label}.</p>
+        <h2 className="text-base font-semibold text-fg">Enter the area PIN</h2>
+        <p className="mt-1 text-sm text-fg-muted">Required to open {label}.</p>
       </div>
 
       <form onSubmit={(e) => void submit(e)} className="w-full space-y-3">
@@ -84,15 +84,15 @@ export function AreaPinGate({ label, children }: AreaPinGateProps) {
           value={pin}
           onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
           placeholder="PIN"
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-center text-lg tracking-[0.5em] focus:border-brand-400 focus:outline-none"
+          className="w-full rounded-md border border-line-strong px-3 py-2 text-center text-lg tracking-[0.5em] focus:border-accent focus:outline-none"
         />
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-danger-text">{error}</p>}
 
         <button
           type="submit"
           disabled={pin.length < 4 || isVerifying}
-          className="w-full rounded-md bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isVerifying ? "Checking…" : "Unlock"}
         </button>

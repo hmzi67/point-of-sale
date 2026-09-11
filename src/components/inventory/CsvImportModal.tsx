@@ -48,34 +48,34 @@ export function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h3 className="text-sm font-semibold text-slate-900">Import items from CSV</h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-md rounded-lg bg-surface shadow-xl">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <h3 className="text-sm font-semibold text-fg">Import items from CSV</h3>
+          <button type="button" onClick={onClose} className="text-fg-muted hover:text-fg-2">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="space-y-4 px-5 py-4">
-          <p className="text-sm text-slate-500">
-            Bulk-load an existing stock list. Requires <code className="rounded bg-slate-100 px-1">name</code> and{" "}
-            <code className="rounded bg-slate-100 px-1">price</code> columns — everything else (barcode, category,
+          <p className="text-sm text-fg-muted">
+            Bulk-load an existing stock list. Requires <code className="rounded bg-surface-3 px-1">name</code> and{" "}
+            <code className="rounded bg-surface-3 px-1">price</code> columns — everything else (barcode, category,
             cost, stock, low-stock threshold) is optional. Column order and letter case don't matter.
           </p>
 
           <button
             type="button"
             onClick={() => void downloadTemplate()}
-            className="flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700"
+            className="flex items-center gap-1.5 text-xs font-medium text-accent-text hover:text-accent-text"
           >
             <Download className="h-3.5 w-3.5" />
             Download an example CSV
           </button>
 
-          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border-2 border-dashed border-slate-300 px-4 py-8 text-center hover:border-brand-400 hover:bg-slate-50">
-            <Upload className="h-6 w-6 text-slate-400" />
-            <span className="text-sm text-slate-600">
+          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border-2 border-dashed border-line-strong px-4 py-8 text-center hover:border-accent hover:bg-surface-2">
+            <Upload className="h-6 w-6 text-fg-muted" />
+            <span className="text-sm text-fg-2">
               {fileName ?? "Click to choose a .csv file"}
             </span>
             <input
@@ -90,16 +90,16 @@ export function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
             />
           </label>
 
-          {isImporting && <p className="text-sm text-slate-500">Importing…</p>}
+          {isImporting && <p className="text-sm text-fg-muted">Importing…</p>}
 
-          {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
           {summary && (
             <div className="space-y-2">
               <p
                 className={[
                   "rounded-md px-3 py-2 text-sm",
-                  summary.imported > 0 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700",
+                  summary.imported > 0 ? "bg-success-soft text-success-text" : "bg-warning-soft text-warning-text",
                 ].join(" ")}
               >
                 {summary.imported} item{summary.imported === 1 ? "" : "s"} imported.
@@ -107,15 +107,15 @@ export function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
               </p>
 
               {summary.errors.length > 0 && (
-                <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200">
+                <div className="max-h-40 overflow-y-auto rounded-md border border-line">
                   <table className="min-w-full text-xs">
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-line">
                       {summary.errors.map((err) => (
                         <tr key={err.row}>
-                          <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-slate-500">
+                          <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-fg-muted">
                             Row {err.row}
                           </td>
-                          <td className="px-2.5 py-1.5 text-red-600">{err.message}</td>
+                          <td className="px-2.5 py-1.5 text-danger-text">{err.message}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -129,7 +129,7 @@ export function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
             >
               {summary ? "Done" : "Cancel"}
             </button>

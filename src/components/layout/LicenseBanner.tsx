@@ -27,12 +27,12 @@ export function LicenseBanner() {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-warning-line bg-warning-soft px-4 py-2 text-sm text-warning-text"
     >
-      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+      <AlertTriangle className="h-4 w-4 shrink-0 text-warning-text" aria-hidden />
       <span className="min-w-0 flex-1">
         <span className="font-semibold">Your licence expires {formatTimeUntil(state.expiresAt)}</span>
-        <span className="text-amber-800"> ({formatUnixDateTime(state.expiresAt)}). </span>
+        <span className="text-warning-text"> ({formatUnixDateTime(state.expiresAt)}). </span>
         {canRenewHere
           ? "Renew it to avoid interruption."
           : "Ask the owner to renew it to avoid interruption."}
@@ -41,7 +41,7 @@ export function LicenseBanner() {
         <button
           type="button"
           onClick={() => navigate("/settings#license")}
-          className="shrink-0 rounded-lg bg-amber-500 px-3 py-1 text-sm font-semibold text-slate-900 hover:bg-amber-400"
+          className="shrink-0 rounded-lg bg-warning px-3 py-1 text-sm font-semibold text-fg hover:bg-warning"
         >
           Renew
         </button>

@@ -55,10 +55,10 @@ export function PrinterSettingsSection({ config }: PrinterSettingsSectionProps) 
 
 function SectionShell({ description, children }: { description: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Printer</h2>
-        <p className="mt-1 text-sm text-slate-600">{description}</p>
+    <div className="rounded-lg border border-line bg-surface">
+      <div className="border-b border-line p-6">
+        <h2 className="text-lg font-semibold text-fg">Printer</h2>
+        <p className="mt-1 text-sm text-fg-2">{description}</p>
       </div>
       {children}
       <DiagnosticPrintButton />
@@ -98,11 +98,11 @@ function DiagnosticPrintButton() {
   };
 
   return (
-    <div className="border-t border-slate-200 px-6 py-4">
+    <div className="border-t border-line px-6 py-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-slate-700">Print width test</p>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="text-sm font-medium text-fg-2">Print width test</p>
+          <p className="mt-0.5 text-xs text-fg-muted">
             Prints a ruler and rows of known length so you can see exactly how many characters this printer fits on
             one line — read off the widest "N=…" line that does <em>not</em> wrap.
           </p>
@@ -111,14 +111,14 @@ function DiagnosticPrintButton() {
           type="button"
           onClick={() => void run()}
           disabled={status === "printing"}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
         >
           {status === "printing" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ruler className="h-3.5 w-3.5" />}
           Print width test
         </button>
       </div>
-      {status === "done" && <p className="mt-2 text-xs text-emerald-600">Sent — check the printout.</p>}
-      {status === "error" && error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {status === "done" && <p className="mt-2 text-xs text-success-text">Sent — check the printout.</p>}
+      {status === "error" && error && <p className="mt-2 text-xs text-danger-text">{error}</p>}
     </div>
   );
 }
@@ -126,7 +126,7 @@ function DiagnosticPrintButton() {
 function DesktopUsbPrinterSettings() {
   return (
     <SectionShell description="USB thermal printers are found automatically — plug one in and Print (thermal) on a receipt uses it. No selection needed.">
-      <div className="flex items-center gap-2 px-6 py-4 text-sm text-slate-500">
+      <div className="flex items-center gap-2 px-6 py-4 text-sm text-fg-muted">
         <Usb className="h-4 w-4 shrink-0" />
         USB, auto-detected on each print
       </div>
@@ -135,12 +135,12 @@ function DesktopUsbPrinterSettings() {
 }
 
 function ErrorNote({ message }: { message: string }) {
-  return <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>;
+  return <p className="mb-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{message}</p>;
 }
 
 function SelectedNote({ label }: { label: string }) {
   return (
-    <p className="mb-3 flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+    <p className="mb-3 flex items-center gap-2 rounded-md bg-success-soft px-3 py-2 text-sm text-success-text">
       <CheckCircle2 className="h-4 w-4 shrink-0" />
       Selected: {label}
     </p>
@@ -150,12 +150,12 @@ function SelectedNote({ label }: { label: string }) {
 function ListHeader({ label, isLoading, onRefresh }: { label: string; isLoading: boolean; onRefresh: () => void }) {
   return (
     <div className="mb-3 flex items-center justify-between">
-      <p className="text-sm font-medium text-slate-700">{label}</p>
+      <p className="text-sm font-medium text-fg-2">{label}</p>
       <button
         type="button"
         onClick={onRefresh}
         disabled={isLoading}
-        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:bg-surface-3 disabled:opacity-50"
       >
         <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
         Refresh
@@ -203,7 +203,7 @@ function AndroidPrinterSettings({ config }: PrinterSettingsSectionProps) {
   return (
     <SectionShell description={ANDROID_DESCRIPTIONS[mode]}>
       <div className="px-6 pt-6">
-        <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5" role="tablist">
+        <div className="inline-flex rounded-md border border-line bg-surface-2 p-0.5" role="tablist">
           {(["bluetooth", "usb"] as const).map((option) => {
             const isActive = mode === option;
             const Icon = option === "bluetooth" ? Bluetooth : Usb;
@@ -216,7 +216,7 @@ function AndroidPrinterSettings({ config }: PrinterSettingsSectionProps) {
                 onClick={() => setMode(option)}
                 className={[
                   "inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors",
-                  isActive ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                  isActive ? "bg-surface text-fg shadow-sm" : "text-fg-muted hover:text-fg-2",
                 ].join(" ")}
               >
                 <Icon className="h-4 w-4" />
@@ -227,7 +227,7 @@ function AndroidPrinterSettings({ config }: PrinterSettingsSectionProps) {
         </div>
 
         {isBrowsingOtherMode && (
-          <p className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <p className="mt-3 flex items-start gap-2 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning-text">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             Receipts still print over {savedMode === "usb" ? "USB" : "Bluetooth"}. Pick a printer below to switch to{" "}
             {mode === "usb" ? "USB" : "Bluetooth"}.
@@ -319,17 +319,17 @@ function BluetoothPrinterPicker({ config }: PrinterSettingsSectionProps) {
 
       {permissionGranted === false ? (
         <div className="space-y-2">
-          <p className="text-sm text-slate-600">Bluetooth permission is needed to see and print to paired printers.</p>
+          <p className="text-sm text-fg-2">Bluetooth permission is needed to see and print to paired printers.</p>
           <button
             type="button"
             onClick={() => void grantPermission()}
             disabled={requestingPermission}
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
           >
             {requestingPermission ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bluetooth className="h-4 w-4" />}
             Grant Bluetooth permission
           </button>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-fg-muted">
             If the printer connects by cable instead, switch to USB above — no Bluetooth permission is needed there.
           </p>
         </div>
@@ -338,20 +338,20 @@ function BluetoothPrinterPicker({ config }: PrinterSettingsSectionProps) {
           <ListHeader label="Paired devices" isLoading={isLoading} onRefresh={() => void refresh()} />
 
           {isLoading ? (
-            <p className="text-sm text-slate-400">Loading…</p>
+            <p className="text-sm text-fg-muted">Loading…</p>
           ) : devices.length === 0 ? (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-fg-muted">
               No paired devices found. Pair the printer in your phone's Bluetooth settings first, then Refresh.
             </p>
           ) : (
-            <ul className="divide-y divide-slate-100 rounded-md border border-slate-100">
+            <ul className="divide-y divide-line rounded-md border border-line">
               {devices.map((device) => {
                 const isSelected = selected?.address === device.address;
                 return (
                   <li key={device.address} className="flex items-center justify-between px-3 py-2.5">
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-slate-900">{device.name}</span>
-                      <span className="block text-xs text-slate-400">{device.address}</span>
+                      <span className="block truncate text-sm font-medium text-fg">{device.name}</span>
+                      <span className="block text-xs text-fg-muted">{device.address}</span>
                     </span>
                     <button
                       type="button"
@@ -360,8 +360,8 @@ function BluetoothPrinterPicker({ config }: PrinterSettingsSectionProps) {
                       className={[
                         "shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold",
                         isSelected
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50",
+                          ? "bg-success-soft text-success-text"
+                          : "bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-50",
                       ].join(" ")}
                     >
                       {isSaving === device.address ? "Saving…" : isSelected ? "Selected" : "Select"}
@@ -499,14 +499,14 @@ function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
       <ListHeader label="Connected USB devices" isLoading={isLoading} onRefresh={() => void refresh()} />
 
       {isLoading ? (
-        <p className="text-sm text-slate-400">Loading…</p>
+        <p className="text-sm text-fg-muted">Loading…</p>
       ) : devices.length === 0 ? (
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-fg-muted">
           No USB devices found. Connect the printer with an OTG cable, switch it on, then Refresh. If nothing appears,
           this phone may not support USB host (OTG) mode.
         </p>
       ) : (
-        <ul className="divide-y divide-slate-100 rounded-md border border-slate-100">
+        <ul className="divide-y divide-line rounded-md border border-line">
           {devices.map((device) => {
             const isSelected = selectedId === device.id;
             const isWaiting = awaitingPermission === device.id;
@@ -514,13 +514,13 @@ function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
               <li key={device.id} className="px-3 py-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <span className="flex min-w-0 items-center gap-2">
-                    <Printer className="h-4 w-4 shrink-0 text-slate-400" />
+                    <Printer className="h-4 w-4 shrink-0 text-fg-muted" />
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-slate-900">{device.name}</span>
-                      <span className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span className="block truncate text-sm font-medium text-fg">{device.name}</span>
+                      <span className="flex items-center gap-1.5 text-xs text-fg-muted">
                         {device.id}
                         {device.isPrinterClass && (
-                          <span className="rounded bg-slate-100 px-1.5 py-px font-medium text-slate-500">Printer</span>
+                          <span className="rounded bg-surface-3 px-1.5 py-px font-medium text-fg-muted">Printer</span>
                         )}
                       </span>
                     </span>
@@ -532,8 +532,8 @@ function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
                     className={[
                       "shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold",
                       isSelected
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50",
+                        ? "bg-success-soft text-success-text"
+                        : "bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-50",
                     ].join(" ")}
                   >
                     {isSaving === device.id ? "Saving…" : isSelected ? "Selected" : "Select"}
@@ -541,15 +541,15 @@ function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
                 </div>
 
                 {isWaiting && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500">
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-muted">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Waiting for you to allow access to this device…
                   </p>
                 )}
 
                 {!isWaiting && isSelected && !device.hasPermission && (
-                  <div className="mt-1.5 flex items-center justify-between gap-3 rounded-md bg-amber-50 px-2 py-1.5">
-                    <p className="flex items-start gap-1.5 text-xs text-amber-800">
+                  <div className="mt-1.5 flex items-center justify-between gap-3 rounded-md bg-warning-soft px-2 py-1.5">
+                    <p className="flex items-start gap-1.5 text-xs text-warning-text">
                       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       Android hasn't been allowed to use this device yet. Access is asked for again each time the
                       printer is unplugged and reconnected.
@@ -557,7 +557,7 @@ function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
                     <button
                       type="button"
                       onClick={() => void grantAccess(device.id)}
-                      className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                      className="shrink-0 rounded-md border border-warning-line bg-surface px-2 py-1 text-xs font-semibold text-warning-text hover:bg-warning-soft"
                     >
                       Allow access
                     </button>
@@ -622,21 +622,21 @@ function WindowsPrinterSettings({ config }: PrinterSettingsSectionProps) {
         <ListHeader label="Installed printers" isLoading={isLoading} onRefresh={() => void refresh()} />
 
         {isLoading ? (
-          <p className="text-sm text-slate-400">Loading…</p>
+          <p className="text-sm text-fg-muted">Loading…</p>
         ) : printers.length === 0 ? (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-fg-muted">
             No printers found. Install the thermal printer in Windows (Settings &gt; Printers &amp; scanners) first,
             then Refresh.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100 rounded-md border border-slate-100">
+          <ul className="divide-y divide-line rounded-md border border-line">
             {printers.map((printer) => {
               const isSelected = selectedName === printer.name;
               return (
                 <li key={printer.name} className="flex items-center justify-between px-3 py-2.5">
                   <span className="flex min-w-0 items-center gap-2">
-                    <Printer className="h-4 w-4 shrink-0 text-slate-400" />
-                    <span className="truncate text-sm font-medium text-slate-900">{printer.name}</span>
+                    <Printer className="h-4 w-4 shrink-0 text-fg-muted" />
+                    <span className="truncate text-sm font-medium text-fg">{printer.name}</span>
                   </span>
                   <button
                     type="button"
@@ -645,8 +645,8 @@ function WindowsPrinterSettings({ config }: PrinterSettingsSectionProps) {
                     className={[
                       "shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold",
                       isSelected
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50",
+                        ? "bg-success-soft text-success-text"
+                        : "bg-accent text-accent-ink hover:bg-accent-hover disabled:opacity-50",
                     ].join(" ")}
                   >
                     {isSaving === printer.name ? "Saving…" : isSelected ? "Selected" : "Select"}

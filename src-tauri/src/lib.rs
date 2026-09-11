@@ -311,6 +311,8 @@ pub fn run() {
             commands::app_db_version,
             commands::app_db_tables,
             commands::get_app_config,
+            commands::config_get_theme,
+            commands::config_set_theme,
             commands::update_app_config,
             commands::vendor_gate_status,
             commands::vendor_gate_verify,

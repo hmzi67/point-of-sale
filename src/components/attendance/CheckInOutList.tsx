@@ -63,7 +63,7 @@ export function CheckInOutList() {
     return (
       <div className="space-y-2">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-20 animate-pulse rounded-lg border border-slate-200 bg-slate-50" />
+          <div key={i} className="h-20 animate-pulse rounded-lg border border-line bg-surface-2" />
         ))}
       </div>
     );
@@ -71,7 +71,7 @@ export function CheckInOutList() {
 
   if (employees.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-400">
+      <p className="rounded-lg border border-dashed border-line-strong px-4 py-10 text-center text-sm text-fg-muted">
         No active employees on file. Add one from the Employees screen.
       </p>
     );
@@ -79,7 +79,7 @@ export function CheckInOutList() {
 
   return (
     <div className="space-y-4">
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {employees.map((employee) => {
@@ -90,21 +90,21 @@ export function CheckInOutList() {
           return (
             <div
               key={employee.id}
-              className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+              className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 shadow-sm"
             >
               <div>
-                <p className="text-base font-semibold text-slate-900">{employee.name}</p>
-                <p className="text-sm text-slate-500">{employee.role}</p>
+                <p className="text-base font-semibold text-fg">{employee.name}</p>
+                <p className="text-sm text-fg-muted">{employee.role}</p>
               </div>
 
               {/* Plain-language time readout — never a raw "HH:MM – HH:MM"
                   pair, which reads as a glitch when both timestamps fall in
                   the same minute during quick real-world use. */}
               {status === "checked-in" && record?.checkIn && (
-                <p className="text-sm text-slate-600">Checked in at {formatTime(record.checkIn)}</p>
+                <p className="text-sm text-fg-2">Checked in at {formatTime(record.checkIn)}</p>
               )}
               {status === "done" && record?.checkIn && record?.checkOut && (
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-fg-2">
                   Checked in at {formatTime(record.checkIn)}
                   <br />
                   Checked out at {formatTime(record.checkOut)}
@@ -112,7 +112,7 @@ export function CheckInOutList() {
               )}
 
               {status === "done" ? (
-                <span className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-500">
+                <span className="flex items-center justify-center gap-1.5 rounded-lg bg-surface-3 px-4 py-2.5 text-sm font-semibold text-fg-muted">
                   <CheckCircle2 className="h-4 w-4" />
                   Done for today
                 </span>
@@ -124,8 +124,8 @@ export function CheckInOutList() {
                   className={[
                     "flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                     status === "checked-in"
-                      ? "bg-orange-600 hover:bg-orange-700"
-                      : "bg-emerald-600 hover:bg-emerald-700",
+                      ? "bg-warning hover:bg-warning/85"
+                      : "bg-success hover:bg-success/85",
                   ].join(" ")}
                 >
                   {status === "checked-in" ? (

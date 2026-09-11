@@ -122,16 +122,16 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <ReceiptText className="h-4 w-4 text-brand-600" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
+            <ReceiptText className="h-4 w-4 text-accent-text" />
             {step === "search" && "Find a Sale to Refund"}
             {step === "pick" && `Refund Sale #${sale?.saleId}`}
             {step === "done" && "Refund Complete"}
           </h3>
-          <button type="button" onClick={onClose} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+          <button type="button" onClick={onClose} className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -140,38 +140,38 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
           {step === "search" && (
             <>
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search by sale #…"
                   autoFocus
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3.5 text-sm focus:border-brand-400 focus:outline-none"
+                  className="w-full rounded-2xl border border-line bg-surface-2 py-2.5 pl-9 pr-3.5 text-sm focus:border-accent focus:outline-none"
                 />
               </div>
-              {searchError && <p className="text-sm text-red-600">{searchError}</p>}
-              <ul className="divide-y divide-slate-100">
+              {searchError && <p className="text-sm text-danger-text">{searchError}</p>}
+              <ul className="divide-y divide-line">
                 {filteredSales.map((s) => (
                   <li key={s.id}>
                     <button
                       type="button"
                       onClick={() => void selectSale(s.id)}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2.5 text-left text-sm hover:bg-slate-50"
+                      className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2.5 text-left text-sm hover:bg-surface-2"
                     >
                       <span>
-                        <span className="block font-medium text-slate-900">Sale #{s.id}</span>
-                        <span className="block text-xs text-slate-500">
+                        <span className="block font-medium text-fg">Sale #{s.id}</span>
+                        <span className="block text-xs text-fg-muted">
                           {s.createdAt} · {s.cashierName ?? "—"} · {s.paymentMethod}
                         </span>
                       </span>
-                      <span className="shrink-0 font-semibold text-slate-900">
+                      <span className="shrink-0 font-semibold text-fg">
                         {formatMinor(s.totalMinor, config.currency)}
                       </span>
                     </button>
                   </li>
                 ))}
                 {filteredSales.length === 0 && !searchError && (
-                  <p className="py-6 text-center text-sm text-slate-400">No matching sales</p>
+                  <p className="py-6 text-center text-sm text-fg-muted">No matching sales</p>
                 )}
               </ul>
             </>
@@ -181,15 +181,15 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
             <>
               <ul className="space-y-2.5">
                 {sale.items.map((line) => (
-                  <li key={line.saleItemId} className="rounded-2xl bg-slate-50 p-3">
+                  <li key={line.saleItemId} className="rounded-2xl bg-surface-2 p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-slate-900">{line.itemName}</span>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-sm font-medium text-fg">{line.itemName}</span>
+                      <span className="text-xs text-fg-muted">
                         {formatMinor(line.priceAtSaleMinor, config.currency)} each
                       </span>
                     </div>
                     <div className="mt-1.5 flex items-center justify-between gap-2">
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-fg-muted">
                         {formatQty(line.qtyRefundable)} of {formatQty(line.qty)} refundable
                         {line.qtyAlreadyRefunded > 0 && ` (${formatQty(line.qtyAlreadyRefunded)} already refunded)`}
                       </span>
@@ -201,7 +201,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
                         value={qtyByLine[line.saleItemId] ?? 0}
                         onChange={(e) => setQty(line, Number(e.target.value) || 0)}
                         disabled={line.qtyRefundable === 0}
-                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-sm focus:border-brand-400 focus:outline-none disabled:opacity-40"
+                        className="w-16 rounded-lg border border-line bg-surface px-2 py-1 text-right text-sm focus:border-accent focus:outline-none disabled:opacity-40"
                       />
                     </div>
                   </li>
@@ -209,44 +209,44 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
               </ul>
 
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">Reason (optional)</span>
+                <span className="mb-1 block text-xs font-medium text-fg-muted">Reason (optional)</span>
                 <textarea
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   rows={2}
                   placeholder="Why is this being refunded?"
-                  className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
+                  className="w-full resize-none rounded-2xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm placeholder:text-fg-muted focus:border-accent focus:outline-none"
                 />
               </label>
 
-              <div className="flex items-center justify-between rounded-2xl bg-brand-50 px-3.5 py-2.5 text-sm font-semibold text-brand-700">
+              <div className="flex items-center justify-between rounded-2xl bg-accent-soft px-3.5 py-2.5 text-sm font-semibold text-accent-text">
                 <span>Total Refund</span>
                 <span>{formatMinor(totalRefundMinor, config.currency)}</span>
               </div>
 
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <p className="text-sm text-danger-text">{error}</p>}
             </>
           )}
 
           {step === "done" && refund && (
-            <div className="space-y-2 rounded-2xl bg-emerald-50 p-4 text-center">
-              <p className="text-sm font-semibold text-emerald-700">Refund #{refund.id} recorded</p>
-              <p className="text-2xl font-bold text-emerald-700">
+            <div className="space-y-2 rounded-2xl bg-success-soft p-4 text-center">
+              <p className="text-sm font-semibold text-success-text">Refund #{refund.id} recorded</p>
+              <p className="text-2xl font-bold text-success-text">
                 {formatMinor(refund.totalRefundAmountMinor, config.currency)}
               </p>
-              <p className="text-xs text-emerald-600">Stock has been restored for the refunded quantities.</p>
-              {printStatus && <p className="text-xs text-slate-500">{printStatus}</p>}
+              <p className="text-xs text-success-text">Stock has been restored for the refunded quantities.</p>
+              {printStatus && <p className="text-xs text-fg-muted">{printStatus}</p>}
             </div>
           )}
         </div>
 
-        <div className="space-y-2 border-t border-slate-100 p-5 pt-3">
+        <div className="space-y-2 border-t border-line p-5 pt-3">
           {step === "pick" && (
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setStep("search")}
-                className="flex-1 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                className="flex-1 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
               >
                 Back
               </button>
@@ -254,7 +254,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
                 type="button"
                 onClick={() => void submit()}
                 disabled={linesToRefund.length === 0 || isSubmitting}
-                className="flex-1 rounded-2xl bg-brand-600 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-brand-700 disabled:opacity-50"
+                className="flex-1 rounded-2xl bg-accent py-2.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:opacity-50"
               >
                 {isSubmitting ? "Refunding…" : "Confirm Refund"}
               </button>
@@ -267,7 +267,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
                 <button
                   type="button"
                   onClick={() => void downloadPdf()}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
                 >
                   <Download className="h-4 w-4" />
                   PDF
@@ -275,7 +275,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
                 <button
                   type="button"
                   onClick={() => void printThermal()}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
                 >
                   <Printer className="h-4 w-4" />
                   Print
@@ -284,7 +284,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full rounded-2xl bg-brand-600 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-brand-700"
+                className="w-full rounded-2xl bg-accent py-2.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover"
               >
                 Done
               </button>

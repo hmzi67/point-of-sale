@@ -175,14 +175,14 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
   const title = source.kind === "table" ? `Print token — ${source.tableName}` : "Print token — Takeaway";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-md rounded-lg bg-surface shadow-xl">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <h3 className="text-base font-semibold text-fg">{title}</h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-md p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -190,43 +190,43 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
         </div>
 
         <div className="max-h-[70dvh] space-y-4 overflow-y-auto px-5 py-4">
-          {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+          {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
           {results && (
-            <ul className="space-y-1 rounded-md border border-slate-200 p-3 text-sm">
+            <ul className="space-y-1 rounded-md border border-line p-3 text-sm">
               {results.map((r) => (
                 <li key={r.counterId} className="flex items-center justify-between">
-                  <span className="font-medium text-slate-700">{r.counterName}</span>
+                  <span className="font-medium text-fg-2">{r.counterName}</span>
                   {r.outcome.status === "printed" && (
-                    <span className="text-emerald-600">Printed — token #{r.outcome.token.tokenNumber}</span>
+                    <span className="text-success-text">Printed — token #{r.outcome.token.tokenNumber}</span>
                   )}
                   {r.outcome.status === "nothingPending" && (
-                    <span className="text-slate-400">Nothing pending</span>
+                    <span className="text-fg-muted">Nothing pending</span>
                   )}
-                  {r.outcome.status === "failed" && <span className="text-red-600">{r.outcome.error}</span>}
+                  {r.outcome.status === "failed" && <span className="text-danger-text">{r.outcome.error}</span>}
                 </li>
               ))}
             </ul>
           )}
 
           {isLoading ? (
-            <p className="text-sm text-slate-500">Loading…</p>
+            <p className="text-sm text-fg-muted">Loading…</p>
           ) : pending.length === 0 && counters.length === 0 ? (
-            <p className="rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800">
+            <p className="rounded-md bg-warning-soft px-3 py-3 text-sm text-warning-text">
               No counters have been set up yet, so no item can ever have a token to print. Go to{" "}
               <span className="font-medium">Settings → Counters</span> to add one (e.g. "Kitchen", "Drinks"),
               then open each item's edit form in <span className="font-medium">Inventory</span> and assign it
               a counter.
             </p>
           ) : pending.length === 0 && printed.length === 0 && !results ? (
-            <p className="rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800">
+            <p className="rounded-md bg-warning-soft px-3 py-3 text-sm text-warning-text">
               None of the items in this order are assigned to a counter, so there's nothing to token. Open
               each item's edit form in <span className="font-medium">Inventory</span> and set its{" "}
               <span className="font-medium">Counter</span> field — an item left unset (e.g. roti) will keep
               never printing a token, on purpose.
             </p>
           ) : pending.length === 0 ? (
-            <p className="rounded-md bg-slate-50 px-3 py-3 text-sm text-slate-600">
+            <p className="rounded-md bg-surface-2 px-3 py-3 text-sm text-fg-2">
               All items already sent to counters.
             </p>
           ) : (
@@ -234,24 +234,24 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
               {pending.map((group) => (
                 <label
                   key={group.counterId}
-                  className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 p-3 hover:bg-slate-50"
+                  className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-surface-2"
                 >
                   <input
                     type="checkbox"
                     checked={selected.has(group.counterId)}
                     onChange={() => toggle(group.counterId)}
-                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400"
+                    className="mt-0.5 h-4 w-4 rounded border-line-strong text-accent-text focus:ring-accent"
                   />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-slate-900">{group.counterName}</p>
-                    <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+                    <p className="text-sm font-medium text-fg">{group.counterName}</p>
+                    <ul className="mt-1 space-y-0.5 text-xs text-fg-2">
                       {group.items.map((line) => (
                         <li key={line.itemId} className="flex justify-between">
                           <span>{line.itemName}</span>
                           <span className="font-medium">
                             {formatQty(line.qty, line.unit)}
                             {line.soldByAmount && (
-                              <span className="ml-1 text-slate-400">
+                              <span className="ml-1 text-fg-muted">
                                 ({formatMinor(line.amountMinor, currency)})
                               </span>
                             )}
@@ -267,8 +267,8 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
 
           {source.kind === "table" && printed.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-slate-500">Already printed</p>
-              <ul className="mt-1 divide-y divide-slate-100 rounded-md border border-slate-200">
+              <p className="text-xs font-medium text-fg-muted">Already printed</p>
+              <ul className="mt-1 divide-y divide-line rounded-md border border-line">
                 {printed.map((token) => (
                   <li key={token.id} className="flex items-center justify-between px-3 py-2 text-sm">
                     <span>
@@ -278,7 +278,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
                       type="button"
                       onClick={() => void handleReprint(token.id)}
                       disabled={reprintingId === token.id}
-                      className="flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-brand-600 disabled:opacity-50"
+                      className="flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-accent-text disabled:opacity-50"
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
                       Reprint
@@ -290,18 +290,18 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
           )}
 
           {source.kind === "adhoc" && (
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-fg-muted">
               Takeaway tokens aren't tracked against a saved order — printing again for the same items sends a
               fresh copy, so only print once you're ready.
             </p>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+        <div className="flex justify-end gap-2 border-t border-line px-5 py-4">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-3"
           >
             Close
           </button>
@@ -310,7 +310,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
               type="button"
               onClick={() => void handlePrint()}
               disabled={isPrinting || selected.size === 0}
-              className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
             >
               <Printer className="h-4 w-4" />
               {isPrinting ? "Printing…" : "Print selected"}

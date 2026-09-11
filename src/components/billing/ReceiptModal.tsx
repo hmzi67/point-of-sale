@@ -84,17 +84,17 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm rounded-3xl bg-white shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <span className="flex items-center gap-2 text-base font-semibold text-emerald-700">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-sm rounded-3xl bg-surface shadow-soft-lg">
+        <div className="flex items-center justify-between border-b border-line px-5 py-4">
+          <span className="flex items-center gap-2 text-base font-semibold text-success-text">
             <CheckCircle2 className="h-5 w-5" />
             Sale complete
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-md p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -102,58 +102,58 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
         </div>
 
         <div className="max-h-[60dvh] overflow-y-auto px-5 py-4">
-          <p className="text-center text-sm text-slate-500">{config.businessName}</p>
-          <p className="text-center text-xs text-slate-400">
+          <p className="text-center text-sm text-fg-muted">{config.businessName}</p>
+          <p className="text-center text-xs text-fg-muted">
             Sale #{sale.id} · {sale.createdAt}
           </p>
 
-          <ul className="mt-4 divide-y divide-slate-100 border-y border-slate-100 text-sm">
+          <ul className="mt-4 divide-y divide-line border-y border-line text-sm">
             {sale.items.map((line) => (
               <li key={line.itemId} className="flex justify-between py-1.5">
-                <span className="text-slate-700">
-                  {line.itemName} <span className="text-slate-400">×{formatQty(line.qty, line.unit)}</span>
+                <span className="text-fg-2">
+                  {line.itemName} <span className="text-fg-muted">×{formatQty(line.qty, line.unit)}</span>
                 </span>
-                <span className="text-slate-900">{formatMinor(line.lineTotalMinor, config.currency)}</span>
+                <span className="text-fg">{formatMinor(line.lineTotalMinor, config.currency)}</span>
               </li>
             ))}
           </ul>
 
           <dl className="mt-3 space-y-1 text-sm">
-            <div className="flex justify-between text-slate-500">
+            <div className="flex justify-between text-fg-muted">
               <dt>Subtotal</dt>
               <dd>{formatMinor(sale.subtotalMinor, config.currency)}</dd>
             </div>
             {sale.discountMinor > 0 && (
-              <div className="flex justify-between text-slate-500">
+              <div className="flex justify-between text-fg-muted">
                 <dt>Discount</dt>
                 <dd>-{formatMinor(sale.discountMinor, config.currency)}</dd>
               </div>
             )}
             {sale.taxMinor > 0 && (
-              <div className="flex justify-between text-slate-500">
+              <div className="flex justify-between text-fg-muted">
                 <dt>Tax</dt>
                 <dd>{formatMinor(sale.taxMinor, config.currency)}</dd>
               </div>
             )}
-            <div className="flex justify-between border-t border-slate-200 pt-1.5 text-base font-semibold text-slate-900">
+            <div className="flex justify-between border-t border-line pt-1.5 text-base font-semibold text-fg">
               <dt>Total</dt>
               <dd>{formatMinor(sale.totalMinor, config.currency)}</dd>
             </div>
           </dl>
 
-          <p className="mt-3 text-center text-xs text-slate-500">
+          <p className="mt-3 text-center text-xs text-fg-muted">
             Paid by {sale.paymentMethod}
             {sale.tableName ? ` · ${sale.tableName}` : ""}
           </p>
         </div>
 
-        <div className="space-y-2 border-t border-slate-200 px-5 py-4">
-          {printStatus && <p className="text-center text-xs text-slate-500">{printStatus}</p>}
+        <div className="space-y-2 border-t border-line px-5 py-4">
+          {printStatus && <p className="text-center text-xs text-fg-muted">{printStatus}</p>}
           <button
             type="button"
             onClick={() => void printThermal()}
             disabled={isPrinting}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
           >
             <Printer className="h-4 w-4" />
             {isPrinting ? "Printing…" : "Print (thermal)"}
@@ -162,7 +162,7 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
             type="button"
             onClick={() => void savePdf()}
             disabled={isSavingPdf}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-sm font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
           >
             <Download className="h-4 w-4" />
             {isSavingPdf ? "Saving…" : "Save as PDF"}
@@ -170,7 +170,7 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
           <button
             type="button"
             onClick={onClose}
-            className="w-full rounded-md px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100"
+            className="w-full rounded-md px-3 py-2 text-sm font-medium text-fg-muted hover:bg-surface-3"
           >
             New sale
           </button>

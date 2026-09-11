@@ -20,17 +20,17 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
         <div className="flex items-start gap-3">
           {isDangerous && (
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-50">
-              <AlertTriangle className="h-5 w-5 text-red-600" />
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-danger-soft">
+              <AlertTriangle className="h-5 w-5 text-danger-text" />
             </span>
           )}
           <div>
-            <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-            <p className="mt-1 text-sm text-slate-600">{message}</p>
+            <h3 className="text-base font-semibold text-fg">{title}</h3>
+            <p className="mt-1 text-sm text-fg-2">{message}</p>
           </div>
         </div>
 
@@ -39,7 +39,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={isBusy}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-3 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -48,8 +48,10 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={isBusy}
             className={[
-              "rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50",
-              isDangerous ? "bg-red-600 hover:bg-red-700" : "bg-brand-600 hover:bg-brand-700",
+              "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50",
+              isDangerous
+                ? "bg-danger text-white hover:bg-danger/85"
+                : "bg-accent text-accent-ink hover:bg-accent-hover",
             ].join(" ")}
           >
             {isBusy ? "…" : confirmLabel}

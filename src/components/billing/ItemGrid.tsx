@@ -33,7 +33,7 @@ export function ItemGrid({
     return (
       <div className={gridClass}>
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-52 animate-pulse rounded-2xl bg-white shadow-soft" />
+          <div key={i} className="h-52 animate-pulse rounded-2xl bg-surface shadow-soft" />
         ))}
       </div>
     );
@@ -41,7 +41,7 @@ export function ItemGrid({
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 py-16 text-slate-400">
+      <div className="flex flex-col items-center justify-center gap-2 py-16 text-fg-muted">
         <PackageSearch className="h-8 w-8" />
         <p className="text-sm">{isSearching ? "No items match your search" : "No items in this category yet"}</p>
       </div>

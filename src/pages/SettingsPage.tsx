@@ -1,119 +1,92 @@
-import { useState } from "react";
-import { Lock } from "lucide-react";
+import { KeyRound, LayoutGrid, Printer, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { AppearanceSection } from "../components/settings/AppearanceSection";
 import { AreaPinSection } from "../components/settings/AreaPinSection";
+import { BusinessSection } from "../components/settings/BusinessSection";
 import { CountersSection } from "../components/settings/CountersSection";
 import { LicenseSection } from "../components/settings/LicenseSection";
+import { ModulesSection } from "../components/settings/ModulesSection";
 import { PrinterSettingsSection } from "../components/settings/PrinterSettingsSection";
+import { SettingsTabs, type SettingsTab } from "../components/settings/SettingsTabs";
 import { StoreIdentitySection } from "../components/settings/StoreIdentitySection";
-import { ToggleSwitch } from "../components/ui/ToggleSwitch";
 import { useModuleStore } from "../store";
 import { useAppConfig } from "../hooks/useAppConfig";
-import { PLATFORM, type ModuleKey } from "../types";
+
+type TabKey = "general" | "printer" | "license" | "security" | "modules";
+
+const TABS: SettingsTab<TabKey>[] = [
+  { key: "general", label: "General", icon: SlidersHorizontal },
+  { key: "printer", label: "Printer", icon: Printer },
+  { key: "license", label: "Licence", icon: ShieldCheck },
+  { key: "security", label: "Security", icon: KeyRound },
+  { key: "modules", label: "Modules", icon: LayoutGrid },
+];
+
+const DEFAULT_TAB: TabKey = "general";
+
+function tabFromHash(hash: string): TabKey {
+  const key = hash.replace(/^#/, "");
+  return TABS.some((tab) => tab.key === key) ? (key as TabKey) : DEFAULT_TAB;
+}
 
 /**
- * The "onboard a new client" screen: flip modules on or off for this
- * installation. No rebuild, no code change — the sidebar and routes follow.
+ * Owner/Admin-only (the route guard, `App.tsx`) — every tab here is the same
+ * tier, so there is no per-tab role check. Security (Area PIN) is its own
+ * tab on purpose even though it holds one card: a deliberate extra step
+ * before touching the thing that can lock staff out of Reports.
+ *
+ * The active tab *is* the URL hash (`/settings#printer`), not local state.
+ * That is what keeps the licence deep link working now that the page is
+ * tabbed: `LicenseBanner` and `LicenseLockGate` navigate to
+ * `/settings#license`, which lands on the Licence tab, mounts
+ * `LicenseSection`, and lets its own `#license` scroll effect run — the
+ * section didn't need to learn anything about tabs. It also means the tab
+ * survives a re-render and the back button, for free.
  */
 export function SettingsPage() {
-  const modules = useModuleStore((state) => state.modules);
-  const toggle = useModuleStore((state) => state.toggle);
-  const error = useModuleStore((state) => state.error);
+  const { hash } = useLocation();
+  const navigate = useNavigate();
   const { config } = useAppConfig();
-  const [pendingKey, setPendingKey] = useState<ModuleKey | null>(null);
+  const tablesEnabled = useModuleStore((state) =>
+    state.modules.some((module) => module.key === "tables" && module.enabled),
+  );
 
-  const onToggle = async (key: ModuleKey, enabled: boolean) => {
-    setPendingKey(key);
-    try {
-      await toggle(key, enabled);
-    } catch {
-      // The store keeps the message; nothing to do here.
-    } finally {
-      setPendingKey(null);
-    }
-  };
+  const active = tabFromHash(hash);
+  const selectTab = (key: TabKey) => navigate(`#${key}`, { replace: true });
 
   return (
-    <section className="mx-auto max-w-3xl space-y-6">
-      <StoreIdentitySection config={config} />
+    <section className="mx-auto max-w-3xl">
+      <header className="mb-4">
+        <h2 className="text-lg font-semibold text-fg">Settings</h2>
+        <p className="text-sm text-fg-muted">Configure this installation — changes apply immediately.</p>
+      </header>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Business</h2>
-        <dl className="mt-4 grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <dt className="text-slate-500">Type</dt>
-            <dd className="capitalize text-slate-900">{config.businessType}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">Currency</dt>
-            <dd className="text-slate-900">{config.currency}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">Tax</dt>
-            <dd className="text-slate-900">{config.taxPercent}%</dd>
-          </div>
-        </dl>
-      </div>
+      <SettingsTabs tabs={TABS} active={active} onSelect={selectTab} />
 
-      <PrinterSettingsSection config={config} />
-
-      <LicenseSection />
-
-      <AreaPinSection />
-
-      {/* KOT tokens are a restaurant/tables workflow, so counter management
-          only makes sense — and only appears — when Tables is enabled. */}
-      {modules.some((module) => module.key === "tables" && module.enabled) && <CountersSection />}
-
-      <div className="rounded-lg border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Modules</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Choose what this installation shows on{" "}
-            <span className="font-medium capitalize">{PLATFORM}</span>. Disabled modules disappear
-            from the sidebar and can no longer be opened by URL.
-          </p>
-        </div>
-
-        {error && (
-          <p className="border-b border-red-100 bg-red-50 px-6 py-3 text-sm text-red-700">{error}</p>
+      <div className="mt-6 space-y-6">
+        {active === "general" && (
+          <>
+            <StoreIdentitySection config={config} />
+            <BusinessSection config={config} />
+            <AppearanceSection />
+          </>
         )}
 
-        <ul className="divide-y divide-slate-100">
-          {modules.map((module) => (
-            <li key={module.key} className="flex items-center justify-between px-6 py-4">
-              <div>
-                <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                  {module.name}
-                  {module.isCore && (
-                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-500">
-                      <Lock className="h-3 w-3" />
-                      Core
-                    </span>
-                  )}
-                  {module.locked && (
-                    <span
-                      title="Locked by the product administrator — cannot be changed here"
-                      className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-normal text-amber-700"
-                    >
-                      <Lock className="h-3 w-3" />
-                      Locked
-                    </span>
-                  )}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Android: {module.androidEnabled ? "shown" : "hidden"}
-                </p>
-              </div>
+        {active === "printer" && <PrinterSettingsSection config={config} />}
 
-              <ToggleSwitch
-                label={`Toggle ${module.name}`}
-                checked={module.enabled}
-                disabled={module.isCore || module.locked || pendingKey === module.key}
-                onChange={(enabled) => void onToggle(module.key, enabled)}
-              />
-            </li>
-          ))}
-        </ul>
+        {active === "license" && <LicenseSection />}
+
+        {active === "security" && <AreaPinSection />}
+
+        {active === "modules" && (
+          <>
+            <ModulesSection />
+            {/* KOT tokens are a restaurant/tables workflow, so counter
+                management only makes sense — and only appears — when Tables
+                is enabled. Sits with the module that switches it on. */}
+            {tablesEnabled && <CountersSection />}
+          </>
+        )}
       </div>
     </section>
   );

@@ -104,24 +104,24 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-md overflow-hidden rounded-lg border border-slate-700 bg-slate-900 text-slate-100 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-700 px-4 py-3">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-md overflow-hidden rounded-lg border border-line-strong bg-surface text-fg shadow-soft-lg">
+        <div className="flex items-center justify-between border-b border-line-strong px-4 py-3">
           <span className="flex items-center gap-2 text-sm font-semibold">
-            <ShieldAlert className="h-4 w-4 text-amber-400" />
+            <ShieldAlert className="h-4 w-4 text-warning-text" />
             Vendor Access
           </span>
-          <button type="button" onClick={onClose} className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+          <button type="button" onClick={onClose} className="rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-fg">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="max-h-[75dvh] overflow-y-auto p-4">
-          {stage === "loading" && <p className="text-sm text-slate-400">Checking…</p>}
+          {stage === "loading" && <p className="text-sm text-fg-muted">Checking…</p>}
 
           {stage === "setup" && (
             <div className="space-y-3">
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-fg-muted">
                 No credential is set on this install yet. Set one now — it is stored only on this
                 machine and cannot be recovered from within the app if lost.
               </p>
@@ -131,7 +131,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="New password (min 8 characters)"
-                className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm placeholder:text-slate-500 focus:border-amber-400 focus:outline-none"
+                className="w-full rounded border border-line-strong bg-surface-2 px-3 py-2 text-sm placeholder:text-fg-muted focus:border-warning-line focus:outline-none"
               />
               <input
                 type="password"
@@ -139,14 +139,14 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void submitSetup()}
                 placeholder="Confirm password"
-                className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm placeholder:text-slate-500 focus:border-amber-400 focus:outline-none"
+                className="w-full rounded border border-line-strong bg-surface-2 px-3 py-2 text-sm placeholder:text-fg-muted focus:border-warning-line focus:outline-none"
               />
-              {error && <p className="text-xs text-red-400">{error}</p>}
+              {error && <p className="text-xs text-danger-text">{error}</p>}
               <button
                 type="button"
                 onClick={() => void submitSetup()}
                 disabled={isSubmitting}
-                className="w-full rounded bg-amber-500 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-400 disabled:opacity-50"
+                className="w-full rounded bg-warning py-2 text-sm font-semibold text-fg hover:bg-warning disabled:opacity-50"
               >
                 {isSubmitting ? "Setting…" : "Set Credential"}
               </button>
@@ -162,14 +162,14 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void submitLogin()}
                 placeholder="Password"
-                className="w-full rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm placeholder:text-slate-500 focus:border-amber-400 focus:outline-none"
+                className="w-full rounded border border-line-strong bg-surface-2 px-3 py-2 text-sm placeholder:text-fg-muted focus:border-warning-line focus:outline-none"
               />
-              {error && <p className="text-xs text-red-400">{error}</p>}
+              {error && <p className="text-xs text-danger-text">{error}</p>}
               <button
                 type="button"
                 onClick={() => void submitLogin()}
                 disabled={isSubmitting}
-                className="w-full rounded bg-amber-500 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-400 disabled:opacity-50"
+                className="w-full rounded bg-warning py-2 text-sm font-semibold text-fg hover:bg-warning disabled:opacity-50"
               >
                 {isSubmitting ? "Checking…" : "Unlock"}
               </button>
@@ -178,16 +178,16 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
 
           {stage === "panel" && (
             <div className="space-y-2">
-              <p className="mb-1 text-xs text-slate-400">
+              <p className="mb-1 text-xs text-fg-muted">
                 Locking a module here blocks the client's own Owner/Admin from changing it in Settings.
               </p>
-              {error && <p className="text-xs text-red-400">{error}</p>}
-              <ul className="divide-y divide-slate-800">
+              {error && <p className="text-xs text-danger-text">{error}</p>}
+              <ul className="divide-y divide-line">
                 {modules.map((m) => (
                   <li key={m.key} className="py-2.5">
                     <p className="text-sm font-medium">
-                      {m.name} <span className="text-xs text-slate-500">({m.key})</span>
-                      {m.isCore && <span className="ml-1.5 text-xs text-slate-500">core</span>}
+                      {m.name} <span className="text-xs text-fg-muted">({m.key})</span>
+                      {m.isCore && <span className="ml-1.5 text-xs text-fg-muted">core</span>}
                     </p>
                     <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs">
                       <PlatformControls
@@ -212,7 +212,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
               <button
                 type="button"
                 onClick={() => void endSession()}
-                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-slate-700 py-2 text-xs font-medium text-slate-400 hover:bg-slate-800"
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-line-strong py-2 text-xs font-medium text-fg-muted hover:bg-surface-3"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 End session
@@ -239,12 +239,12 @@ function PlatformControls({
   onToggleLock: () => void;
 }) {
   return (
-    <span className="flex items-center gap-1.5 rounded bg-slate-800 px-2 py-1">
-      <span className="text-slate-400">{label}:</span>
+    <span className="flex items-center gap-1.5 rounded bg-surface-2 px-2 py-1">
+      <span className="text-fg-muted">{label}:</span>
       <button
         type="button"
         onClick={() => onSetEnabled(!enabled)}
-        className={enabled ? "font-semibold text-emerald-400" : "font-semibold text-slate-500"}
+        className={enabled ? "font-semibold text-success-text" : "font-semibold text-fg-muted"}
       >
         {enabled ? "on" : "off"}
       </button>
@@ -252,7 +252,7 @@ function PlatformControls({
         type="button"
         onClick={onToggleLock}
         title={locked ? "Locked — click to unlock" : "Unlocked — click to lock"}
-        className={locked ? "text-amber-400" : "text-slate-600 hover:text-slate-400"}
+        className={locked ? "text-warning-text" : "text-fg-2 hover:text-fg-muted"}
       >
         {locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
       </button>

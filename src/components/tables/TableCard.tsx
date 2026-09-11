@@ -16,15 +16,15 @@ interface TableCardProps {
 /** Color-codes a table by status: free = green, occupied = red, reserved =
  * amber — the floor view's whole point is reading this at a glance. */
 const STATUS_STYLES: Record<TableSummary["status"], string> = {
-  free: "border-emerald-300 bg-emerald-50 hover:bg-emerald-100",
-  occupied: "border-red-300 bg-red-50 hover:bg-red-100",
-  reserved: "border-amber-300 bg-amber-50 hover:bg-amber-100",
+  free: "border-success-line bg-success-soft hover:bg-success-soft",
+  occupied: "border-danger-line bg-danger-soft hover:bg-danger-soft",
+  reserved: "border-warning-line bg-warning-soft hover:bg-warning-soft",
 };
 
 const STATUS_DOT: Record<TableSummary["status"], string> = {
-  free: "bg-emerald-500",
-  occupied: "bg-red-500",
-  reserved: "bg-amber-500",
+  free: "bg-success",
+  occupied: "bg-danger",
+  reserved: "bg-warning",
 };
 
 const STATUS_LABEL: Record<TableSummary["status"], string> = {
@@ -61,11 +61,11 @@ export function TableCard({
           disabled={busy}
           className="flex flex-1 flex-col items-start gap-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-fg">
             <span className={`h-2 w-2 rounded-full ${STATUS_DOT[table.status]}`} />
             {table.name}
           </span>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-fg-muted">
             {table.seats} seat{table.seats === 1 ? "" : "s"} · {STATUS_LABEL[table.status]}
             {table.hasParkedOrder ? " · order in progress" : ""}
           </span>
@@ -78,7 +78,7 @@ export function TableCard({
             disabled={busy}
             aria-label={`Rename ${table.name}`}
             title="Rename table"
-            className="rounded p-1 text-slate-400 hover:bg-white hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded p-1 text-fg-muted hover:bg-surface hover:text-fg-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -88,7 +88,7 @@ export function TableCard({
             disabled={busy || table.hasParkedOrder}
             aria-label={`Delete ${table.name}`}
             title={table.hasParkedOrder ? "Clear the table's order before deleting it" : "Delete table"}
-            className="rounded p-1 text-slate-400 hover:bg-white hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded p-1 text-fg-muted hover:bg-surface hover:text-danger-text disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -101,7 +101,7 @@ export function TableCard({
             type="button"
             onClick={onReserve}
             disabled={busy}
-            className="rounded border border-slate-300 bg-white/60 px-2 py-1 font-medium text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded border border-line-strong bg-surface/60 px-2 py-1 font-medium text-fg-2 hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
             Mark reserved
           </button>
@@ -111,7 +111,7 @@ export function TableCard({
             type="button"
             onClick={onRelease}
             disabled={busy}
-            className="rounded border border-slate-300 bg-white/60 px-2 py-1 font-medium text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded border border-line-strong bg-surface/60 px-2 py-1 font-medium text-fg-2 hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
             Clear table
           </button>
@@ -121,7 +121,7 @@ export function TableCard({
             type="button"
             onClick={onShift}
             disabled={busy}
-            className="rounded border border-slate-300 bg-white/60 px-2 py-1 font-medium text-slate-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded border border-line-strong bg-surface/60 px-2 py-1 font-medium text-fg-2 hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
           >
             Shift table
           </button>

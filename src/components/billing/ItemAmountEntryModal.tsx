@@ -44,25 +44,25 @@ export function ItemAmountEntryModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <Banknote className="h-4 w-4 text-brand-600" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
+            <Banknote className="h-4 w-4 text-accent-text" />
             {item.name} — by amount
           </h3>
-          <button type="button" onClick={close} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+          <button type="button" onClick={close} className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="space-y-3 px-5 pt-4">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-fg-muted">
             {formatMinor(item.priceMinor)} per {item.unit ?? "unit"}
           </p>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Amount (PKR)</span>
+            <span className="mb-1 block text-xs font-medium text-fg-muted">Amount (PKR)</span>
             <input
               type="number"
               min="0"
@@ -87,22 +87,22 @@ export function ItemAmountEntryModal() {
               }}
               autoFocus
               placeholder="e.g. 100"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-lg font-semibold focus:border-brand-400 focus:outline-none"
+              className="w-full rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-lg font-semibold focus:border-accent focus:outline-none"
             />
           </label>
 
-          <div className="rounded-xl bg-brand-50 px-3.5 py-2.5 text-sm text-brand-800">
+          <div className="rounded-xl bg-accent-soft px-3.5 py-2.5 text-sm text-accent-text">
             {amountMinor > 0 ? (
               <>
                 ≈ <span className="font-semibold">{formatQty(computedQty, item.unit)}</span>
                 {computedQty > item.stockQty && (
-                  <span className="mt-1 block text-xs text-red-600">
+                  <span className="mt-1 block text-xs text-danger-text">
                     Only {formatQty(item.stockQty, item.unit)} in stock — this will be capped.
                   </span>
                 )}
               </>
             ) : (
-              <span className="text-brand-400">Type an amount to see the quantity</span>
+              <span className="text-accent">Type an amount to see the quantity</span>
             )}
           </div>
         </div>
@@ -111,7 +111,7 @@ export function ItemAmountEntryModal() {
           <button
             type="button"
             onClick={close}
-            className="flex-1 rounded-2xl bg-slate-100 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-200"
+            className="flex-1 rounded-2xl bg-surface-3 py-3 text-sm font-semibold text-fg-2 hover:bg-surface-3"
           >
             Cancel
           </button>
@@ -119,7 +119,7 @@ export function ItemAmountEntryModal() {
             type="button"
             onClick={confirm}
             disabled={amountMinor <= 0}
-            className="flex-1 rounded-2xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-soft hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex-1 rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             Add to Cart
           </button>

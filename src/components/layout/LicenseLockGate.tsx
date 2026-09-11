@@ -70,24 +70,24 @@ function LockScreen({ state }: { state: LockedState }) {
 
   return (
     <div className="mx-auto flex max-w-lg flex-col items-center py-10 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50">
-        <Lock className="h-7 w-7 text-red-600" aria-hidden />
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-danger-soft">
+        <Lock className="h-7 w-7 text-danger-text" aria-hidden />
       </div>
-      <h1 className="mt-4 text-xl font-semibold text-slate-900">{title}</h1>
-      <p className="mt-2 text-sm text-slate-600">{detail}</p>
+      <h1 className="mt-4 text-xl font-semibold text-fg">{title}</h1>
+      <p className="mt-2 text-sm text-fg-2">{detail}</p>
 
-      <dl className="mt-6 grid w-full grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left text-sm">
+      <dl className="mt-6 grid w-full grid-cols-2 gap-3 rounded-lg border border-line bg-surface p-4 text-left text-sm">
         <div>
-          <dt className="text-slate-500">Licence key</dt>
-          <dd className="font-mono text-slate-900">{info?.keyPrefix ?? "—"}</dd>
+          <dt className="text-fg-muted">Licence key</dt>
+          <dd className="font-mono text-fg">{info?.keyPrefix ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-slate-500">Last checked with server</dt>
-          <dd className="text-slate-900">{info?.lastOnlineCheck ? formatUnixDateTime(info.lastOnlineCheck) : "Never"}</dd>
+          <dt className="text-fg-muted">Last checked with server</dt>
+          <dd className="text-fg">{info?.lastOnlineCheck ? formatUnixDateTime(info.lastOnlineCheck) : "Never"}</dd>
         </div>
       </dl>
 
-      <p className="mt-6 text-sm font-medium text-slate-800">{nextStep}</p>
+      <p className="mt-6 text-sm font-medium text-fg-2">{nextStep}</p>
 
       <div className="mt-4 flex flex-wrap justify-center gap-2">
         {state.kind !== "missing" && (
@@ -95,7 +95,7 @@ function LockScreen({ state }: { state: LockedState }) {
             type="button"
             onClick={() => void onRefresh()}
             disabled={isBusy}
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${isBusy ? "animate-spin" : ""}`} />
             Re-check now
@@ -105,7 +105,7 @@ function LockScreen({ state }: { state: LockedState }) {
           <button
             type="button"
             onClick={() => navigate("/settings#license")}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-4 py-2 text-sm font-medium text-fg-2 hover:bg-surface-2"
           >
             <SettingsIcon className="h-4 w-4" />
             Licence settings
@@ -114,12 +114,12 @@ function LockScreen({ state }: { state: LockedState }) {
       </div>
 
       {message && (
-        <p role="status" className={`mt-4 text-sm ${message.tone === "warn" ? "text-amber-700" : "text-red-600"}`}>
+        <p role="status" className={`mt-4 text-sm ${message.tone === "warn" ? "text-warning-text" : "text-danger-text"}`}>
           {message.text}
         </p>
       )}
 
-      <p className="mt-8 text-xs text-slate-500">
+      <p className="mt-8 text-xs text-fg-muted">
         Billing, refunds and kitchen tokens are paused until the licence is active again. Your data
         is safe and nothing has been deleted.
       </p>

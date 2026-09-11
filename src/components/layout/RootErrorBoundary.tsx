@@ -45,13 +45,16 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
           justifyContent: "center",
           padding: 24,
           fontFamily: "sans-serif",
-          background: "#0f172a",
-          color: "#f1f5f9",
+          // Inline styles (this renders when React's tree may be broken, so
+          // no Tailwind classes) — but the theme variables on <html> are
+          // plain CSS and still resolve. Fallbacks are the dark values.
+          background: "var(--t-bg, #0a0f0d)",
+          color: "var(--t-fg, #f2f6f4)",
         }}
       >
         <div style={{ maxWidth: 480, textAlign: "center" }}>
           <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Diwan couldn't start</h1>
-          <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16 }}>
+          <p style={{ fontSize: 13, color: "var(--t-fg-muted, #93a39b)", marginBottom: 16 }}>
             Something went wrong before the app could load. Restarting usually fixes this — if it keeps happening,
             share this message.
           </p>
@@ -59,7 +62,8 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
             style={{
               fontSize: 11,
               textAlign: "left",
-              background: "#1e293b",
+              background: "var(--t-surface-2, #18221e)",
+              border: "1px solid var(--t-line, #1e2a25)",
               padding: 12,
               borderRadius: 8,
               overflowX: "auto",

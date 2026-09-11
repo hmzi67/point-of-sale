@@ -70,20 +70,20 @@ export function SalaryPage() {
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Salary</h2>
-        <p className="text-sm text-slate-500">
+        <h2 className="text-lg font-semibold text-fg">Salary</h2>
+        <p className="text-sm text-fg-muted">
           Calculated from attendance — base salary ÷ days in that month × days present.
         </p>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex rounded-md border border-slate-300 p-0.5 w-fit">
+        <div className="flex rounded-md border border-line-strong p-0.5 w-fit">
           <button
             type="button"
             onClick={() => setTab("overview")}
             className={[
               "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-              tab === "overview" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100",
+              tab === "overview" ? "bg-accent text-accent-ink" : "text-fg-2 hover:bg-surface-3",
             ].join(" ")}
           >
             Monthly overview
@@ -93,7 +93,7 @@ export function SalaryPage() {
             onClick={() => setTab("history")}
             className={[
               "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-              tab === "history" ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100",
+              tab === "history" ? "bg-accent text-accent-ink" : "text-fg-2 hover:bg-surface-3",
             ].join(" ")}
           >
             Payment history
@@ -106,14 +106,14 @@ export function SalaryPage() {
               type="month"
               value={month}
               onChange={(e) => setMonth(e.target.value)}
-              className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm"
+              className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
             />
             <button
               type="button"
               onClick={() => void downloadReport()}
               disabled={isDownloadingReport || rows.length === 0}
               title="Download the Employee Report — attendance and salary for every employee this month"
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md border border-line-strong px-2.5 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" />
               {isDownloadingReport ? "Preparing…" : "Employee Report"}
@@ -123,7 +123,7 @@ export function SalaryPage() {
               onClick={() => void printReport()}
               disabled={isPrintingReport || rows.length === 0}
               title="Print the Employee Report on the thermal printer"
-              className="flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md border border-line-strong px-2.5 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Printer className="h-3.5 w-3.5" />
               {isPrintingReport ? "Printing…" : "Print"}
@@ -132,8 +132,8 @@ export function SalaryPage() {
         )}
       </div>
 
-      {reportError && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{reportError}</p>}
-      {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {reportError && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{reportError}</p>}
+      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       {tab === "overview" ? (
         <MonthlyOverviewTable
