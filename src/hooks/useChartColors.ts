@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useThemeStore } from "../store";
+import { useUiPrefsStore } from "../store";
 
 /** The handful of theme colours recharts needs as literal values. */
 export interface ChartColors {
@@ -27,7 +27,7 @@ const INITIAL: ChartColors = { series: "#00e5a0", grid: "#1e2a25", tick: "#93a39
  * else — a one-off read on mount would leave it stranded in the old one.
  */
 export function useChartColors(): ChartColors {
-  const theme = useThemeStore((state) => state.theme);
+  const theme = useUiPrefsStore((state) => state.theme);
   const [colors, setColors] = useState<ChartColors>(INITIAL);
 
   useEffect(() => {

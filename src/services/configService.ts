@@ -1,4 +1,4 @@
-import type { AppConfig, Theme } from "../types";
+import type { AppConfig, Theme, UiPrefs } from "../types";
 import { call } from "./tauriClient";
 
 export function getAppConfig(): Promise<AppConfig> {
@@ -22,11 +22,16 @@ export function getLogoDataUrl(fileName: string): Promise<string> {
   return call<string>("config_get_logo", { fileName });
 }
 
-/** The persisted UI theme. Readable before login — the login and lock
- * screens are themed too — and never a reason to block boot: callers fall
- * back to dark (the `index.html` default) if this fails. */
-export function getTheme(): Promise<Theme> {
-  return call<Theme>("config_get_theme");
+/** The persisted display preferences (theme, sidebar). Readable before
+ * login — the login and lock screens are themed too — and never a reason
+ * to block boot: callers fall back to the defaults if this fails. */
+export function getUiPrefs(): Promise<UiPrefs> {
+  return call<UiPrefs>("config_get_ui_prefs");
+}
+
+/** Persists the desktop sidebar's collapsed state (any signed-in user). */
+export function setSidebarCollapsed(collapsed: boolean): Promise<void> {
+  return call<void>("config_set_sidebar_collapsed", { collapsed });
 }
 
 /** Persists the theme for this install (any signed-in user — it's a

@@ -166,13 +166,37 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
     })
 }
 
-/// The UI colour theme, `"dark"` or `"light"`. Lives on `app_config` (the
-/// one place per-install preferences are persisted — no second storage
-/// mechanism just for this) but is deliberately *not* part of `AppConfig`
-/// / `AppConfigUpdate`: it is a display preference any signed-in user may
-/// flip from the top bar, whereas `update_app_config` is Owner/Admin-only.
-pub fn get_theme(conn: &Connection) -> Result<String, rusqlite::Error> {
-    conn.query_row("SELECT theme FROM app_config WHERE id = 1", [], |row| row.get("theme"))
+/// Display preferences for this device's screen. They live on `app_config`
+/// (the one place per-install preferences are persisted — no second storage
+/// mechanism just for these) but are deliberately *not* part of `AppConfig`
+/// / `AppConfigUpdate`: any signed-in user may flip them from the top bar or
+/// sidebar, whereas `update_app_config` is Owner/Admin-only. Read together
+/// at boot by `commands::config_get_ui_prefs`, before login, so the login
+/// screen is already themed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiPrefs {
+    /// `"dark"` or `"light"`.
+    pub theme: String,
+    /// Desktop sidebar shrunk to its icon-only rail.
+    pub sidebar_collapsed: bool,
+}
+
+pub fn get_ui_prefs(conn: &Connection) -> Result<UiPrefs, rusqlite::Error> {
+    conn.query_row("SELECT theme, sidebar_collapsed FROM app_config WHERE id = 1", [], |row| {
+        Ok(UiPrefs {
+            theme: row.get("theme")?,
+            sidebar_collapsed: row.get::<_, i64>("sidebar_collapsed")? != 0,
+        })
+    })
+}
+
+pub fn set_sidebar_collapsed(conn: &Connection, collapsed: bool) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE app_config SET sidebar_collapsed = ?1 WHERE id = 1",
+        params![i64::from(collapsed)],
+    )?;
+    Ok(())
 }
 
 /// Persists the theme. `theme` must be `"dark"` or `"light"` — the column's
@@ -266,11 +290,18 @@ mod tests {
     }
 
     #[test]
-    fn theme_defaults_to_dark_and_round_trips() {
+    fn ui_prefs_default_to_dark_and_expanded_and_round_trip() {
         let conn = test_conn();
-        assert_eq!(get_theme(&conn).unwrap(), "dark", "dark is the brand's primary look");
+        let prefs = get_ui_prefs(&conn).unwrap();
+        assert_eq!(prefs.theme, "dark", "dark is the brand's primary look");
+        assert!(!prefs.sidebar_collapsed);
+
         set_theme(&conn, "light").unwrap();
-        assert_eq!(get_theme(&conn).unwrap(), "light");
+        set_sidebar_collapsed(&conn, true).unwrap();
+        let prefs = get_ui_prefs(&conn).unwrap();
+        assert_eq!(prefs.theme, "light");
+        assert!(prefs.sidebar_collapsed);
+
         assert!(set_theme(&conn, "sepia").is_err(), "the CHECK constraint must reject unknown themes");
     }
 

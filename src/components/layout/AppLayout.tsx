@@ -4,25 +4,31 @@ import { BottomTabBar } from "./BottomTabBar";
 import { LicenseBanner } from "./LicenseBanner";
 import { LicenseLockGate } from "./LicenseLockGate";
 import { NavOverlay } from "./NavOverlay";
+import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
-/** The hamburger-triggered `NavOverlay` replaced the old always-visible dark
- * sidebar app-wide — this is the one place its open/closed state lives, so
- * the hamburger button (in `TopBar`) and the overlay itself can be siblings
- * without prop-drilling through every page.
+/** Navigation is platform-split here and nowhere else:
  *
- * Android additionally gets a fixed `BottomTabBar` for primary module
- * navigation — the hamburger/`NavOverlay` stays too (it's still how Android
- * reaches Settings/Users/Employees/Log Out), so only the bottom bar is
- * platform-gated here, nothing else about this shell changes between
- * desktop and Android. */
+ * - **Desktop** gets the attached, collapsible `Sidebar` on the left, which
+ *   pushes the content area rather than overlaying it. No hamburger — the
+ *   rail's own collapse toggle is the "more room" control.
+ * - **Android** keeps the hamburger-triggered `NavOverlay` (this is the one
+ *   place its open/closed state lives, so the button in `TopBar` and the
+ *   drawer can be siblings without prop-drilling) plus the fixed
+ *   `BottomTabBar` for primary modules. A persistent left rail on a
+ *   phone-width screen would eat too much of it.
+ *
+ * Both render the same `useNavItems()` list, so the platforms can't
+ * disagree about what a role sees. */
 export function AppLayout() {
   const [navOpen, setNavOpen] = useState(false);
 
   return (
     <div className="flex h-full bg-canvas">
+      {!IS_ANDROID && <Sidebar />}
+
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar onOpenNav={() => setNavOpen(true)} />
+        <TopBar onOpenNav={IS_ANDROID ? () => setNavOpen(true) : undefined} />
         {/* Between the bar and the page so it's on every screen and never
             covers the page's own header. Renders nothing unless the licence
             is inside its expiry-warning window. */}
@@ -35,7 +41,7 @@ export function AppLayout() {
         {IS_ANDROID && <BottomTabBar />}
       </div>
 
-      <NavOverlay open={navOpen} onClose={() => setNavOpen(false)} />
+      {IS_ANDROID && <NavOverlay open={navOpen} onClose={() => setNavOpen(false)} />}
     </div>
   );
 }

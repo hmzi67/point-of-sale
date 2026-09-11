@@ -297,10 +297,21 @@ pub fn get_app_config(db: State<'_, Db>) -> Result<AppConfig, String> {
 /// Read before login too — the login and lock screens are themed, and the
 /// window has already painted `index.html`'s static `data-theme="dark"` by
 /// the time this resolves, so a light-theme install sees at most one
-/// repaint. See `db::config::get_theme` for why this isn't on `AppConfig`.
+/// repaint. See `db::config::UiPrefs` for why these aren't on `AppConfig`.
 #[tauri::command]
-pub fn config_get_theme(db: State<'_, Db>) -> Result<String, String> {
-    db.with_conn(config::get_theme).map_err(|e| e.to_string())
+pub fn config_get_ui_prefs(db: State<'_, Db>) -> Result<config::UiPrefs, String> {
+    db.with_conn(config::get_ui_prefs).map_err(|e| e.to_string())
+}
+
+/// Any signed-in user — the sidebar's own collapse toggle, desktop only.
+#[tauri::command]
+pub fn config_set_sidebar_collapsed(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    collapsed: bool,
+) -> Result<(), String> {
+    require_signed_in(&session)?;
+    db.with_conn(|conn| config::set_sidebar_collapsed(conn, collapsed)).map_err(|e| e.to_string())
 }
 
 /// Any signed-in user, not just Owner/Admin: a display preference on the

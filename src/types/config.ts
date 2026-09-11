@@ -89,3 +89,12 @@ export interface WindowsPrinterOption {
  * the same green accent. Persisted on `app_config.theme` — see
  * `store/themeStore.ts`. */
 export type Theme = "dark" | "light";
+
+/** Device-level display preferences, read together at boot — see
+ * `store/uiPrefsStore.ts`. Both live on `app_config` next to `theme`. */
+export interface UiPrefs {
+  theme: Theme;
+  /** Desktop sidebar shrunk to its icon-only rail. Android has no sidebar
+   * and ignores this. */
+  sidebarCollapsed: boolean;
+}

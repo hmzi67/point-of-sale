@@ -1,5 +1,5 @@
 import { Moon, Sun } from "lucide-react";
-import { useThemeStore } from "../../store";
+import { useUiPrefsStore } from "../../store";
 import type { Theme } from "../../types";
 
 const OPTIONS: { value: Theme; label: string; hint: string; Icon: typeof Sun }[] = [
@@ -10,8 +10,8 @@ const OPTIONS: { value: Theme; label: string; hint: string; Icon: typeof Sun }[]
 /** Theme picker. Also reachable as the sun/moon button in the top bar —
  * this is the discoverable, explained version; that is the quick flip. */
 export function AppearanceSection() {
-  const theme = useThemeStore((state) => state.theme);
-  const setTheme = useThemeStore((state) => state.setTheme);
+  const theme = useUiPrefsStore((state) => state.theme);
+  const setTheme = useUiPrefsStore((state) => state.setTheme);
 
   return (
     <div className="rounded-lg border border-line bg-surface p-6">

@@ -93,7 +93,12 @@ CREATE TABLE IF NOT EXISTS app_config (
     -- read/written through its own `config_get_theme`/`config_set_theme`
     -- commands (any signed-in user) rather than the Owner/Admin-gated
     -- `update_app_config` patch — see `db::config::{get_theme, set_theme}`.
-    theme           TEXT    NOT NULL DEFAULT 'dark' CHECK (theme IN ('dark', 'light'))
+    theme           TEXT    NOT NULL DEFAULT 'dark' CHECK (theme IN ('dark', 'light')),
+    -- Desktop sidebar collapsed to icon-only. Same class of preference as
+    -- `theme` (device-level, any signed-in user) and read/written through
+    -- the same `config_get_ui_prefs` / `config_set_sidebar_collapsed`
+    -- commands. Android has no sidebar and never reads it.
+    sidebar_collapsed INTEGER NOT NULL DEFAULT 0 CHECK (sidebar_collapsed IN (0, 1))
 );
 
 -- ---------------------------------------------------------------------------

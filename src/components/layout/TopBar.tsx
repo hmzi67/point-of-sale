@@ -2,7 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { LogOut, Menu, Moon, Sun } from "lucide-react";
 import { useLogoDataUrl } from "../../hooks/useLogoDataUrl";
 import { useSecretTapTrigger } from "../../hooks/useSecretTapTrigger";
-import { useAppStore, useAuthStore, useThemeStore } from "../../store";
+import { useAppStore, useAuthStore, useUiPrefsStore } from "../../store";
 
 // Lazy so this never loads for the overwhelming majority of app sessions
 // that never trigger it — see `useSecretTapTrigger`'s doc comment.
@@ -17,7 +17,9 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 interface TopBarProps {
-  onOpenNav: () => void;
+  /** Opens Android's `NavOverlay`. Absent on desktop, where the attached
+   * `Sidebar` (with its own collapse toggle) replaces the hamburger. */
+  onOpenNav?: () => void;
 }
 
 export function TopBar({ onOpenNav }: TopBarProps) {
@@ -26,8 +28,8 @@ export function TopBar({ onOpenNav }: TopBarProps) {
   const logoDataUrl = useLogoDataUrl(logoPath);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
-  const theme = useThemeStore((state) => state.theme);
-  const toggleTheme = useThemeStore((state) => state.toggle);
+  const theme = useUiPrefsStore((state) => state.theme);
+  const toggleTheme = useUiPrefsStore((state) => state.toggleTheme);
 
   const [showVendorAccess, setShowVendorAccess] = useState(false);
   const onSecretTap = useSecretTapTrigger(() => setShowVendorAccess(true));
@@ -40,18 +42,22 @@ export function TopBar({ onOpenNav }: TopBarProps) {
     // fixed height would clip that padding instead of growing to fit it.
     <header className="flex min-h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 pt-[env(safe-area-inset-top)]">
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onOpenNav}
-          aria-label="Open navigation"
-          // min-h/min-w-11 (44px): the visual icon+padding box otherwise
-          // comes out around 36px, under the ~44px minimum comfortable touch
-          // target on a phone.
-          className="flex min-h-11 min-w-11 items-center justify-center rounded-xl p-2 text-fg-muted hover:bg-surface-3 hover:text-fg"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-        {logoDataUrl && <img src={logoDataUrl} alt="" className="h-7 w-7 rounded object-contain" />}
+        {onOpenNav && (
+          <button
+            type="button"
+            onClick={onOpenNav}
+            aria-label="Open navigation"
+            // min-h/min-w-11 (44px): the visual icon+padding box otherwise
+            // comes out around 36px, under the ~44px minimum comfortable touch
+            // target on a phone.
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-xl p-2 text-fg-muted hover:bg-surface-3 hover:text-fg"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
+        {/* Desktop's sidebar already carries the logo — showing it here too
+            would be the same image twice, side by side. */}
+        {onOpenNav && logoDataUrl && <img src={logoDataUrl} alt="" className="h-7 w-7 rounded object-contain" />}
         <h1 className="text-base font-semibold text-fg" onClick={onSecretTap}>
           {businessName}
         </h1>
@@ -82,7 +88,10 @@ export function TopBar({ onOpenNav }: TopBarProps) {
           {theme === "dark" ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
         </button>
 
-        {user && (
+        {/* Desktop's sidebar footer already shows who's signed in and has
+            Log Out; repeating both here would be noise. Android has no
+            sidebar, so the bar keeps them there. */}
+        {user && onOpenNav && (
           <>
             <span className="text-fg-2">
               {user.name}

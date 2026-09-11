@@ -228,6 +228,9 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // well as fresh install: dark is the brand's primary look, and an
     // upgrading install has never expressed a preference either way.
     ("app_config", "theme", "TEXT NOT NULL DEFAULT 'dark'"),
+    // Desktop sidebar collapsed state — see `schema.sql` and
+    // `db::config::{get_ui_prefs, set_sidebar_collapsed}`.
+    ("app_config", "sidebar_collapsed", "INTEGER NOT NULL DEFAULT 0"),
     // Android USB-OTG printer selection (vendor:product id + display label)
     // — see `db::config::AppConfig::printer_usb_device` and
     // `printer::android_usb`. Same "NULL until chosen" convention as the

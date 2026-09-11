@@ -1,9 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { LogOut, User, X } from "lucide-react";
-import { useModules } from "../../hooks/useModules";
+import { useNavItems } from "../../hooks/useNavItems";
 import { useAuthStore } from "../../store";
-import { EMPLOYEES_NAV, SETTINGS_NAV, USERS_NAV } from "../../utils/navigation";
-import { canAttemptEmployeesScreen, roleCanAccessSettings, roleCanManageUsers } from "../../utils/permissions";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner",
@@ -25,11 +23,10 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
   ].join(" ");
 
 /**
- * Replaces the old always-visible dark sidebar with a hamburger-triggered
- * overlay — same underlying data source (`useModules()`), just a different
- * container. A disabled module or a role that can't see it still never gets
- * a nav item; nothing about the module-config/permission wiring changed,
- * only how the resulting list is presented.
+ * Android's navigation: a hamburger-triggered drawer (desktop uses the
+ * attached `Sidebar` instead — see `AppLayout`). Same underlying list
+ * (`useNavItems()`), just a different container: a disabled module or a
+ * role that can't see it still never gets a nav item here.
  *
  * Module labels stay exactly what they are the rest of the app (Settings'
  * own toggle list, page headings) — "Billing", "Reports", etc. — rather than
@@ -37,13 +34,9 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
  * different feature everywhere else in the product.
  */
 export function NavOverlay({ open, onClose }: NavOverlayProps) {
-  const { visibleModules, isLoaded } = useModules();
+  const { items, isLoaded } = useNavItems();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
-  const role = user?.role ?? null;
-  const showSettings = role ? roleCanAccessSettings(role) : false;
-  const showUsers = role ? roleCanManageUsers(role) : false;
-  const showEmployees = role ? canAttemptEmployeesScreen() : false;
 
   return (
     // h-dvh (not relying on inset-0's implicit sizing, and not h-screen/vh):
@@ -104,41 +97,14 @@ export function NavOverlay({ open, onClose }: NavOverlayProps) {
             <p className="px-3.5 py-2 text-sm text-fg-muted">Loading…</p>
           ) : (
             <ul className="space-y-1">
-              {visibleModules.map((module) => {
-                const Icon = module.nav.icon;
-                return (
-                  <li key={module.key}>
-                    <NavLink to={module.nav.path} end={module.nav.path === "/"} className={linkClass} onClick={onClose}>
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {module.name}
-                    </NavLink>
-                  </li>
-                );
-              })}
-              {showEmployees && (
-                <li>
-                  <NavLink to={EMPLOYEES_NAV.path} className={linkClass} onClick={onClose}>
-                    <EMPLOYEES_NAV.icon className="h-4 w-4 shrink-0" />
-                    {EMPLOYEES_NAV.label}
+              {items.map(({ key, path, label, icon: Icon, end }) => (
+                <li key={key}>
+                  <NavLink to={path} end={end} className={linkClass} onClick={onClose}>
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {label}
                   </NavLink>
                 </li>
-              )}
-              {showUsers && (
-                <li>
-                  <NavLink to={USERS_NAV.path} className={linkClass} onClick={onClose}>
-                    <USERS_NAV.icon className="h-4 w-4 shrink-0" />
-                    {USERS_NAV.label}
-                  </NavLink>
-                </li>
-              )}
-              {showSettings && (
-                <li>
-                  <NavLink to={SETTINGS_NAV.path} className={linkClass} onClick={onClose}>
-                    <SETTINGS_NAV.icon className="h-4 w-4 shrink-0" />
-                    {SETTINGS_NAV.label}
-                  </NavLink>
-                </li>
-              )}
+              ))}
             </ul>
           )}
         </nav>
