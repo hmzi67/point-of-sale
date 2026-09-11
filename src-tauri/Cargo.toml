@@ -33,6 +33,30 @@ tauri-plugin-os = "2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+# Licence-status signature verification (`license::verify`). The app only
+# ever VERIFIES: the server signs with a private key that never leaves it,
+# and the matching public key is compiled in. Default features include
+# signing, which the unit tests use with a throwaway in-test key — there is
+# no private key anywhere in this repository.
+ed25519-dalek = "2"
+# Device fingerprint (`license::fingerprint`): sha256 of the OS machine id.
+# 0.10 rather than the newest so it unifies with the copy `argon2`/
+# `ed25519-dalek` already pull in instead of adding a second sha2.
+sha2 = "0.10"
+# Licence server calls (`license::client`) — activate-license.php and
+# license-status.php. TLS is configured exactly the way tauri's own
+# `rustls-tls` feature does it: reqwest with `rustls-no-provider` (OS trust
+# store via rustls-platform-verifier, no OpenSSL on any target) plus the
+# `rustls` crate's pure-Rust `ring` provider, installed once at startup in
+# `license::client`. Deliberately NOT reqwest's plain `rustls` feature: that
+# selects aws-lc-rs, a C library built with cmake, which the Android and
+# Windows cross-builds don't have and don't need. Same major versions tauri
+# already pulls in, so this adds no second copy of either crate.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
+# Only for `tokio::time::sleep` in the licence background loop; tauri's
+# async runtime IS tokio, so this is the same crate, not a second runtime.
+tokio = { version = "1", features = ["time", "rt"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 
 # `rfd` (the fatal-startup-error dialog in `lib.rs`) is desktop-only because
 # it has no backend implementation at all for Android — `FileDialogImpl`/
@@ -51,6 +75,10 @@ tauri-plugin-fs = "2"
 # webview itself), so it adds nothing new to the Linux build environment.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
+# OS-native machine id (IOPlatformUUID / /etc/machine-id / MachineGuid) for
+# the licence device fingerprint. No Android backend — `license::fingerprint`
+# falls back to a per-install random id there.
+machine-uid = "0.6"
 
 # macOS/Linux desktop printer transport: raw USB. Gated to
 # "not Android, not Windows" — Android is excluded for the libusb/permission

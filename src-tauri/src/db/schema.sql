@@ -155,6 +155,38 @@ CREATE TABLE IF NOT EXISTS product_owner_account (
     updated_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
+-- ---------------------------------------------------------------------------
+-- Licence status — the single-row cache of the server-signed licence payload
+-- (see src/license/mod.rs). Deliberately stores the SIGNED BYTES, not the
+-- fields inside them: every launch re-verifies `payload_b64` under the
+-- compiled-in public key and re-derives status/expiry from the result, so
+-- editing this row buys nothing (the signature stops matching) and there is
+-- never a "parsed" copy that could drift from the signed one.
+--
+-- The three INTEGER clocks are unix seconds and exist for the offline
+-- clock-rollback and check-in checks (src/license/state.rs):
+--   server_issued_at     — `issued_at` from the payload; local time must never
+--                          be earlier than this, and a newer payload must
+--                          never be replaced by an older one
+--   high_water_local_ts  — the latest local time this install has observed;
+--                          a launch that finds the clock behind it by more
+--                          than a small tolerance is treated as tampering
+--   last_online_check    — local time of the last successful refresh from
+--                          the server; the payload's max_offline_days runs
+--                          from here
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS license_status (
+    id                  INTEGER PRIMARY KEY CHECK (id = 1),
+    license_key         TEXT    NOT NULL,
+    payload_b64         TEXT    NOT NULL,
+    signature_b64       TEXT    NOT NULL,
+    kid                 TEXT    NOT NULL,
+    server_issued_at    INTEGER NOT NULL,
+    high_water_local_ts INTEGER NOT NULL,
+    last_online_check   INTEGER NOT NULL,
+    updated_at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
 -- ###########################################################################
 -- Phase 2 — operational schema
 -- ###########################################################################

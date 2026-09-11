@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Lock } from "lucide-react";
 import { AreaPinSection } from "../components/settings/AreaPinSection";
 import { CountersSection } from "../components/settings/CountersSection";
+import { LicenseSection } from "../components/settings/LicenseSection";
 import { PrinterSettingsSection } from "../components/settings/PrinterSettingsSection";
 import { StoreIdentitySection } from "../components/settings/StoreIdentitySection";
 import { ToggleSwitch } from "../components/ui/ToggleSwitch";
@@ -54,6 +55,8 @@ export function SettingsPage() {
       </div>
 
       <PrinterSettingsSection config={config} />
+
+      <LicenseSection />
 
       <AreaPinSection />
 

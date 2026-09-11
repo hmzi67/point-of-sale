@@ -35,6 +35,8 @@ use crate::db::{
 };
 use crate::area_access_session::AreaAccessSession;
 use crate::images;
+use crate::license::runtime::LicenseRuntime;
+use crate::license::state::LicenseState;
 use crate::product_owner_session::{require_product_owner, ProductOwnerSession};
 use crate::vendor_gate::{self, VendorGate};
 use crate::session::{require_role, Session};
@@ -45,6 +47,35 @@ use crate::session::{require_role, Session};
 /// too and not just there. There is deliberately no third privileged tier;
 /// Cashier is the only other role, and it never appears in this list.
 const STAFF_ROLES: &[Role] = &[Role::Owner, Role::Admin];
+
+/// Fails a command unless this install's licence currently allows the till
+/// to run — the Rust half of the licence lockout. The frontend's lock
+/// screen is only presentation (see `vendor_gate.rs` for why that can't be
+/// the boundary); this is what actually stops a sale, a refund or a
+/// kitchen token from being recorded on an expired, revoked or
+/// clock-rolled-back install. Reads (reports, inventory, settings) are
+/// deliberately not gated: the owner must still be able to see how to
+/// renew, export their data, and enter a new key.
+fn require_license(license: &LicenseRuntime) -> Result<(), String> {
+    let state = license.current();
+    if state.allows_billing() {
+        return Ok(());
+    }
+    Err(match state {
+        LicenseState::Missing => "This installation has no licence. Enter a licence key in Settings.".into(),
+        LicenseState::Expired { .. } => "This licence has expired. Renew it to continue billing.".into(),
+        LicenseState::Revoked => "This licence has been revoked. Contact support.".into(),
+        LicenseState::DeviceMismatch => "This licence is bound to a different device. Contact support.".into(),
+        LicenseState::ClockTampered { .. } => {
+            "This device's clock appears to have been set back. Correct it, or connect to the internet and re-check the licence.".into()
+        }
+        LicenseState::CheckInRequired { .. } => {
+            "This installation has been offline too long. Connect to the internet and re-check the licence.".into()
+        }
+        LicenseState::Invalid { message } => format!("Licence problem: {message}"),
+        LicenseState::Ok { .. } => unreachable!("allows_billing() is true for Ok"),
+    })
+}
 
 /// Fails a command unless someone is signed in *and* currently holds a valid
 /// `AreaAccessSession` grant (see that module's doc comment) — the check
@@ -269,6 +300,7 @@ pub fn update_app_config(
     db: State<'_, Db>,
     session: State<'_, Session>,
     vendor_gate: State<'_, VendorGate>,
+    license: State<'_, LicenseRuntime>,
     patch: AppConfigUpdate,
 ) -> Result<AppConfig, String> {
     require_role(&session, STAFF_ROLES)?;
@@ -290,6 +322,13 @@ pub fn update_app_config(
             .onboarding_completed;
         if vendor_gate::setup_is_blocked(true, already_onboarded, vendor_gate.is_authorized()) {
             return Err("Vendor authorization is required to set up this installation".into());
+        }
+        // Same shape as the vendor gate, same reason it lives here: a fresh
+        // install can't finish setup without a licence that verifies for
+        // this device. The wizard's licence step is the UI; this is the
+        // check.
+        if !already_onboarded {
+            require_license(&license).map_err(|e| format!("A valid licence is required to set up this installation. {e}"))?;
         }
     }
 
@@ -332,6 +371,91 @@ pub struct VendorGateStatus {
 #[tauri::command]
 pub fn vendor_gate_verify(vendor_gate: State<'_, VendorGate>, password: String) -> Result<(), String> {
     vendor_gate.verify(&password).map_err(|e| e.to_string())
+}
+
+/// The licence state as computed by Rust — see `license::state`. Read on
+/// mount and whenever a `license:changed` event arrives. Unauthenticated:
+/// it reveals only what the lock screen/banner is about to show anyway.
+#[tauri::command]
+pub fn license_get_state(license: State<'_, LicenseRuntime>) -> LicenseState {
+    license.current()
+}
+
+/// What the settings screen shows alongside the state. The key is masked
+/// to its first group — enough to match against the purchase email, not
+/// enough to copy off a shared screen.
+#[tauri::command]
+pub fn license_get_info(db: State<'_, Db>) -> Result<LicenseInfo, String> {
+    let stored = db.with_conn(crate::db::license::get).map_err(|e| e.to_string())?;
+    Ok(LicenseInfo {
+        key_prefix: stored.as_ref().map(|s| mask_license_key(&s.license_key)),
+        last_online_check: stored.as_ref().map(|s| s.last_online_check),
+        api_base: crate::license::client::api_base(),
+    })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseInfo {
+    pub key_prefix: Option<String>,
+    pub last_online_check: Option<i64>,
+    pub api_base: String,
+}
+
+fn mask_license_key(key: &str) -> String {
+    let mut groups = key.split('-');
+    match (groups.next(), groups.next()) {
+        (Some(a), Some(b)) => format!("{a}-{b}-••••-••••-••••"),
+        _ => "••••".into(),
+    }
+}
+
+/// "Re-check now": fetches a fresh signed status for the stored key.
+/// Offline is not an error the user did anything about, so it comes back
+/// as `Ok` with the unchanged state plus a `hint`; only a server *refusal*
+/// (or a response that fails verification) rejects. Any signed-in user
+/// may call it — it needs no credentials and only ever makes the state
+/// more accurate.
+#[tauri::command]
+pub async fn license_refresh(
+    app: AppHandle,
+    db: State<'_, Db>,
+    license: State<'_, LicenseRuntime>,
+    session: State<'_, Session>,
+) -> Result<LicenseRefreshOutcome, String> {
+    session.current().ok_or_else(|| "Not signed in".to_string())?;
+    match license.refresh(&app, &db).await {
+        Ok(state) => Ok(LicenseRefreshOutcome { state, hint: None }),
+        Err(crate::license::runtime::LicenseError::Unreachable(msg)) => {
+            Ok(LicenseRefreshOutcome { state: license.current(), hint: Some(msg) })
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseRefreshOutcome {
+    pub state: LicenseState,
+    /// Set when the server couldn't be reached — the state shown is the
+    /// cached one.
+    pub hint: Option<String>,
+}
+
+/// Enters (or replaces) the licence key: activates it for this device on
+/// the server, fetches and verifies its signed status, and stores it.
+/// Owner/Admin only — it is a settings-screen and setup-wizard action —
+/// and it needs the network; the error says so if there is none.
+#[tauri::command]
+pub async fn license_activate(
+    app: AppHandle,
+    db: State<'_, Db>,
+    license: State<'_, LicenseRuntime>,
+    session: State<'_, Session>,
+    license_key: String,
+) -> Result<LicenseState, String> {
+    require_role(&session, STAFF_ROLES)?;
+    license.activate(&app, &db, &license_key).await.map_err(|e| e.to_string())
 }
 
 /// Saves an uploaded logo to disk (in its own directory, distinct from
@@ -783,7 +907,12 @@ pub fn billing_search_items(db: State<'_, Db>, query: String) -> Result<Vec<Item
 /// closes that table's parked order and frees the table — all inside one
 /// SQLite transaction, so a failure at any step leaves nothing behind.
 #[tauri::command]
-pub fn billing_create_sale(db: State<'_, Db>, input: CreateSaleInput) -> Result<Sale, String> {
+pub fn billing_create_sale(
+    db: State<'_, Db>,
+    license: State<'_, LicenseRuntime>,
+    input: CreateSaleInput,
+) -> Result<Sale, String> {
+    require_license(&license)?;
     db.with_transaction(|tx| Ok(sales::create_sale(tx, input)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1051,11 +1180,13 @@ pub fn refund_get_sale(db: State<'_, Db>, session: State<'_, Session>, sale_id: 
 pub fn refund_create(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    license: State<'_, LicenseRuntime>,
     sale_id: i64,
     items: Vec<RefundLineInput>,
     reason: Option<String>,
 ) -> Result<Refund, String> {
     let caller = require_role(&session, STAFF_ROLES)?;
+    require_license(&license)?;
     db.with_transaction(|tx| {
         Ok(refunds::create_refund(
             tx,
@@ -1745,9 +1876,11 @@ fn print_one_counter_token(
 pub fn tokens_print(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    license: State<'_, LicenseRuntime>,
     table_order_id: i64,
     counter_ids: Vec<i64>,
 ) -> Result<Vec<CounterPrintResult>, String> {
+    require_license(&license)?;
     let caller = session.current();
     let printed_by = caller.as_ref().map(|u| u.id);
     let printed_by_name = caller.map(|u| u.name);
@@ -1820,9 +1953,11 @@ pub fn tokens_get_adhoc_groups(
 pub fn tokens_print_adhoc(
     db: State<'_, Db>,
     session: State<'_, Session>,
+    license: State<'_, LicenseRuntime>,
     items: Vec<tokens::AdhocTokenLine>,
     counter_ids: Vec<i64>,
 ) -> Result<Vec<CounterPrintResult>, String> {
+    require_license(&license)?;
     let caller = session.current();
     let printed_by = caller.as_ref().map(|u| u.id);
     let printed_by_name = caller.map(|u| u.name);

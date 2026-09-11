@@ -2,6 +2,7 @@ mod area_access_session;
 mod commands;
 mod db;
 mod images;
+mod license;
 mod printer;
 mod product_owner_session;
 mod session;
@@ -12,6 +13,7 @@ use tauri::Manager;
 
 use crate::area_access_session::AreaAccessSession;
 use crate::db::Db;
+use crate::license::runtime::LicenseRuntime;
 use crate::product_owner_session::ProductOwnerSession;
 use crate::vendor_gate::VendorGate;
 use crate::session::Session;
@@ -219,9 +221,17 @@ pub fn run() {
                     startup_log::set_log_dir(&dir);
                     startup_log::log(&format!("setup(): app_data_dir resolved to {}", dir.display()));
 
-                    let db = Db::open(dir)?;
+                    let db = Db::open(dir.clone())?;
                     startup_log::log("setup(): database opened and migrated");
+                    // Licence state is evaluated here, offline, before the
+                    // window exists — so the very first `license_get_state`
+                    // the frontend makes already has the answer, and the
+                    // enforcing commands never see an "unknown" state. The
+                    // server refresh happens in the background afterwards.
+                    let license = LicenseRuntime::load(&db, dir);
                     app_ref.manage(db);
+                    app_ref.manage(license);
+                    license::runtime::spawn_background_refresh(app_ref.handle().clone());
 
                     // The "main" window is built here — *after* `db` is
                     // managed — rather than left in `tauri.conf.json`'s
@@ -304,6 +314,10 @@ pub fn run() {
             commands::update_app_config,
             commands::vendor_gate_status,
             commands::vendor_gate_verify,
+            commands::license_get_state,
+            commands::license_get_info,
+            commands::license_refresh,
+            commands::license_activate,
             commands::config_upload_logo,
             commands::config_get_logo,
             commands::get_enabled_modules,

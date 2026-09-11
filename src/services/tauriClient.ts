@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 /**
  * The single boundary between React and Rust.
@@ -63,4 +64,17 @@ export async function callSafe<TResult>(
 /** Health check wired to the Rust `app_ping` command — proves the IPC bridge works. */
 export function ping(): Promise<string> {
   return call<string>("app_ping");
+}
+
+/**
+ * Subscribes to an event emitted from Rust (`app.emit(name, payload)`).
+ * Resolves to an unsubscribe function; safe to call outside Tauri (a
+ * browser-only `npm run dev` gets a no-op so the page still renders).
+ */
+export async function subscribe<TPayload>(
+  event: string,
+  handler: (payload: TPayload) => void,
+): Promise<UnlistenFn> {
+  if (!isTauri()) return () => {};
+  return listen<TPayload>(event, (e) => handler(e.payload));
 }

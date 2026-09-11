@@ -11,6 +11,7 @@ pub mod dashboard;
 pub mod expenses;
 pub mod full_report;
 pub mod items;
+pub mod license;
 pub mod modules;
 pub mod product_owner;
 pub mod refunds;

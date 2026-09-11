@@ -35,7 +35,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -46,6 +46,7 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "enabled_modules",
     "users",
     "product_owner_account",
+    "license_status",
     // Phase 2 — operations
     "categories",
     "counters",

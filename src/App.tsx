@@ -6,7 +6,7 @@ import { RequireAuth } from "./components/auth/RequireAuth";
 import { RequireOnboarding } from "./components/auth/RequireOnboarding";
 import { VendorGate } from "./components/auth/VendorGate";
 import { AppLayout } from "./components/layout/AppLayout";
-import { useAppStore, useAuthStore, useModuleStore } from "./store";
+import { useAppStore, useAuthStore, useLicenseStore, useModuleStore } from "./store";
 import {
   AttendancePage,
   BillingPage,
@@ -33,12 +33,16 @@ function useBootstrap() {
   const userId = useAuthStore((state) => state.user?.id ?? null);
   const loadConfig = useAppStore((state) => state.load);
   const loadModules = useModuleStore((state) => state.load);
+  const initLicense = useLicenseStore((state) => state.init);
 
   useEffect(() => {
     if (userId === null) return;
     void loadConfig();
     void loadModules();
-  }, [userId, loadConfig, loadModules]);
+    // Licence state was already computed in Rust before the window existed;
+    // this just reads it and subscribes to changes (see `licenseStore`).
+    void initLicense();
+  }, [userId, loadConfig, loadModules, initLicense]);
 }
 
 export function App() {

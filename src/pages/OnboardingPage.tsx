@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { Store } from "lucide-react";
+import { BadgeCheck, Store } from "lucide-react";
 import { useAppConfig } from "../hooks/useAppConfig";
-import { useAppStore, useModuleStore } from "../store";
+import { useAppStore, useLicenseStore, useModuleStore } from "../store";
 import type { BusinessType } from "../types";
 
 const CURRENCY_SUGGESTIONS = ["PKR", "USD", "INR", "AED", "GBP", "EUR"];
@@ -23,6 +23,12 @@ const BUSINESS_TYPES: { value: BusinessType; label: string; hint: string }[] = [
  * (`update_app_config`, `toggle_module`) rather than adding a new one —
  * this is one-time, low-stakes config, not a business write that needs its
  * own atomic transaction the way a sale or a salary payment does.
+ *
+ * The licence step is the exception to "low-stakes": setup cannot finish
+ * without a licence that verifies for this device, and that rule is
+ * enforced in Rust (`commands::update_app_config` → `require_license`),
+ * not by the disabled button below — same arrangement as the vendor gate.
+ * Activation needs the internet once; everything after that works offline.
  */
 export function OnboardingPage() {
   const { config } = useAppConfig();
@@ -37,11 +43,29 @@ export function OnboardingPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const licenseState = useLicenseStore((state) => state.state);
+  const licenseBusy = useLicenseStore((state) => state.isBusy);
+  const activateLicense = useLicenseStore((state) => state.activate);
+  const [licenseKey, setLicenseKey] = useState("");
+  const [licenseError, setLicenseError] = useState<string | null>(null);
+  const licenseOk = licenseState?.kind === "ok";
+
   if (config.onboardingCompleted) return <Navigate to="/" replace />;
+
+  const activate = async () => {
+    if (!licenseKey.trim() || licenseBusy) return;
+    setLicenseError(null);
+    try {
+      await activateLicense(licenseKey);
+      setLicenseKey("");
+    } catch (err) {
+      setLicenseError((err as Error).message);
+    }
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!businessName.trim() || !currency.trim()) return;
+    if (!businessName.trim() || !currency.trim() || !licenseOk) return;
 
     setIsSaving(true);
     setError(null);
@@ -159,11 +183,57 @@ export function OnboardingPage() {
             </div>
           </div>
 
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+              <BadgeCheck className="h-3.5 w-3.5" />
+              Licence key
+            </span>
+            {licenseOk ? (
+              <p className="mt-1 text-sm font-medium text-emerald-700">Licence active on this device.</p>
+            ) : (
+              <>
+                <div className="mt-1 flex gap-2">
+                  <input
+                    id="license-key"
+                    value={licenseKey}
+                    onChange={(e) => setLicenseKey(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      // Enter here activates the licence; it must not submit
+                      // the whole wizard (which is disabled anyway until it's ok).
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void activate();
+                      }
+                    }}
+                    placeholder="DIWAN-XXXX-XXXX-XXXX-XXXX"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm uppercase"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void activate()}
+                    disabled={licenseBusy || licenseKey.trim().length < 10}
+                    className="shrink-0 rounded-md border border-brand-600 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                  >
+                    {licenseBusy ? "Activating…" : "Activate"}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500">
+                  From your purchase email. Activating binds it to this device and needs an internet
+                  connection — just this once.
+                </p>
+                {licenseError && <p className="mt-1.5 text-xs text-red-600">{licenseError}</p>}
+              </>
+            )}
+          </div>
+
           {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
           <button
             type="submit"
-            disabled={isSaving || !businessName.trim() || !currency.trim()}
+            disabled={isSaving || !businessName.trim() || !currency.trim() || !licenseOk}
             className="w-full rounded-md bg-brand-600 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Setting up…" : "Continue to module setup"}

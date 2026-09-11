@@ -5,3 +5,4 @@ export { useInventoryStore } from "./inventoryStore";
 export { useModuleStore } from "./moduleStore";
 export { useReportsStore } from "./reportsStore";
 export { useShiftStore } from "./shiftStore";
+export { useLicenseStore } from "./licenseStore";
