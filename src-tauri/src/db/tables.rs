@@ -233,6 +233,27 @@ pub fn rename_table(conn: &Connection, table_id: i64, name: &str) -> Result<Tabl
     }
 }
 
+/// Updates name and capacity together, preserving table status and orders.
+pub fn update_table(conn: &Connection, table_id: i64, name: &str, seats: i64) -> Result<TableSummary, TableError> {
+    if seats < 1 {
+        return Err(TableError::InvalidSeats);
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(TableError::EmptyName);
+    }
+
+    let result = conn.execute("UPDATE tables SET name = ?1, seats = ?2 WHERE id = ?3", params![name, seats, table_id]);
+    match result {
+        Ok(0) => Err(TableError::TableNotFound),
+        Ok(_) => load_table(conn, table_id),
+        Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
+            Err(TableError::DuplicateName(name.to_string()))
+        }
+        Err(err) => Err(TableError::Sqlite(err)),
+    }
+}
+
 /// Removes a physical table from the floor entirely — unlike `clear_table`
 /// (frees it for reuse), this deletes the row. Refused while the table has
 /// an `open` order (see `TableError::HasOpenOrder`) so an in-progress cart
@@ -622,6 +643,33 @@ mod tests {
             update_table_status(&conn, 999_999, "free"),
             Err(TableError::TableNotFound)
         ));
+    }
+
+    #[test]
+    fn update_table_capacity_preserves_order_and_rejects_invalid_changes() {
+        let conn = test_conn();
+        let id = table_id(&conn, "Table 2");
+        let cola = item_id(&conn, "Cola 500ml");
+        attach_cart_to_table(&conn, id, &[ParkedCartLine { item_id: cola, qty: 2.0 }], 100).unwrap();
+        let before = load_table(&conn, id).unwrap();
+        for seats in [4, 6, 8, 13] {
+            let updated = update_table(&conn, id, "Patio", seats).unwrap();
+            assert_eq!(updated.seats, seats);
+            assert_eq!(updated.status, before.status);
+            assert_eq!(updated.open_order_id, before.open_order_id);
+        }
+        assert!(matches!(update_table(&conn, id, "Changed", 0), Err(TableError::InvalidSeats)));
+        assert!(matches!(update_table(&conn, id, "Changed", -2), Err(TableError::InvalidSeats)));
+        assert!(matches!(update_table(&conn, id, " ", 6), Err(TableError::EmptyName)));
+        assert!(matches!(update_table(&conn, id, "Table 1", 6), Err(TableError::DuplicateName(_))));
+        assert!(matches!(update_table(&conn, 999_999, "Missing", 6), Err(TableError::TableNotFound)));
+        let unchanged = load_table(&conn, id).unwrap();
+        assert_eq!(unchanged.name, "Patio");
+        assert_eq!(unchanged.seats, 13);
+        let cart = get_parked_cart(&conn, id).unwrap().unwrap();
+        assert_eq!(cart.items[0].item_id, cola);
+        assert_eq!(cart.items[0].qty, 2.0);
+        assert_eq!(cart.discount_minor, 100);
     }
 
     #[test]

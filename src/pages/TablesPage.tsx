@@ -14,7 +14,7 @@ import {
   deleteTable,
   getParkedCart,
   getTables,
-  renameTable,
+  updateTable,
   shiftTableOrder,
   updateTableStatus,
 } from "../services/tablesService";
@@ -110,9 +110,9 @@ export function TablesPage() {
     reload();
   };
 
-  const handleRenameTable = async (name: string) => {
+  const handleUpdateTable = async (name: string, seats: number) => {
     if (!editingTable) return;
-    await renameTable(editingTable.id, name);
+    await updateTable(editingTable.id, name, seats);
     setEditingTable(null);
     reload();
   };
@@ -169,9 +169,9 @@ export function TablesPage() {
       {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       {isLoading ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-lg border border-line bg-surface-2" />
+            <div key={i} className="h-72 animate-pulse rounded-lg border border-line bg-surface-2" />
           ))}
         </div>
       ) : tables.length === 0 ? (
@@ -179,7 +179,7 @@ export function TablesPage() {
           No tables yet — add one to get started.
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {tables.map((table) => (
             <TableCard
               key={table.id}
@@ -212,7 +212,7 @@ export function TablesPage() {
       {editingTable && (
         <EditTableModal
           table={editingTable}
-          onSave={handleRenameTable}
+          onSave={handleUpdateTable}
           onClose={() => setEditingTable(null)}
         />
       )}

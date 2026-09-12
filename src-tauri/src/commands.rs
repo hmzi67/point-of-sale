@@ -1644,6 +1644,21 @@ pub fn tables_rename_table(
         .map_err(|e| e.to_string())
 }
 
+/// Updates a table name and seat count.
+#[tauri::command]
+pub fn tables_update_table(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    table_id: i64,
+    name: String,
+    seats: i64,
+) -> Result<TableSummary, String> {
+    require_role(&session, STAFF_ROLES)?;
+    db.with_conn(|conn| Ok(tables::update_table(conn, table_id, &name, seats)))
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
 /// Removes a physical table from the floor entirely. Owner/Admin only, same
 /// tier as `tables_add_table`. Refused (see `TableError::HasOpenOrder`)
 /// while the table has an order parked on it, so an in-progress cart can

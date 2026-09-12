@@ -1,6 +1,8 @@
 import { Pencil, Trash2 } from "lucide-react";
 import type { TableSummary } from "../../types";
 
+import { TableSeating } from "./TableSeating";
+
 interface TableCardProps {
   table: TableSummary;
   busy: boolean;
@@ -16,9 +18,9 @@ interface TableCardProps {
 /** Color-codes a table by status: free = green, occupied = red, reserved =
  * amber — the floor view's whole point is reading this at a glance. */
 const STATUS_STYLES: Record<TableSummary["status"], string> = {
-  free: "border-success-line bg-success-soft hover:bg-success-soft",
-  occupied: "border-danger-line bg-danger-soft hover:bg-danger-soft",
-  reserved: "border-warning-line bg-warning-soft hover:bg-warning-soft",
+  free: "border-success-line text-success-text",
+  occupied: "border-danger-line text-danger-text",
+  reserved: "border-warning-line text-warning-text",
 };
 
 const STATUS_DOT: Record<TableSummary["status"], string> = {
@@ -52,7 +54,7 @@ export function TableCard({
 
   return (
     <div
-      className={`flex flex-col gap-2 rounded-lg border-2 p-4 transition-colors ${STATUS_STYLES[table.status]}`}
+      className={`flex flex-col gap-3 rounded-xl border bg-surface p-4 shadow-sm transition-colors ${STATUS_STYLES[table.status]}`}
     >
       <div className="flex items-start justify-between gap-2">
         <button
@@ -76,8 +78,8 @@ export function TableCard({
             type="button"
             onClick={onEdit}
             disabled={busy}
-            aria-label={`Rename ${table.name}`}
-            title="Rename table"
+            aria-label={`Edit ${table.name}`}
+            title="Edit name and seats"
             className="rounded p-1 text-fg-muted hover:bg-surface hover:text-fg-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -95,7 +97,20 @@ export function TableCard({
         </div>
       </div>
 
-      <div className="flex gap-1.5 text-xs">
+      <button
+        type="button"
+        onClick={primaryAction}
+        disabled={busy}
+        aria-label={`${table.status === "occupied" ? "Resume order at" : "Start order at"} ${table.name}, ${table.seats} seats`}
+        className="rounded-lg px-2 py-3 transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <TableSeating seats={table.seats} />
+        <span className="mt-2 block text-xs font-medium text-fg-muted">
+          {table.status === "occupied" ? "Resume order" : "Tap to start order"}
+        </span>
+      </button>
+
+      <div className="mt-auto flex flex-wrap gap-1.5 border-t border-line pt-3 text-xs">
         {table.status === "free" && (
           <button
             type="button"

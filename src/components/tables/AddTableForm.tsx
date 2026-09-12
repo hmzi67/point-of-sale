@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 
+import { SeatCountField } from "./SeatCountField";
+
 interface AddTableFormProps {
   onAdd: (name: string, seats: number) => Promise<void>;
   onCancel: () => void;
@@ -15,7 +17,7 @@ export function AddTableForm({ onAdd, onCancel }: AddTableFormProps) {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || !Number.isSafeInteger(seats) || seats < 1) return;
     setIsSaving(true);
     setError(null);
     try {
@@ -42,16 +44,7 @@ export function AddTableForm({ onAdd, onCancel }: AddTableFormProps) {
           className="mt-1 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
         />
       </div>
-      <div>
-        <label className="block text-xs font-medium text-fg-muted">Seats</label>
-        <input
-          type="number"
-          min={1}
-          value={seats}
-          onChange={(e) => setSeats(Math.max(1, Number(e.target.value) || 1))}
-          className="mt-1 w-20 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
-        />
-      </div>
+      <SeatCountField value={seats} onChange={setSeats} disabled={isSaving} />
 
       {error && <p className="text-xs text-danger-text">{error}</p>}
 

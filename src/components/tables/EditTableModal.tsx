@@ -2,29 +2,30 @@ import { useState, type FormEvent } from "react";
 import { X } from "lucide-react";
 import type { TableSummary } from "../../types";
 
+import { SeatCountField } from "./SeatCountField";
+
 interface EditTableModalProps {
   table: TableSummary;
-  onSave: (name: string) => Promise<void>;
+  onSave: (name: string, seats: number) => Promise<void>;
   onClose: () => void;
 }
 
-/** Renames a table — TablesPage is admin/owner-only (see
- * `roleCanAccessModule`), so no further role check is needed here, same as
- * `AddTableForm`. Name only: seats/status have their own controls already
- * (the add form, and the card's reserve/clear actions). */
 export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) {
   const [name, setName] = useState(table.name);
+  const [seats, setSeats] = useState(table.seats);
+  const unchanged = name.trim() === table.name && seats === table.seats;
+  const validSeats = Number.isSafeInteger(seats) && seats > 0;
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed || trimmed === table.name) return;
+    if (!trimmed || unchanged || !validSeats) return;
     setIsSaving(true);
     setError(null);
     try {
-      await onSave(trimmed);
+      await onSave(trimmed, seats);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -39,10 +40,12 @@ export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) 
         className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl"
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-fg">Rename table</h3>
+          <h3 className="text-base font-semibold text-fg">Edit table</h3>
           <button
             type="button"
             onClick={onClose}
+            disabled={isSaving}
+            aria-label="Close edit table"
             className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
           >
             <X className="h-4 w-4" />
@@ -59,6 +62,10 @@ export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) 
           />
         </label>
 
+        <div className="mt-4">
+          <SeatCountField value={seats} onChange={setSeats} disabled={isSaving} />
+        </div>
+
         {error && <p className="mt-2 text-xs text-danger-text">{error}</p>}
 
         <div className="mt-6 flex justify-end gap-2">
@@ -72,7 +79,7 @@ export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) 
           </button>
           <button
             type="submit"
-            disabled={isSaving || !name.trim() || name.trim() === table.name}
+            disabled={isSaving || !name.trim() || unchanged || !validSeats}
             className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Saving…" : "Save"}

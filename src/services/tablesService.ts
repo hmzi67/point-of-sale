@@ -61,3 +61,8 @@ export function getParkedCart(tableId: number): Promise<ParkedOrder | null> {
 export function shiftTableOrder(fromTableId: number, toTableId: number): Promise<ShiftTableResult> {
   return call<ShiftTableResult>("tables_shift_table_order", { fromTableId, toTableId });
 }
+
+/** Updates a table name and seating capacity together. */
+export function updateTable(tableId: number, name: string, seats: number): Promise<TableSummary> {
+  return call<TableSummary>("tables_update_table", { tableId, name, seats });
+}

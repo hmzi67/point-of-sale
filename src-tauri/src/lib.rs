@@ -375,6 +375,7 @@ pub fn run() {
             commands::tables_get_tables,
             commands::tables_add_table,
             commands::tables_rename_table,
+            commands::tables_update_table,
             commands::tables_delete_table,
             commands::tables_update_table_status,
             commands::tables_assign_order_to_table,
