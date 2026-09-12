@@ -164,7 +164,7 @@ export function App() {
               <Route
                 path="settings"
                 element={
-                  <ModuleRoute adminOnly>
+                  <ModuleRoute moduleKey="settings" adminOnly>
                     <SettingsPage />
                   </ModuleRoute>
                 }
@@ -172,23 +172,22 @@ export function App() {
               <Route
                 path="users"
                 element={
-                  <ModuleRoute adminOnly>
+                  <ModuleRoute moduleKey="users" adminOnly>
                     <UserManagementPage />
                   </ModuleRoute>
                 }
               />
-              {/* No `adminOnly`/`moduleKey` here — Employees isn't a
-                  toggleable module, and the "sensitive area" PIN (below) is
-                  now what actually gates it for every role, same as
-                  Attendance/Expenses/Salary/Reports above. */}
               <Route
                 path="employees"
                 element={
+                  <ModuleRoute moduleKey="employees">
                   <AreaPinGate key="employees" label="Employees">
                     <EmployeesPage />
                   </AreaPinGate>
+                  </ModuleRoute>
                 }
               />
+              <Route path="unavailable" element={<div className="rounded-2xl border border-line bg-surface p-8 text-center"><h2 className="text-lg font-semibold text-fg">No sections available</h2><p className="mt-2 text-sm text-fg-muted">Contact your vendor to enable access for this device.</p></div>} />
               <Route path="404" element={<NotFoundPage />} />
               <Route path="*" element={<Navigate to="/404" replace />} />
             </Route>

@@ -58,7 +58,7 @@ import type { ModuleKey, Role } from "../types";
  * that the route/nav link isn't hidden; actually opening one still requires
  * the shared area PIN (`AreaPinGate`), which every role goes through
  * equally. See this file's doc comment's "PIN" rows. */
-const CASHIER_MODULES: ModuleKey[] = ["billing", "inventory", "attendance", "expenses", "salary", "reports"];
+const CASHIER_MODULES: ModuleKey[] = ["billing", "inventory", "attendance", "expenses", "salary", "reports", "employees"];
 
 /** Modules a cashier may open but must not edit. */
 const CASHIER_READ_ONLY_MODULES: ModuleKey[] = ["inventory"];

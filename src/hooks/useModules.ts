@@ -41,7 +41,7 @@ export function useModules() {
    * core and always enabled, so this list is never empty for any role — which
    * is what stops a guard redirect from looping.
    */
-  const fallbackPath = visibleModules[0]?.nav.path ?? "/settings";
+  const fallbackPath = visibleModules[0]?.nav.path ?? "/unavailable";
 
   return { modules, visibleModules, canAccess, fallbackPath, isLoaded, isLoading, error };
 }

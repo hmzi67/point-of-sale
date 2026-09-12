@@ -86,6 +86,12 @@ fn require_license(license: &LicenseRuntime) -> Result<(), String> {
 /// module doc comment. Still requires a live `Session` (not just "any grant
 /// exists anywhere"), so a command can't succeed for literally nobody
 /// signed in even if a grant happens to be live.
+/// Enforce module availability on the compiled platform, independently of UI routing.
+fn require_module(db: &Db, keys: &[&str]) -> Result<(), String> {
+    db.with_conn(|conn| Ok(modules::require_enabled(conn, keys, Platform::current())))
+        .map_err(|e| e.to_string())?
+}
+
 fn require_area_access(session: &Session, area_access: &AreaAccessSession) -> Result<User, String> {
     let user = session.current().ok_or_else(|| "Not signed in".to_string())?;
     if area_access.is_valid() {
@@ -334,6 +340,7 @@ pub fn update_app_config(
     license: State<'_, LicenseRuntime>,
     patch: AppConfigUpdate,
 ) -> Result<AppConfig, String> {
+    require_module(&db, &["settings"])?;
     require_role(&session, STAFF_ROLES)?;
 
     // The vendor gate's actual enforcement point. Completing first-run setup
@@ -504,6 +511,7 @@ pub fn config_upload_logo(
     data_base64: String,
     extension: String,
 ) -> Result<AppConfig, String> {
+    require_module(&db, &["settings"])?;
     require_role(&session, STAFF_ROLES)?;
     let previous_logo = db.with_conn(config::get).map_err(|e| e.to_string())?.logo_path;
 
@@ -560,6 +568,7 @@ pub fn toggle_module(
     platform: String,
     enabled: bool,
 ) -> Result<Vec<ModuleState>, String> {
+    require_module(&db, &["settings"])?;
     require_role(&session, STAFF_ROLES)?;
     let platform = parse_platform(&platform)?;
 
@@ -593,6 +602,7 @@ pub fn inventory_add_item(
     session: State<'_, Session>,
     input: ItemInput,
 ) -> Result<Item, String> {
+    require_module(&db, &["inventory"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(items::add_item(conn, input)))
         .map_err(|e| e.to_string())?
@@ -611,6 +621,7 @@ pub fn inventory_update_item(
     id: i64,
     input: ItemInput,
 ) -> Result<Item, String> {
+    require_module(&db, &["inventory"])?;
     require_role(&session, STAFF_ROLES)?;
     let previous_image = db
         .with_conn(|conn| items::get_item(conn, id).map_err(|_| rusqlite::Error::QueryReturnedNoRows))
@@ -643,6 +654,7 @@ pub fn inventory_delete_item(
     session: State<'_, Session>,
     id: i64,
 ) -> Result<DeleteOutcome, String> {
+    require_module(&db, &["inventory"])?;
     require_role(&session, STAFF_ROLES)?;
     let existing_image = db
         .with_conn(|conn| items::get_item(conn, id).map_err(|_| rusqlite::Error::QueryReturnedNoRows))
@@ -725,6 +737,7 @@ pub fn inventory_add_category(
     session: State<'_, Session>,
     name: String,
 ) -> Result<Category, String> {
+    require_module(&db, &["inventory"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(items::add_category(conn, &name)))
         .map_err(|e| e.to_string())?
@@ -743,6 +756,7 @@ pub fn inventory_import_csv(
     session: State<'_, Session>,
     csv_content: String,
 ) -> Result<csv_import::ImportSummary, String> {
+    require_module(&db, &["inventory"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(csv_import::import_csv(conn, &csv_content)))
         .map_err(|e| e.to_string())?
@@ -831,6 +845,7 @@ pub fn create_user(
     pin: String,
     role: Role,
 ) -> Result<User, String> {
+    require_module(&db, &["users"])?;
     let caller = require_role(&session, STAFF_ROLES)?;
     authorize_create_user(caller.role, role)?;
     db.with_conn(move |conn| Ok(users::create(conn, &name, &pin, role)))
@@ -854,6 +869,7 @@ pub fn update_user(
     name: String,
     role: Role,
 ) -> Result<User, String> {
+    require_module(&db, &["users"])?;
     let caller = require_role(&session, STAFF_ROLES)?;
     let current_role = db
         .with_conn(move |conn| users::role_of(conn, user_id))
@@ -881,6 +897,7 @@ pub fn set_user_active(
     user_id: i64,
     is_active: bool,
 ) -> Result<(), String> {
+    require_module(&db, &["users"])?;
     let caller = require_role(&session, STAFF_ROLES)?;
     let current_role = db
         .with_conn(move |conn| users::role_of(conn, user_id))
@@ -907,6 +924,7 @@ pub fn set_user_pin(
     user_id: i64,
     pin: String,
 ) -> Result<(), String> {
+    require_module(&db, &["users"])?;
     let caller = require_role(&session, STAFF_ROLES)?;
     if user_id != caller.id {
         let current_role = db
@@ -929,6 +947,7 @@ pub fn set_user_pin(
 /// must type or scan something rather than being handed the whole catalogue.
 #[tauri::command]
 pub fn billing_search_items(db: State<'_, Db>, query: String) -> Result<Vec<Item>, String> {
+    require_module(&db, &["billing"])?;
     db.with_conn(|conn| items::search_items(conn, &query, 20))
         .map_err(|e| e.to_string())
 }
@@ -943,6 +962,7 @@ pub fn billing_create_sale(
     license: State<'_, LicenseRuntime>,
     input: CreateSaleInput,
 ) -> Result<Sale, String> {
+    require_module(&db, &["billing"])?;
     require_license(&license)?;
     db.with_transaction(|tx| Ok(sales::create_sale(tx, input)))
         .map_err(|e| e.to_string())?
@@ -1166,6 +1186,7 @@ pub fn printer_list_windows_printers() -> Result<Vec<crate::db::config::WindowsP
 /// printer controls.
 #[tauri::command]
 pub fn printer_print_diagnostic(db: State<'_, Db>, session: State<'_, Session>) -> Result<(), String> {
+    require_module(&db, &["settings"])?;
     require_role(&session, STAFF_ROLES)?;
     let config = db.with_conn(config::get).map_err(|e| e.to_string())?;
     crate::printer::escpos::print_diagnostic(&config).map_err(|e| e.to_string())
@@ -1268,6 +1289,7 @@ fn require_signed_in(session: &Session) -> Result<User, String> {
 /// screen decide whether to show "Open Shift" or "Close Shift".
 #[tauri::command]
 pub fn shift_get_open(db: State<'_, Db>, session: State<'_, Session>) -> Result<Option<Shift>, String> {
+    require_module(&db, &["shifts"])?;
     let caller = require_signed_in(&session)?;
     db.with_conn(|conn| Ok(shifts::get_open_shift_for_cashier(conn, caller.id)))
         .map_err(|e| e.to_string())?
@@ -1282,6 +1304,7 @@ pub fn shift_open(
     session: State<'_, Session>,
     opening_balance_minor: i64,
 ) -> Result<Shift, String> {
+    require_module(&db, &["shifts"])?;
     let caller = require_signed_in(&session)?;
     db.with_conn(|conn| Ok(shifts::open_shift(conn, caller.id, opening_balance_minor)))
         .map_err(|e| e.to_string())?
@@ -1302,6 +1325,7 @@ pub fn shift_get_summary(
     shift_id: i64,
     declared_cash_amount_minor: Option<i64>,
 ) -> Result<ShiftSummary, String> {
+    require_module(&db, &["shifts"])?;
     require_signed_in(&session)?;
     db.with_conn(|conn| Ok(shifts::get_shift_summary(conn, shift_id, declared_cash_amount_minor)))
         .map_err(|e| e.to_string())?
@@ -1318,6 +1342,7 @@ pub fn shift_close(
     shift_id: i64,
     declared_cash_amount_minor: i64,
 ) -> Result<ShiftSummary, String> {
+    require_module(&db, &["shifts"])?;
     let caller = require_signed_in(&session)?;
     let shift = db
         .with_conn(|conn| Ok(shifts::get_shift_summary(conn, shift_id, None)))
@@ -1338,6 +1363,7 @@ pub fn shift_close(
 /// page's tier (see MODULE_CATALOGUE's doc comment on the `shifts` module).
 #[tauri::command]
 pub fn shift_list_recent(db: State<'_, Db>, session: State<'_, Session>, limit: i64) -> Result<Vec<Shift>, String> {
+    require_module(&db, &["shifts"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| shifts::list_shifts(conn, limit)).map_err(|e| e.to_string())
 }
@@ -1345,6 +1371,7 @@ pub fn shift_list_recent(db: State<'_, Db>, session: State<'_, Session>, limit: 
 /// Prints a shift's close-out reconciliation receipt.
 #[tauri::command]
 pub fn shift_print_summary(db: State<'_, Db>, session: State<'_, Session>, shift_id: i64) -> Result<(), String> {
+    require_module(&db, &["shifts"])?;
     require_signed_in(&session)?;
     let summary = db
         .with_conn(|conn| Ok(shifts::get_shift_summary(conn, shift_id, None)))
@@ -1595,6 +1622,7 @@ pub fn reports_print_full_report(
 /// the floor view and the billing screen's table picker.
 #[tauri::command]
 pub fn tables_get_tables(db: State<'_, Db>) -> Result<Vec<TableSummary>, String> {
+    require_module(&db, &["tables"])?;
     db.with_conn(tables::list_tables).map_err(|e| e.to_string())
 }
 
@@ -1610,6 +1638,7 @@ pub fn tables_add_table(
     name: String,
     seats: i64,
 ) -> Result<TableSummary, String> {
+    require_module(&db, &["tables"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(tables::add_table(conn, &name, seats)))
         .map_err(|e| e.to_string())?
@@ -1624,6 +1653,7 @@ pub fn tables_update_table_status(
     table_id: i64,
     status: String,
 ) -> Result<TableSummary, String> {
+    require_module(&db, &["tables"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(tables::update_table_status(conn, table_id, &status)))
         .map_err(|e| e.to_string())?
@@ -1638,6 +1668,7 @@ pub fn tables_rename_table(
     table_id: i64,
     name: String,
 ) -> Result<TableSummary, String> {
+    require_module(&db, &["tables"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(tables::rename_table(conn, table_id, &name)))
         .map_err(|e| e.to_string())?
@@ -1653,6 +1684,7 @@ pub fn tables_update_table(
     name: String,
     seats: i64,
 ) -> Result<TableSummary, String> {
+    require_module(&db, &["tables"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(tables::update_table(conn, table_id, &name, seats)))
         .map_err(|e| e.to_string())?
@@ -1665,6 +1697,7 @@ pub fn tables_update_table(
 /// never be silently discarded from this command.
 #[tauri::command]
 pub fn tables_delete_table(db: State<'_, Db>, session: State<'_, Session>, table_id: i64) -> Result<(), String> {
+    require_module(&db, &["tables"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(tables::delete_table(conn, table_id)))
         .map_err(|e| e.to_string())?
@@ -1686,6 +1719,7 @@ pub fn tables_assign_order_to_table(
     session: State<'_, Session>,
     table_id: i64,
 ) -> Result<TableSummary, String> {
+    require_module(&db, &["tables"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_transaction(|tx| Ok(tables::start_table_order(tx, table_id)))
         .map_err(|e| e.to_string())?
@@ -1704,6 +1738,7 @@ pub fn tables_clear_table(
     session: State<'_, Session>,
     table_id: i64,
 ) -> Result<TableSummary, String> {
+    require_module(&db, &["tables"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_transaction(|tx| Ok(tables::clear_table(tx, table_id)))
         .map_err(|e| e.to_string())?
@@ -1723,6 +1758,7 @@ pub fn tables_attach_cart_to_table(
     items: Vec<ParkedCartLine>,
     discount_minor: i64,
 ) -> Result<(), String> {
+    require_module(&db, &["tables"])?;
     db.with_transaction(|tx| Ok(tables::attach_cart_to_table(tx, table_id, &items, discount_minor)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1731,6 +1767,7 @@ pub fn tables_attach_cart_to_table(
 /// The cart parked on a table, if any — used to resume billing it.
 #[tauri::command]
 pub fn tables_get_parked_cart(db: State<'_, Db>, table_id: i64) -> Result<Option<ParkedOrder>, String> {
+    require_module(&db, &["tables"])?;
     db.with_conn(|conn| Ok(tables::get_parked_cart(conn, table_id)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1753,6 +1790,7 @@ pub fn tables_shift_table_order(
     from_table_id: i64,
     to_table_id: i64,
 ) -> Result<tables::ShiftTableResult, String> {
+    require_module(&db, &["tables"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_transaction(|tx| Ok(tables::shift_table_order(tx, from_table_id, to_table_id)))
         .map_err(|e| e.to_string())?
@@ -1775,6 +1813,7 @@ pub fn counters_get_counters(db: State<'_, Db>, include_inactive: bool) -> Resul
 
 #[tauri::command]
 pub fn counters_add_counter(db: State<'_, Db>, session: State<'_, Session>, name: String) -> Result<Counter, String> {
+    require_module(&db, &["settings"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(counters::add_counter(conn, &name))).map_err(|e| e.to_string())?.map_err(|e| e.to_string())
 }
@@ -1786,6 +1825,7 @@ pub fn counters_update_counter(
     id: i64,
     name: String,
 ) -> Result<Counter, String> {
+    require_module(&db, &["settings"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(counters::update_counter(conn, id, &name)))
         .map_err(|e| e.to_string())?
@@ -1799,6 +1839,7 @@ pub fn counters_set_active(
     id: i64,
     is_active: bool,
 ) -> Result<Counter, String> {
+    require_module(&db, &["settings"])?;
     require_role(&session, STAFF_ROLES)?;
     db.with_conn(|conn| Ok(counters::set_counter_active(conn, id, is_active)))
         .map_err(|e| e.to_string())?
@@ -2161,6 +2202,7 @@ pub fn attendance_get_employees(
     session: State<'_, Session>,
     area_access: State<'_, AreaAccessSession>,
 ) -> Result<Vec<Employee>, String> {
+    require_module(&db, &["attendance", "salary"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(attendance::list_employees).map_err(|e| e.to_string())
 }
@@ -2172,6 +2214,7 @@ pub fn attendance_get_all_employees(
     session: State<'_, Session>,
     area_access: State<'_, AreaAccessSession>,
 ) -> Result<Vec<ManagedEmployee>, String> {
+    require_module(&db, &["employees"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(attendance::list_all_employees).map_err(|e| e.to_string())
 }
@@ -2190,6 +2233,7 @@ pub fn attendance_add_employee(
     contact: Option<String>,
     base_salary_minor: i64,
 ) -> Result<ManagedEmployee, String> {
+    require_module(&db, &["employees"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(move |conn| Ok(attendance::add_employee(conn, &name, &role, contact.as_deref(), base_salary_minor)))
         .map_err(|e| e.to_string())?
@@ -2208,6 +2252,7 @@ pub fn attendance_update_employee(
     contact: Option<String>,
     base_salary_minor: i64,
 ) -> Result<ManagedEmployee, String> {
+    require_module(&db, &["employees"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(move |conn| {
         Ok(attendance::update_employee(
@@ -2234,6 +2279,7 @@ pub fn attendance_set_employee_active(
     employee_id: i64,
     is_active: bool,
 ) -> Result<(), String> {
+    require_module(&db, &["employees"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(move |conn| Ok(attendance::set_employee_active(conn, employee_id, is_active)))
         .map_err(|e| e.to_string())?
@@ -2249,6 +2295,7 @@ pub fn attendance_check_in(
     area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<AttendanceRecord, String> {
+    require_module(&db, &["attendance"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(attendance::check_in(conn, employee_id)))
         .map_err(|e| e.to_string())?
@@ -2264,6 +2311,7 @@ pub fn attendance_check_out(
     area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<AttendanceRecord, String> {
+    require_module(&db, &["attendance"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(attendance::check_out(conn, employee_id)))
         .map_err(|e| e.to_string())?
@@ -2281,6 +2329,7 @@ pub fn attendance_get_attendance(
     start_date: String,
     end_date: String,
 ) -> Result<Vec<AttendanceRecord>, String> {
+    require_module(&db, &["attendance"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(attendance::get_attendance(conn, employee_id, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
@@ -2296,6 +2345,7 @@ pub fn attendance_get_monthly_summary(
     area_access: State<'_, AreaAccessSession>,
     month: String,
 ) -> Result<Vec<MonthlySummary>, String> {
+    require_module(&db, &["attendance"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(attendance::get_monthly_summary(conn, &month)))
         .map_err(|e| e.to_string())?
@@ -2319,6 +2369,7 @@ pub fn expenses_add_expense(
     amount_minor: i64,
     note: Option<String>,
 ) -> Result<Expense, String> {
+    require_module(&db, &["expenses"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(expenses::add_expense(conn, &date, &category, amount_minor, note.as_deref())))
         .map_err(|e| e.to_string())?
@@ -2335,6 +2386,7 @@ pub fn expenses_get_expenses(
     end_date: String,
     category: Option<String>,
 ) -> Result<Vec<Expense>, String> {
+    require_module(&db, &["expenses"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(expenses::get_expenses(conn, &start_date, &end_date, category.as_deref())))
         .map_err(|e| e.to_string())?
@@ -2348,6 +2400,7 @@ pub fn expenses_get_expense_categories(
     session: State<'_, Session>,
     area_access: State<'_, AreaAccessSession>,
 ) -> Result<Vec<String>, String> {
+    require_module(&db, &["expenses"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(expenses::get_categories).map_err(|e| e.to_string())
 }
@@ -2362,6 +2415,7 @@ pub fn expenses_get_totals_by_category(
     start_date: String,
     end_date: String,
 ) -> Result<Vec<CategoryTotal>, String> {
+    require_module(&db, &["expenses"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(expenses::get_totals_by_category(conn, &start_date, &end_date)))
         .map_err(|e| e.to_string())?
@@ -2386,6 +2440,7 @@ pub fn salary_calculate_salary(
     employee_id: i64,
     month: String,
 ) -> Result<SalaryCalculation, String> {
+    require_module(&db, &["salary"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(salary::calculate_salary(conn, employee_id, &month)))
         .map_err(|e| e.to_string())?
@@ -2406,6 +2461,7 @@ pub fn salary_get_monthly_overview(
     area_access: State<'_, AreaAccessSession>,
     month: String,
 ) -> Result<Vec<SalaryCalculation>, String> {
+    require_module(&db, &["salary"])?;
     require_area_access(&session, &area_access)?;
     db.with_transaction(|tx| Ok(salary::get_monthly_overview(tx, &month)))
         .map_err(|e| e.to_string())?
@@ -2430,6 +2486,7 @@ pub fn salary_record_payment(
     paid_amount_minor: i64,
     paid_date: String,
 ) -> Result<SalaryCalculation, String> {
+    require_module(&db, &["salary"])?;
     require_area_access(&session, &area_access)?;
     db.with_transaction(|tx| Ok(salary::record_payment(tx, employee_id, &month, paid_amount_minor, &paid_date)))
         .map_err(|e| e.to_string())?
@@ -2446,6 +2503,7 @@ pub fn salary_print_monthly_report(
     area_access: State<'_, AreaAccessSession>,
     month: String,
 ) -> Result<(), String> {
+    require_module(&db, &["salary"])?;
     require_area_access(&session, &area_access)?;
     let rows = db
         .with_transaction(|tx| Ok(salary::get_monthly_overview(tx, &month)))
@@ -2463,6 +2521,7 @@ pub fn salary_get_payment_history(
     area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<Vec<SalaryCalculation>, String> {
+    require_module(&db, &["salary"])?;
     require_area_access(&session, &area_access)?;
     db.with_conn(|conn| Ok(salary::get_payment_history(conn, employee_id)))
         .map_err(|e| e.to_string())?

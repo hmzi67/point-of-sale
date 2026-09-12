@@ -1,8 +1,5 @@
 import { useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
-import { useAuthStore } from "../store";
-import { EMPLOYEES_NAV, SETTINGS_NAV, USERS_NAV } from "../utils/navigation";
-import { canAttemptEmployeesScreen, roleCanAccessSettings, roleCanManageUsers } from "../utils/permissions";
 import { useModules } from "./useModules";
 
 export interface NavEntry {
@@ -23,7 +20,6 @@ export interface NavEntry {
  */
 export function useNavItems() {
   const { visibleModules, isLoaded } = useModules();
-  const role = useAuthStore((state) => state.user?.role ?? null);
 
   const items = useMemo<NavEntry[]>(() => {
     const list: NavEntry[] = visibleModules.map((module) => ({
@@ -33,11 +29,8 @@ export function useNavItems() {
       icon: module.nav.icon,
       end: module.nav.path === "/",
     }));
-    if (role && canAttemptEmployeesScreen()) list.push({ key: "employees", end: false, ...EMPLOYEES_NAV });
-    if (role && roleCanManageUsers(role)) list.push({ key: "users", end: false, ...USERS_NAV });
-    if (role && roleCanAccessSettings(role)) list.push({ key: "settings", end: false, ...SETTINGS_NAV });
     return list;
-  }, [visibleModules, role]);
+  }, [visibleModules]);
 
   return { items, isLoaded };
 }

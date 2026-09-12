@@ -133,6 +133,16 @@ pub fn is_enabled(conn: &Connection, key: &str, platform: Platform) -> Result<bo
     }
 }
 
+/// Shared reads may serve more than one feature; at least one must be enabled.
+pub fn require_enabled(conn: &Connection, keys: &[&str], platform: Platform) -> Result<(), String> {
+    for key in keys {
+        if is_enabled(conn, key, platform).map_err(|error| error.to_string())? {
+            return Ok(());
+        }
+    }
+    Err(format!("{} is disabled on this device", keys.join(" / ")))
+}
+
 #[derive(Debug)]
 pub enum ToggleError {
     UnknownModule(String),
@@ -227,9 +237,8 @@ pub fn set_enabled(
 /// unchanged, so the product owner can lock a module at its current state
 /// without necessarily flipping it, or unlock one without necessarily
 /// changing whether it's on. Bypasses `set_enabled`'s lock check entirely
-/// (this *is* the lock-setting authority), but still refuses to disable a
-/// core module — that guard is architectural (billing must always have a
-/// route to fall back to), not a permission this account is meant to lift.
+/// (this *is* the lock-setting authority), and may disable any section, including billing. The UI provides an
+/// unavailable landing page when no enabled section is accessible.
 pub fn set_by_product_owner(
     conn: &Connection,
     module_key: &str,
@@ -237,11 +246,7 @@ pub fn set_by_product_owner(
     enabled: Option<bool>,
     locked: Option<bool>,
 ) -> Result<(), ToggleError> {
-    let (module_id, is_core) = find_module(conn, module_key)?;
-
-    if is_core && enabled == Some(false) {
-        return Err(ToggleError::CoreModule(module_key.to_string()));
-    }
+    let (module_id, _) = find_module(conn, module_key)?;
 
     if let Some(enabled) = enabled {
         let sql = format!("UPDATE enabled_modules SET {} = ?1 WHERE module_id = ?2", platform.column());
@@ -278,7 +283,7 @@ mod tests {
 
         assert!(!enabled_keys(&conn, Platform::Desktop).contains(&"inventory".to_string()));
         // The module itself still exists — only its visibility changed.
-        assert_eq!(list(&conn, Platform::Desktop).unwrap().len(), 9);
+        assert_eq!(list(&conn, Platform::Desktop).unwrap().len(), 12);
     }
 
     #[test]
@@ -356,13 +361,41 @@ mod tests {
     }
 
     #[test]
-    fn product_owner_still_cannot_disable_a_core_module() {
+    fn vendor_can_disable_billing_and_the_choice_survives_restart() {
         let conn = test_conn();
-        let err = set_by_product_owner(&conn, "billing", Platform::Desktop, Some(false), None).unwrap_err();
-        assert!(matches!(err, ToggleError::CoreModule(_)));
-        // But locking a core module (a no-op in practice, since it can
-        // never be disabled anyway) is harmless and allowed.
-        set_by_product_owner(&conn, "billing", Platform::Desktop, None, Some(true)).unwrap();
+        set_by_product_owner(&conn, "billing", Platform::Desktop, Some(false), Some(true)).unwrap();
+        crate::db::schema::apply(&conn).unwrap();
+        assert!(!is_enabled(&conn, "billing", Platform::Desktop).unwrap());
+        assert!(is_enabled(&conn, "billing", Platform::Android).unwrap());
+    }
+
+    #[test]
+    fn all_administration_modules_support_independent_vendor_controls() {
+        let conn = test_conn();
+        for key in ["users", "employees", "settings", "salary"] {
+            set_by_product_owner(&conn, key, Platform::Desktop, Some(false), Some(true)).unwrap();
+            set_by_product_owner(&conn, key, Platform::Android, Some(true), Some(false)).unwrap();
+            assert!(require_enabled(&conn, &[key], Platform::Desktop).is_err());
+            assert!(require_enabled(&conn, &[key], Platform::Android).is_ok());
+            assert!(matches!(set_enabled(&conn, key, Platform::Desktop, true), Err(ToggleError::LockedByProductOwner(_))));
+            crate::db::schema::apply(&conn).unwrap();
+            assert!(!is_enabled(&conn, key, Platform::Desktop).unwrap());
+            assert!(list(&conn, Platform::Desktop).unwrap().iter().find(|module| module.key == key).unwrap().locked);
+        }
+    }
+
+    #[test]
+    fn upgrade_adds_administration_without_overwriting_existing_preferences() {
+        let conn = test_conn();
+        set_by_product_owner(&conn, "salary", Platform::Desktop, Some(false), Some(true)).unwrap();
+        conn.execute("DELETE FROM enabled_modules WHERE module_id IN (SELECT id FROM modules WHERE key IN ('employees', 'users', 'settings'))", []).unwrap();
+        conn.execute("DELETE FROM modules WHERE key IN ('employees', 'users', 'settings')", []).unwrap();
+        crate::db::schema::apply(&conn).unwrap();
+        for key in ["employees", "users", "settings"] {
+            assert!(is_enabled(&conn, key, Platform::Desktop).unwrap());
+            assert!(is_enabled(&conn, key, Platform::Android).unwrap());
+        }
+        assert!(!is_enabled(&conn, "salary", Platform::Desktop).unwrap());
     }
 
     #[test]

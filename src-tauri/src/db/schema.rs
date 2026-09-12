@@ -100,6 +100,9 @@ const MODULE_CATALOGUE: &[(&str, &str, bool, i64, bool)] = &[
     // Billing check this same flag directly, the same way `tables` gates
     // its inline billing-screen UI without needing its own role tier.
     ("shifts", "Shifts", false, 9, false),
+    ("employees", "Employees", false, 10, true),
+    ("users", "Users", false, 11, true),
+    ("settings", "Settings", false, 12, true),
 ];
 
 /// User tables currently present, in name order (SQLite internals excluded).
@@ -418,14 +421,6 @@ fn seed_modules(conn: &Connection) -> Result<(), rusqlite::Error> {
             params![key, *android_default as i64],
         )?;
     }
-
-    // Core modules are enabled on every platform, no matter what is stored.
-    conn.execute(
-        "UPDATE enabled_modules
-            SET desktop_enabled = 1, android_enabled = 1
-          WHERE module_id IN (SELECT id FROM modules WHERE is_core = 1)",
-        [],
-    )?;
 
     Ok(())
 }

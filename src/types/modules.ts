@@ -5,8 +5,7 @@ import { platform as osPlatform } from "@tauri-apps/plugin-os";
  * visible for a given installation is configuration, not code — the enabled
  * set is read from SQLite and the sidebar/routes derive from it.
  *
- * Settings is deliberately NOT a module: it is the screen that configures the
- * modules, so it is always present for owner/admin.
+ * Every sidebar section is vendor-configurable, including administration.
  */
 export type ModuleKey =
   | "dashboard"
@@ -17,7 +16,10 @@ export type ModuleKey =
   | "attendance"
   | "expenses"
   | "salary"
-  | "shifts";
+  | "shifts"
+  | "employees"
+  | "users"
+  | "settings";
 
 export type Platform = "desktop" | "android";
 
@@ -73,7 +75,7 @@ export interface ModuleState {
   id: number;
   key: ModuleKey;
   name: string;
-  /** Core modules (billing) can never be toggled off. */
+  /** Core modules (billing) can only be disabled by the vendor. */
   isCore: boolean;
   sortOrder: number;
   /** Visibility on the platform the list was requested for. */

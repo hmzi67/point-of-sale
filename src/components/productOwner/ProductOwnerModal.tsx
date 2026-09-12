@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Lock, LogOut, ShieldAlert, Unlock, X } from "lucide-react";
 import * as productOwnerService from "../../services/productOwnerService";
+import { useModuleStore } from "../../store";
+import { PLATFORM } from "../../types";
 import type { ModuleState } from "../../types";
 
 interface ProductOwnerModalProps {
@@ -21,6 +23,7 @@ type Stage = "loading" | "setup" | "login" | "panel";
  * (or, on a fresh install, to setting one).
  */
 export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
+  const [isUpdating, setIsUpdating] = useState(false);
   const [stage, setStage] = useState<Stage>("loading");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -85,6 +88,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
 
   const setModule = async (moduleKey: string, platform: "desktop" | "android", patch: { enabled?: boolean; locked?: boolean }) => {
     setError(null);
+    setIsUpdating(true);
     try {
       const list = await productOwnerService.setModule(
         moduleKey,
@@ -93,8 +97,11 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
         patch.locked ?? null,
       );
       setModules(list);
+      useModuleStore.setState({ modules: list.map((module) => ({ ...module, enabled: PLATFORM === "android" ? module.androidEnabled : module.desktopEnabled, locked: PLATFORM === "android" ? module.androidLocked : module.desktopLocked })), isLoaded: true });
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -182,7 +189,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
                 Locking a module here blocks the client's own Owner/Admin from changing it in Settings.
               </p>
               {error && <p className="text-xs text-danger-text">{error}</p>}
-              <ul className="divide-y divide-line">
+              <fieldset disabled={isUpdating}><ul className="divide-y divide-line">
                 {modules.map((m) => (
                   <li key={m.key} className="py-2.5">
                     <p className="text-sm font-medium">
@@ -207,7 +214,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
                     </div>
                   </li>
                 ))}
-              </ul>
+              </ul></fieldset>
 
               <button
                 type="button"
