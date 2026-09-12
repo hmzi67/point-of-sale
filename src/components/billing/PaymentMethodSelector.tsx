@@ -8,22 +8,22 @@ const METHODS: { value: PaymentMethod; label: string; icon: typeof Banknote }[] 
   { value: "other", label: "Other", icon: Wallet },
 ];
 
-/** Restyled to sit beside the promo row (reference's "QRIS" pill) — same
- * three payment methods, same store, same value sent to `billing_create_sale`. */
+/** Three payment choices with a visible selected state. */
 export function PaymentMethodSelector() {
   const paymentMethod = useBillingStore((state) => state.paymentMethod);
   const setPaymentMethod = useBillingStore((state) => state.setPaymentMethod);
 
   return (
-    <div className="flex gap-1.5 rounded-full bg-surface-2 p-1">
+    <div className="flex gap-2">
       {METHODS.map(({ value, label, icon: Icon }) => (
         <button
           key={value}
           type="button"
           onClick={() => setPaymentMethod(value)}
+          aria-pressed={paymentMethod === value}
           className={[
-            "flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 text-xs font-semibold transition-colors",
-            paymentMethod === value ? "bg-surface text-accent-text shadow-soft" : "text-fg-muted hover:text-fg-2",
+            "flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-semibold transition-colors",
+            paymentMethod === value ? "border-accent/40 bg-accent-soft text-accent-text" : "border-line bg-surface-2/50 text-fg-muted hover:border-line-strong hover:text-fg-2",
           ].join(" ")}
         >
           <Icon className="h-3.5 w-3.5" />

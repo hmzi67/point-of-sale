@@ -51,10 +51,10 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
       // padding, border and rounded corner cut off, leaving the thumbnail
       // flush against the clipped edge whenever the row was active.
       className={[
-        "flex cursor-pointer items-center gap-3 rounded-xl border px-2 py-3 transition-colors",
+        "flex cursor-pointer items-center gap-2 rounded-xl border px-2 py-3 transition-colors",
         isActive
           ? "border-accent/40 bg-accent-soft"
-          : "border-transparent [&:not(:last-child)]:border-b-line",
+          : "border-line bg-surface-2/40 hover:border-line-strong",
       ].join(" ")}
     >
       <ItemImage imagePath={entry.imagePath} alt={entry.name} className="h-12 w-12 shrink-0 rounded-xl" />
@@ -70,7 +70,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
         aria-label={entry.notes ? `Edit note for ${entry.name}` : `Add a note to ${entry.name}`}
         title={entry.notes || "Add a note"}
         className={[
-          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
           entry.notes ? "bg-accent text-accent-ink" : "bg-surface-3 text-fg-muted hover:bg-surface-3",
         ].join(" ")}
       >
@@ -90,7 +90,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
             // modal, which has a real decimal input.
             entry.qty <= 1 ? removeItem(itemId) : setQty(itemId, entry.qty - 1)
           }
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-fg-muted hover:bg-surface-3 disabled:opacity-30"
+          className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-3 text-fg-muted hover:bg-surface-3 disabled:opacity-30"
           aria-label={`Decrease quantity of ${entry.name}`}
         >
           <Minus className="h-3 w-3" />
@@ -102,7 +102,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
           type="button"
           onClick={() => setQty(itemId, entry.qty + 1)}
           disabled={entry.qty >= entry.stockQty}
-          className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-3 text-fg-muted hover:bg-surface-3 disabled:opacity-30"
+          className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-3 text-fg-muted hover:bg-surface-3 disabled:opacity-30"
           aria-label={`Increase quantity of ${entry.name}`}
         >
           <Plus className="h-3 w-3" />
@@ -112,7 +112,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
       <button
         type="button"
         onClick={() => removeItem(itemId)}
-        className="shrink-0 rounded-full p-1 text-fg-faint hover:bg-danger-soft hover:text-danger-text"
+        className="shrink-0 rounded-lg p-1 text-fg-faint hover:bg-danger-soft hover:text-danger-text"
         aria-label={`Remove ${entry.name} from cart`}
       >
         <Trash2 className="h-3.5 w-3.5" />

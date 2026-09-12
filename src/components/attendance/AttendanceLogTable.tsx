@@ -40,7 +40,7 @@ export function AttendanceLogTable() {
         <select
           value={employeeId}
           onChange={(e) => setEmployeeId(e.target.value === "" ? "" : Number(e.target.value))}
-          className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+          className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
         >
           <option value="">All employees</option>
           {employees.map((employee) => (
@@ -56,7 +56,7 @@ export function AttendanceLogTable() {
             value={startDate}
             max={endDate || undefined}
             onChange={(e) => setStartDate(e.target.value)}
-            className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
           />
           <span className="text-fg-muted">–</span>
           <input
@@ -64,34 +64,34 @@ export function AttendanceLogTable() {
             value={endDate}
             min={startDate || undefined}
             onChange={(e) => setEndDate(e.target.value)}
-            className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
           />
         </div>
       </div>
 
-      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+      {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
-      <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+      <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
         <table className="min-w-full divide-y divide-line text-sm">
-          <thead className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-fg-muted">
+          <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
             <tr>
-              <th className="px-4 py-2">Date</th>
-              <th className="px-4 py-2">Employee</th>
-              <th className="px-4 py-2">Check in</th>
-              <th className="px-4 py-2">Check out</th>
-              <th className="px-4 py-2 text-right">Hours</th>
+              <th className="px-4 py-3.5">Date</th>
+              <th className="px-4 py-3.5">Employee</th>
+              <th className="px-4 py-3.5">Check in</th>
+              <th className="px-4 py-3.5">Check out</th>
+              <th className="px-4 py-3.5 text-right">Hours</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {isLoading ? (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-fg-muted">
+                <td colSpan={5} className="px-4 py-12 text-center text-fg-muted">
                   Loading…
                 </td>
               </tr>
             ) : records.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-fg-muted">
+                <td colSpan={5} className="px-4 py-12 text-center text-fg-muted">
                   No attendance records in this range.
                 </td>
               </tr>
@@ -99,24 +99,24 @@ export function AttendanceLogTable() {
               records.map((record) => {
                 const incomplete = Boolean(record.checkIn) && !record.checkOut;
                 return (
-                  <tr key={record.id}>
-                    <td className="px-4 py-2 text-fg-2">{record.workDate}</td>
-                    <td className="px-4 py-2 text-fg-2">{record.employeeName}</td>
-                    <td className="px-4 py-2 text-fg-2">
+                  <tr key={record.id} className="transition-colors hover:bg-surface-2/50">
+                    <td className="px-4 py-3.5 text-fg-2">{record.workDate}</td>
+                    <td className="px-4 py-3.5 text-fg-2">{record.employeeName}</td>
+                    <td className="px-4 py-3.5 text-fg-2">
                       {record.checkIn ? formatTime(record.checkIn) : "—"}
                     </td>
-                    <td className="px-4 py-2 text-fg-2">
+                    <td className="px-4 py-3.5 text-fg-2">
                       {record.checkOut ? (
                         formatTime(record.checkOut)
                       ) : incomplete ? (
-                        <span className="rounded bg-warning-soft px-1.5 py-0.5 text-xs font-medium text-warning-text">
+                        <span className="rounded-lg bg-warning-soft px-2.5 py-1 text-xs font-medium text-warning-text">
                           in progress
                         </span>
                       ) : (
                         "—"
                       )}
                     </td>
-                    <td className="px-4 py-2 text-right text-fg-2">
+                    <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
                       {record.hoursWorked !== null ? formatHours(record.hoursWorked) : "—"}
                     </td>
                   </tr>

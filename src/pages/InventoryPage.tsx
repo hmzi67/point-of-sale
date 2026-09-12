@@ -1,7 +1,8 @@
-import { Trash2, X } from "lucide-react";
+import { Boxes, LockKeyhole, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { CsvImportModal } from "../components/inventory/CsvImportModal";
 import { EMPTY_INVENTORY_FILTERS, InventoryFilterChips } from "../components/inventory/InventoryFilterChips";
+import { InventorySnapshot } from "../components/inventory/InventorySnapshot";
 import { InventoryToolbar } from "../components/inventory/InventoryToolbar";
 import { ItemFormModal } from "../components/inventory/ItemFormModal";
 import { ItemTable } from "../components/inventory/ItemTable";
@@ -136,28 +137,32 @@ export function InventoryPage() {
   };
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between">
+    <section className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 py-1">
         <div>
-          <h2 className="text-lg font-semibold text-fg">Inventory</h2>
-          <p className="text-sm text-fg-muted">
-            {filteredItems.length} item{filteredItems.length === 1 ? "" : "s"}
-            {filteredItems.length !== items.length && ` (of ${items.length})`}
-            {isReadOnly && " · read-only for your role"}
-          </p>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-accent-text">Product management</p>
+          <h2 className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">Inventory</h2>
+          <p className="mt-2 text-sm text-fg-muted">Keep your products organized and your shelves ready.</p>
         </div>
+        {isReadOnly && <span className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs text-fg-muted"><LockKeyhole className="h-3.5 w-3.5" />Read-only access</span>}
       </div>
 
+      <InventorySnapshot items={filteredItems} isLoading={isLoading} />
+
+      <div className="space-y-4 rounded-2xl border border-line bg-surface p-4 sm:p-5">
       <InventoryToolbar
         isReadOnly={isReadOnly}
         onAddItem={() => setIsAdding(true)}
         onImportCsv={() => setIsImportingCsv(true)}
       />
 
-      <InventoryFilterChips filters={filters} onChange={setFilters} />
+      <div className="border-t border-line pt-4">
+        <InventoryFilterChips filters={filters} onChange={setFilters} />
+      </div>
+      </div>
 
       {!isReadOnly && selectedIds.size > 0 && (
-        <div className="flex items-center justify-between rounded-md border border-accent/40 bg-accent-soft px-4 py-2.5">
+        <div className="flex items-center justify-between rounded-xl border border-accent/40 bg-accent-soft px-4 py-2.5">
           <span className="text-sm font-medium text-accent-text">
             {selectedIds.size} item{selectedIds.size === 1 ? "" : "s"} selected
           </span>
@@ -165,7 +170,7 @@ export function InventoryPage() {
             <button
               type="button"
               onClick={() => setSelectedIds(new Set())}
-              className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-sm font-medium text-accent-text hover:bg-accent-soft"
+              className="flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-sm font-medium text-accent-text hover:bg-accent-soft"
             >
               <X className="h-4 w-4" />
               Clear
@@ -173,7 +178,7 @@ export function InventoryPage() {
             <button
               type="button"
               onClick={() => setIsConfirmingBulkDelete(true)}
-              className="flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white hover:bg-danger/85"
+              className="flex items-center gap-1.5 rounded-xl bg-danger px-3 py-1.5 text-sm font-medium text-white hover:bg-danger/85"
             >
               <Trash2 className="h-4 w-4" />
               Delete selected
@@ -182,11 +187,16 @@ export function InventoryPage() {
         </div>
       )}
 
-      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
-      {toast && <p className="rounded-md bg-success-soft px-3 py-2 text-sm text-success-text">{toast}</p>}
+      {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+      {toast && <p className="rounded-xl bg-success-soft px-3 py-2 text-sm text-success-text">{toast}</p>}
 
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-fg"><Boxes className="h-4 w-4 text-accent-text" />Product catalog</h3>
+          <span className="text-xs text-fg-muted">{isLoading ? "Updating…" : `${filteredItems.length} products shown`}</span>
+        </div>
       {isLoading && items.length === 0 ? (
-        <p className="py-16 text-center text-sm text-fg-muted">Loading items…</p>
+        <div role="status" aria-label="Loading products" className="h-80 animate-pulse rounded-2xl border border-line bg-surface" />
       ) : (
         <ItemTable
           items={filteredItems}
@@ -200,6 +210,8 @@ export function InventoryPage() {
           onToggleSelectAll={toggleSelectAll}
         />
       )}
+
+      </div>
 
       {isImportingCsv && (
         <CsvImportModal onClose={() => setIsImportingCsv(false)} onImported={() => void load()} />

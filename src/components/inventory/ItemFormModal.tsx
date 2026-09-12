@@ -224,15 +224,15 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
-      <div className="w-full max-w-md rounded-lg bg-surface shadow-xl">
-        <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h3 className="text-base font-semibold text-fg">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-line bg-surface shadow-xl">
+        <div className="flex items-center justify-between border-b border-line bg-surface-2/50 px-5 py-5">
+          <h3 className="text-lg font-semibold tracking-tight text-fg">
             {isEditing ? "Edit item" : "Add item"}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
+            className="rounded-xl p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -246,7 +246,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
             void submit();
           }}
         >
-          {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+          {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
           <div>
             <span className="block text-xs font-medium text-fg-muted">Product image</span>
@@ -254,7 +254,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-dashed border-line-strong bg-surface-2 text-fg-muted hover:border-accent hover:text-accent-text"
+                className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-line-strong bg-surface-2 text-fg-muted hover:border-accent hover:text-accent-text"
               >
                 {previewUrl ? (
                   <img src={previewUrl} alt="" className="h-full w-full object-cover" />
@@ -307,7 +307,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               id="item-name"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
               autoFocus
             />
           </div>
@@ -326,7 +326,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 if (e.key === "Enter") e.preventDefault();
               }}
               placeholder="Scan or type…"
-              className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
             />
           </div>
 
@@ -343,7 +343,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               }}
               inputMode="numeric"
               placeholder="e.g. 12"
-              className="mt-1 w-full max-w-[8rem] rounded-md border border-line-strong px-3 py-2 text-sm"
+              className="mt-1 w-full max-w-[8rem] rounded-xl border border-line-strong px-3 py-2 text-sm"
             />
             <p className="mt-1 text-[11px] text-fg-muted">
               2-4 digits. A cashier can type this straight into the billing screen instead of scanning a barcode.
@@ -360,7 +360,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               onChange={(e) => set("description", e.target.value)}
               rows={2}
               placeholder="A short blurb shown when a cashier taps this item on the billing screen…"
-              className="mt-1 w-full resize-none rounded-md border border-line-strong px-3 py-2 text-sm"
+              className="mt-1 w-full resize-none rounded-xl border border-line-strong px-3 py-2 text-sm"
             />
           </div>
 
@@ -377,7 +377,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 inputMode="decimal"
                 value={form.price}
                 onChange={(e) => set("price", e.target.value)}
-                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
               />
             </div>
             <div>
@@ -392,7 +392,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 inputMode="decimal"
                 value={form.cost}
                 onChange={(e) => set("cost", e.target.value)}
-                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
               />
             </div>
           </div>
@@ -410,7 +410,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 inputMode="decimal"
                 value={form.stockQty}
                 onChange={(e) => set("stockQty", e.target.value)}
-                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
               />
             </div>
             <div>
@@ -425,12 +425,12 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 inputMode="numeric"
                 value={form.lowStockThreshold}
                 onChange={(e) => set("lowStockThreshold", e.target.value)}
-                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
               />
             </div>
           </div>
 
-          <div className="rounded-md border border-line p-3">
+          <div className="rounded-xl border border-line p-3">
             <label className="flex items-center gap-2 text-sm font-medium text-fg-2">
               <input
                 type="checkbox"
@@ -455,7 +455,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                   value={form.unit}
                   onChange={(e) => set("unit", e.target.value)}
                   placeholder="e.g. kg"
-                  className="mt-1 w-full max-w-[8rem] rounded-md border border-line-strong px-3 py-2 text-sm"
+                  className="mt-1 w-full max-w-[8rem] rounded-xl border border-line-strong px-3 py-2 text-sm"
                 />
                 <p className="mt-1 text-[11px] text-fg-muted">
                   Shown on the cart line and receipt, e.g. "0.77 kg". Optional.
@@ -482,12 +482,12 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                     }
                   }}
                   placeholder="New category name"
-                  className="w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
                 />
                 <button
                   type="button"
                   onClick={() => void submitNewCategory()}
-                  className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover"
+                  className="rounded-xl bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover"
                 >
                   Add
                 </button>
@@ -497,7 +497,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                     setIsAddingCategory(false);
                     setNewCategoryName("");
                   }}
-                  className="rounded-md px-3 py-2 text-sm text-fg-muted hover:bg-surface-3"
+                  className="rounded-xl px-3 py-2 text-sm text-fg-muted hover:bg-surface-3"
                 >
                   Cancel
                 </button>
@@ -508,7 +508,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                   id="item-category"
                   value={form.categoryId ?? ""}
                   onChange={(e) => set("categoryId", e.target.value ? Number(e.target.value) : null)}
-                  className="w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
                 >
                   <option value="">Uncategorized</option>
                   {categories.map((category) => (
@@ -520,7 +520,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 <button
                   type="button"
                   onClick={() => setIsAddingCategory(true)}
-                  className="flex shrink-0 items-center gap-1 rounded-md border border-line-strong px-3 py-2 text-sm text-fg-2 hover:bg-surface-2"
+                  className="flex shrink-0 items-center gap-1 rounded-xl border border-line-strong px-3 py-2 text-sm text-fg-2 hover:bg-surface-2"
                 >
                   <Plus className="h-4 w-4" />
                   New
@@ -538,7 +538,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 id="item-counter"
                 value={form.counterId ?? ""}
                 onChange={(e) => set("counterId", e.target.value ? Number(e.target.value) : null)}
-                className="mt-1 w-full rounded-md border border-line-strong px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
               >
                 <option value="">No counter — never prints a token</option>
                 {counters.map((counter) => (
@@ -557,14 +557,14 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-3"
+              className="rounded-xl px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-3"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving || isUploadingImage}
-              className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
+              className="rounded-xl bg-accent px-4 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
             >
               {isSaving ? "Saving…" : isUploadingImage ? "Uploading photo…" : isEditing ? "Save changes" : "Add item"}
             </button>

@@ -1,4 +1,4 @@
-import { KeyRound, LayoutGrid, Printer, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Store, KeyRound, LayoutGrid, Printer, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppearanceSection } from "../components/settings/AppearanceSection";
 import { AreaPinSection } from "../components/settings/AreaPinSection";
@@ -15,11 +15,11 @@ import { useAppConfig } from "../hooks/useAppConfig";
 type TabKey = "general" | "printer" | "license" | "security" | "modules";
 
 const TABS: SettingsTab<TabKey>[] = [
-  { key: "general", label: "General", icon: SlidersHorizontal },
-  { key: "printer", label: "Printer", icon: Printer },
-  { key: "license", label: "Licence", icon: ShieldCheck },
-  { key: "security", label: "Security", icon: KeyRound },
-  { key: "modules", label: "Modules", icon: LayoutGrid },
+  { key: "general", label: "General", icon: SlidersHorizontal, description: "Store details & appearance" },
+  { key: "printer", label: "Printer", icon: Printer, description: "Devices & receipt printing" },
+  { key: "license", label: "Licence", icon: ShieldCheck, description: "Activation & subscription" },
+  { key: "security", label: "Security", icon: KeyRound, description: "Protected areas & PINs" },
+  { key: "modules", label: "Modules", icon: LayoutGrid, description: "Features & kitchen counters" },
 ];
 
 const DEFAULT_TAB: TabKey = "general";
@@ -55,15 +55,23 @@ export function SettingsPage() {
   const selectTab = (key: TabKey) => navigate(`#${key}`, { replace: true });
 
   return (
-    <section className="mx-auto max-w-3xl">
-      <header className="mb-4">
-        <h2 className="text-lg font-semibold text-fg">Settings</h2>
-        <p className="text-sm text-fg-muted">Configure this installation — changes apply immediately.</p>
+    <section className="mx-auto max-w-6xl">
+      <header className="mb-6">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-accent-text">Make it yours</p>
+        <h2 className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">Settings</h2>
+        <p className="mt-2 text-sm text-fg-muted">Manage your store, devices, and preferences in one place.</p>
       </header>
 
-      <SettingsTabs tabs={TABS} active={active} onSelect={selectTab} />
+      <div className="grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="space-y-4 lg:sticky lg:top-6">
+          <div className="hidden items-center gap-3 rounded-2xl border border-accent/20 bg-linear-to-br from-accent-soft to-surface p-5 lg:flex">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-text"><Store className="h-5 w-5" /></span>
+            <div className="min-w-0"><p className="truncate text-sm font-semibold text-fg" title={config.businessName}>{config.businessName}</p><p className="mt-1 text-xs capitalize text-fg-muted">{config.businessType} · {config.currency}</p></div>
+          </div>
+          <SettingsTabs tabs={TABS} active={active} onSelect={selectTab} />
+        </aside>
 
-      <div className="mt-6 space-y-6">
+      <div className="min-w-0 space-y-5" aria-label={`${TABS.find((tab) => tab.key === active)?.label} settings`}>
         {active === "general" && (
           <>
             <StoreIdentitySection config={config} />
@@ -87,6 +95,7 @@ export function SettingsPage() {
             {tablesEnabled && <CountersSection />}
           </>
         )}
+      </div>
       </div>
     </section>
   );

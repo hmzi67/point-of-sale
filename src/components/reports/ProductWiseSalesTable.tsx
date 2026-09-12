@@ -23,7 +23,7 @@ const PAGE_SIZE = 25;
 function Pager({ page, pageCount, onChange }: { page: number; pageCount: number; onChange: (page: number) => void }) {
   if (pageCount <= 1) return null;
   return (
-    <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2 text-xs text-fg-muted">
+    <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-3 text-xs text-fg-muted">
       <button
         type="button"
         onClick={() => onChange(Math.max(0, page - 1))}
@@ -76,7 +76,7 @@ export function ProductWiseSalesTable({
         <select
           value={categoryId ?? ""}
           onChange={(e) => onCategoryChange(e.target.value ? Number(e.target.value) : null)}
-          className="rounded-md border border-line-strong px-3 py-1.5 text-sm"
+          className="rounded-xl border border-line-strong px-3 py-1.5 text-sm"
         >
           <option value="">All categories</option>
           {categories.map((category) => (
@@ -86,7 +86,7 @@ export function ProductWiseSalesTable({
           ))}
         </select>
 
-        <div className="flex rounded-md border border-line-strong p-0.5">
+        <div className="flex rounded-xl border border-line-strong p-0.5">
           {(["revenue", "quantity"] as const).map((s) => (
             <button
               key={s}
@@ -103,8 +103,8 @@ export function ProductWiseSalesTable({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-line bg-surface shadow-soft">
-        <div className="border-b border-line px-4 py-3">
+      <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+        <div className="border-b border-line px-5 py-5">
           <h3 className="text-sm font-semibold text-fg">Product Wise Sales</h3>
           <p className="mt-0.5 text-xs text-fg-muted">Every item sold in the range, ranked by {sortBy}.</p>
         </div>
@@ -120,23 +120,23 @@ export function ProductWiseSalesTable({
         ) : (
           <>
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-fg-muted">
+              <thead className="border-b border-line bg-surface-2/50 text-[10px] uppercase tracking-wider text-fg-muted">
                 <tr>
-                  <th className="px-4 py-2 font-medium">#</th>
-                  <th className="px-4 py-2 font-medium">Item</th>
-                  <th className="px-4 py-2 font-medium">Category</th>
-                  <th className="px-4 py-2 text-right font-medium">Qty Sold</th>
-                  <th className="px-4 py-2 text-right font-medium">Revenue</th>
+                  <th className="px-4 py-3 font-medium">#</th>
+                  <th className="px-4 py-3 font-medium">Item</th>
+                  <th className="px-4 py-3 font-medium">Category</th>
+                  <th className="px-4 py-3 text-right font-medium">Qty Sold</th>
+                  <th className="px-4 py-3 text-right font-medium">Revenue</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {visibleRows.map((row) => (
                   <tr key={row.itemId}>
-                    <td className="px-4 py-2 text-fg-muted">{row.rank}</td>
-                    <td className="px-4 py-2 font-medium text-fg">{row.itemName}</td>
-                    <td className="px-4 py-2 text-fg-2">{row.categoryName}</td>
-                    <td className="px-4 py-2 text-right text-fg-2">{formatQty(row.qtySold)}</td>
-                    <td className="px-4 py-2 text-right text-fg">{formatMinor(row.revenueMinor, currency)}</td>
+                    <td className="px-4 py-3 text-fg-muted">{row.rank}</td>
+                    <td className="px-4 py-3 font-medium text-fg">{row.itemName}</td>
+                    <td className="px-4 py-3 text-fg-2">{row.categoryName}</td>
+                    <td className="px-4 py-3 text-right text-fg-2">{formatQty(row.qtySold)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-fg tabular-nums">{formatMinor(row.revenueMinor, currency)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -147,7 +147,7 @@ export function ProductWiseSalesTable({
       </div>
 
       {!isLoading && noSalesItems.length > 0 && (
-        <div className="rounded-2xl border border-line bg-surface shadow-soft">
+        <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
           <button
             type="button"
             onClick={() => setShowNoSales((s) => !s)}
@@ -165,17 +165,17 @@ export function ProductWiseSalesTable({
           {showNoSales && (
             <>
               <table className="w-full border-t border-line text-left text-sm">
-                <thead className="border-b border-line text-xs uppercase tracking-wide text-fg-muted">
+                <thead className="border-b border-line bg-surface-2/50 text-[10px] uppercase tracking-wider text-fg-muted">
                   <tr>
-                    <th className="px-4 py-2 font-medium">Item</th>
-                    <th className="px-4 py-2 font-medium">Category</th>
+                    <th className="px-4 py-3 font-medium">Item</th>
+                    <th className="px-4 py-3 font-medium">Category</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {visibleNoSales.map((row) => (
                     <tr key={row.itemId}>
-                      <td className="px-4 py-2 font-medium text-fg">{row.itemName}</td>
-                      <td className="px-4 py-2 text-fg-2">{row.categoryName}</td>
+                      <td className="px-4 py-3 font-medium text-fg">{row.itemName}</td>
+                      <td className="px-4 py-3 text-fg-2">{row.categoryName}</td>
                     </tr>
                   ))}
                 </tbody>

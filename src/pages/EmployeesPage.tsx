@@ -1,5 +1,6 @@
+import { ManagementSummary } from "../components/ui/ManagementSummary";
 import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Users, UserCheck, UserMinus } from "lucide-react";
 import { EmployeeFormModal } from "../components/employees/EmployeeFormModal";
 import { EmployeeTable } from "../components/employees/EmployeeTable";
 import { useAppConfig } from "../hooks/useAppConfig";
@@ -46,11 +47,12 @@ export function EmployeesPage() {
   };
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-fg">Employees</h2>
-          <p className="text-sm text-fg-muted">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-accent-text">Your team</p>
+          <h2 className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">Employees</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-fg-muted">
             Add and manage staff records used by Attendance and Salary — deactivate someone who's left instead of
             deleting them, so past attendance and pay history stay intact.
           </p>
@@ -58,14 +60,20 @@ export function EmployeesPage() {
         <button
           type="button"
           onClick={() => setEditingEmployee("new")}
-          className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
+          className="flex items-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-accent-ink hover:bg-accent-hover"
         >
           <Plus className="h-4 w-4" />
           Add employee
         </button>
       </div>
 
-      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+      <ManagementSummary isLoading={isLoading} items={[
+        { label: "Total employees", value: employees.length, detail: "Attendance and payroll records", icon: Users },
+        { label: "Active", value: employees.filter((person) => person.isActive).length, detail: "Current members of your team", icon: UserCheck, tone: "success" },
+        { label: "Deactivated", value: employees.filter((person) => !person.isActive).length, detail: "History retained for your records", icon: UserMinus, tone: "warning" },
+      ]} />
+
+      {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       <EmployeeTable
         employees={employees}

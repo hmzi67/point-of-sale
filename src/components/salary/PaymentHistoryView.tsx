@@ -53,7 +53,7 @@ export function PaymentHistoryView() {
       <select
         value={employeeId ?? ""}
         onChange={(e) => setEmployeeId(e.target.value ? Number(e.target.value) : null)}
-        className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+        className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
       >
         {employees.map((employee) => (
           <option key={employee.id} value={employee.id}>
@@ -62,49 +62,49 @@ export function PaymentHistoryView() {
         ))}
       </select>
 
-      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+      {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
-      <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+      <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
         <table className="min-w-full divide-y divide-line text-sm">
-          <thead className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-fg-muted">
+          <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
             <tr>
-              <th className="px-4 py-2">Month</th>
-              <th className="px-4 py-2 text-right">Days present</th>
-              <th className="px-4 py-2 text-right">Calculated</th>
-              <th className="px-4 py-2 text-right">Paid</th>
-              <th className="px-4 py-2">Paid on</th>
-              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-3.5">Month</th>
+              <th className="px-4 py-3.5 text-right">Days present</th>
+              <th className="px-4 py-3.5 text-right">Calculated</th>
+              <th className="px-4 py-3.5 text-right">Paid</th>
+              <th className="px-4 py-3.5">Paid on</th>
+              <th className="px-4 py-3.5">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {isLoading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-fg-muted">
+                <td colSpan={6} className="px-4 py-12 text-center text-fg-muted">
                   Loading…
                 </td>
               </tr>
             ) : history.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-fg-muted">
+                <td colSpan={6} className="px-4 py-12 text-center text-fg-muted">
                   No salary records for this employee yet.
                 </td>
               </tr>
             ) : (
               history.map((row) => (
-                <tr key={row.month}>
-                  <td className="px-4 py-2 text-fg-2">{row.month}</td>
-                  <td className="px-4 py-2 text-right text-fg-2">
+                <tr key={row.month} className="transition-colors hover:bg-surface-2/50">
+                  <td className="px-4 py-3.5 text-fg-2">{row.month}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
                     {row.daysPresent} / {row.workingDaysInMonth}
                   </td>
-                  <td className="px-4 py-2 text-right text-fg-2">
+                  <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
                     {formatMinor(row.calculatedAmountMinor, config.currency)}
                   </td>
-                  <td className="px-4 py-2 text-right text-fg-2">
+                  <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
                     {formatMinor(row.paidAmountMinor, config.currency)}
                   </td>
-                  <td className="px-4 py-2 text-fg-muted">{row.paidDate ?? "—"}</td>
-                  <td className="px-4 py-2">
-                    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_STYLES[row.status]}`}>
+                  <td className="px-4 py-3.5 text-fg-muted">{row.paidDate ?? "—"}</td>
+                  <td className="px-4 py-3.5">
+                    <span className={`rounded-lg px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[row.status]}`}>
                       {STATUS_LABEL[row.status]}
                     </span>
                   </td>

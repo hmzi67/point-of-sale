@@ -1,4 +1,5 @@
 import { Flame, Minus, Plus } from "lucide-react";
+import { categoryIcon } from "../../utils/categoryIcon";
 import { categoryColor } from "../../utils/categoryColor";
 import { formatMinor, formatQty } from "../../utils/format";
 import { useBillingStore } from "../../store";
@@ -29,6 +30,7 @@ interface ItemCardProps {
 export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps) {
   const outOfStock = item.stockQty <= 0;
   const color = categoryColor(item.categoryId);
+  const CategoryIcon = categoryIcon(item.categoryName ?? "");
 
   const inCart = useBillingStore((state) => state.cart[item.id] !== undefined);
   const qty = useBillingStore((state) => state.cart[item.id]?.qty ?? 0);
@@ -51,8 +53,9 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
   return (
     <div
       className={[
-        "flex flex-col overflow-hidden rounded-2xl bg-surface text-left shadow-soft ring-1 ring-line/60 transition-all duration-200 ease-out",
-        outOfStock ? "opacity-50" : "hover:-translate-y-1 hover:shadow-soft-lg hover:ring-accent/40",
+        "group flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-surface text-left transition-colors duration-200",
+        inCart ? "border-accent/60 shadow-soft" : "border-line",
+        outOfStock ? "opacity-50" : "hover:border-accent/40 hover:shadow-soft",
       ].join(" ")}
     >
       {/* Padded, tinted mount for the photo instead of an edge-to-edge crop —
@@ -60,7 +63,8 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
        * inset within the card, not filling its whole top edge. */}
       <div className="p-2.5 pb-0">
         <div className="relative overflow-hidden rounded-xl bg-surface-2">
-          <ItemImage imagePath={item.imagePath} alt={item.name} className="h-28 w-full" />
+          <ItemImage imagePath={item.imagePath} alt={item.name} className="h-28 w-full"
+            fallback={<span aria-hidden="true" className={`flex h-16 w-16 items-center justify-center rounded-2xl border border-current/10 ${color.bg} ${color.text}`}><CategoryIcon className="h-8 w-8" strokeWidth={1.25} /></span>} />
           <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
             {item.shortCode && (
               <span
@@ -91,9 +95,9 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
       {/* Name is the anchor; category pill + price share one row below it,
        * consistent padding all round so image → name → row reads as one
        * block instead of separately-spaced pieces. */}
-      <div className="flex flex-1 flex-col gap-1.5 p-3 pt-2.5">
-        <p className="truncate text-sm font-semibold text-fg">{item.name}</p>
-        <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-1 flex-col gap-2 p-3.5">
+        <p title={item.name} className="line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-fg">{item.name}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {item.categoryName ? (
             <span className={`truncate rounded-full px-2 py-0.5 text-[10.5px] font-medium ${color.bg} ${color.text}`}>
               {item.categoryName}
@@ -107,11 +111,11 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
         </div>
 
         {inCart ? (
-          <div className="mt-1 flex items-center justify-between rounded-xl bg-surface-3 p-1">
+          <div className="mt-auto flex items-center justify-between rounded-xl border border-accent/20 bg-accent-soft p-1">
             <button
               type="button"
               onClick={decrement}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2"
               aria-label={`Decrease quantity of ${item.name}`}
             >
               <Minus className="h-3.5 w-3.5" />
@@ -121,7 +125,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
               type="button"
               onClick={increment}
               disabled={qty >= item.stockQty}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
               aria-label={`Increase quantity of ${item.name}`}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -135,9 +139,9 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
               if (!outOfStock) addItem(item);
             }}
             disabled={outOfStock}
-            className="mt-1 rounded-xl bg-accent py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
+            className="mt-auto flex min-h-10 items-center justify-center gap-2 rounded-xl border border-accent/20 bg-accent-soft py-2 text-xs font-semibold text-accent-text transition-colors hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
           >
-            Add to Cart
+            <Plus className="h-3.5 w-3.5" /> Add to cart
           </button>
         )}
       </div>

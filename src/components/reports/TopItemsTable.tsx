@@ -1,3 +1,4 @@
+import { Trophy } from "lucide-react";
 import { useReportsStore } from "../../store";
 import { formatMinor, formatQty } from "../../utils/format";
 import type { TopItem, TopItemSort } from "../../types";
@@ -18,17 +19,18 @@ export function TopItemsTable({ items, currency, isLoading }: TopItemsTableProps
   const setTopItemsSort = useReportsStore((state) => state.setTopItemsSort);
 
   return (
-    <div className="rounded-2xl border border-line bg-surface shadow-soft">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h3 className="text-sm font-semibold text-fg">Top-selling items</h3>
-        <div className="flex rounded-md border border-line-strong p-0.5">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-5">
+        <div><h3 className="flex items-center gap-2 text-sm font-semibold text-fg"><Trophy className="h-4 w-4 text-warning-text" />Top-selling items</h3><p className="mt-1.5 text-xs text-fg-muted">Your standout products for this period</p></div>
+        <div className="flex rounded-xl border border-line bg-surface-2/50 p-1">
           {SORT_OPTIONS.map((option) => (
             <button
               key={option.value}
               type="button"
               onClick={() => setTopItemsSort(option.value)}
+              aria-pressed={topItemsSort === option.value}
               className={[
-                "rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                "rounded-lg px-3 py-2 text-xs font-medium transition-colors",
                 topItemsSort === option.value ? "bg-accent text-accent-ink" : "text-fg-muted hover:bg-surface-3",
               ].join(" ")}
             >
@@ -47,22 +49,22 @@ export function TopItemsTable({ items, currency, isLoading }: TopItemsTableProps
       ) : items.length === 0 ? (
         <p className="px-4 py-10 text-center text-sm text-fg-muted">No sales in this range</p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-line text-xs uppercase tracking-wide text-fg-muted">
+        <table className="w-full min-w-[520px] text-left text-sm">
+          <thead className="border-b border-line bg-surface-2/50 text-[10px] uppercase tracking-wider text-fg-muted">
             <tr>
-              <th className="px-4 py-2 font-medium">#</th>
-              <th className="px-4 py-2 font-medium">Item</th>
-              <th className="px-4 py-2 text-right font-medium">Qty sold</th>
-              <th className="px-4 py-2 text-right font-medium">Revenue</th>
+              <th className="px-5 py-3.5 font-medium">#</th>
+              <th className="px-5 py-3.5 font-medium">Item</th>
+              <th className="px-5 py-3.5 text-right font-medium">Qty sold</th>
+              <th className="px-5 py-3.5 text-right font-medium">Revenue</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {items.map((item, index) => (
-              <tr key={item.itemId}>
-                <td className="px-4 py-2 text-fg-muted">{index + 1}</td>
-                <td className="px-4 py-2 font-medium text-fg">{item.itemName}</td>
-                <td className="px-4 py-2 text-right text-fg-2">{formatQty(item.qtySold)}</td>
-                <td className="px-4 py-2 text-right text-fg">{formatMinor(item.revenueMinor, currency)}</td>
+              <tr key={item.itemId} className="transition-colors hover:bg-surface-2/50">
+                <td className="px-5 py-3.5 text-fg-muted"><span className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold ${index === 0 ? "bg-warning-soft text-warning-text" : "bg-surface-3 text-fg-muted"}`}>{index + 1}</span></td>
+                <td className="px-5 py-3.5 font-medium text-fg">{item.itemName}</td>
+                <td className="px-5 py-3.5 text-right text-fg-2">{formatQty(item.qtySold)}</td>
+                <td className="px-5 py-3.5 whitespace-nowrap text-right font-semibold text-fg tabular-nums">{formatMinor(item.revenueMinor, currency)}</td>
               </tr>
             ))}
           </tbody>

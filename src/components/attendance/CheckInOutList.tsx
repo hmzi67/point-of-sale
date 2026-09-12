@@ -1,5 +1,6 @@
+import { ManagementSummary, PersonAvatar } from "../ui/ManagementSummary";
 import { useEffect, useState } from "react";
-import { CheckCircle2, LogIn, LogOut } from "lucide-react";
+import { CheckCircle2, Clock, Users, LogIn, LogOut } from "lucide-react";
 import { checkIn, checkOut, getAttendance, getEmployees } from "../../services/attendanceService";
 import { formatTime } from "../../utils/format";
 import type { AttendanceRecord, Employee } from "../../types";
@@ -63,7 +64,7 @@ export function CheckInOutList() {
     return (
       <div className="space-y-2">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-20 animate-pulse rounded-lg border border-line bg-surface-2" />
+          <div key={i} className="h-20 animate-pulse rounded-2xl border border-line bg-surface-2" />
         ))}
       </div>
     );
@@ -71,7 +72,7 @@ export function CheckInOutList() {
 
   if (employees.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed border-line-strong px-4 py-10 text-center text-sm text-fg-muted">
+      <p className="rounded-2xl border border-dashed border-line-strong px-4 py-10 text-center text-sm text-fg-muted">
         No active employees on file. Add one from the Employees screen.
       </p>
     );
@@ -79,9 +80,14 @@ export function CheckInOutList() {
 
   return (
     <div className="space-y-4">
-      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+      {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <ManagementSummary isLoading={isLoading} items={[
+        { label: "On duty", value: employees.filter((employee) => statusFor(today.get(employee.id)) === "checked-in").length, detail: "Checked in and working today", icon: Users, tone: "success" },
+        { label: "Not checked in", value: employees.filter((employee) => statusFor(today.get(employee.id)) === "not-started").length, detail: "No check-in recorded today", icon: Clock, tone: "warning" },
+        { label: "Finished today", value: employees.filter((employee) => statusFor(today.get(employee.id)) === "done").length, detail: "Check-in and check-out recorded", icon: CheckCircle2 },
+      ]} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {employees.map((employee) => {
           const record = today.get(employee.id);
           const status = statusFor(record);
@@ -90,11 +96,14 @@ export function CheckInOutList() {
           return (
             <div
               key={employee.id}
-              className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 shadow-sm"
+              className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5"
             >
-              <div>
+              <div className="flex items-center gap-3 border-b border-line pb-4">
+                <PersonAvatar name={employee.name} />
+                <div>
                 <p className="text-base font-semibold text-fg">{employee.name}</p>
                 <p className="text-sm text-fg-muted">{employee.role}</p>
+                </div>
               </div>
 
               {/* Plain-language time readout — never a raw "HH:MM – HH:MM"
@@ -112,7 +121,7 @@ export function CheckInOutList() {
               )}
 
               {status === "done" ? (
-                <span className="flex items-center justify-center gap-1.5 rounded-lg bg-surface-3 px-4 py-2.5 text-sm font-semibold text-fg-muted">
+                <span className="mt-auto flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-3 px-4 py-3 text-sm font-semibold text-fg-muted">
                   <CheckCircle2 className="h-4 w-4" />
                   Done for today
                 </span>
@@ -122,10 +131,10 @@ export function CheckInOutList() {
                   onClick={() => void toggle(employee)}
                   disabled={busy}
                   className={[
-                    "flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                    "mt-auto flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                     status === "checked-in"
-                      ? "bg-warning hover:bg-warning/85"
-                      : "bg-success hover:bg-success/85",
+                      ? "bg-warning-soft text-warning-text hover:bg-warning/20"
+                      : "bg-accent text-accent-ink hover:bg-accent-hover",
                   ].join(" ")}
                 >
                   {status === "checked-in" ? (

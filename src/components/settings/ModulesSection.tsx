@@ -26,9 +26,9 @@ export function ModulesSection() {
   };
 
   return (
-    <div className="rounded-lg border border-line bg-surface">
-      <div className="border-b border-line p-6">
-        <h2 className="text-lg font-semibold text-fg">Modules</h2>
+    <div className="rounded-2xl border border-line bg-surface">
+      <div className="border-b border-line bg-surface-2/30 p-6">
+        <h2 className="text-base font-semibold tracking-tight text-fg">Modules</h2>
         <p className="mt-1 text-sm text-fg-2">
           Choose what this installation shows on{" "}
           <span className="font-medium capitalize">{PLATFORM}</span>. Disabled modules disappear
@@ -42,12 +42,12 @@ export function ModulesSection() {
 
       <ul className="divide-y divide-line">
         {modules.map((module) => (
-          <li key={module.key} className="flex items-center justify-between px-6 py-4">
+          <li key={module.key} className="flex items-center justify-between gap-4 px-6 py-5 transition-colors hover:bg-surface-2/40">
             <div>
               <p className="flex items-center gap-2 text-sm font-medium text-fg">
                 {module.name}
                 {module.isCore && (
-                  <span className="inline-flex items-center gap-1 rounded bg-surface-3 px-1.5 py-0.5 text-xs font-normal text-fg-muted">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-surface-3 px-2 py-1 text-xs font-normal text-fg-muted">
                     <Lock className="h-3 w-3" />
                     Core
                   </span>
@@ -55,7 +55,7 @@ export function ModulesSection() {
                 {module.locked && (
                   <span
                     title="Locked by the product administrator — cannot be changed here"
-                    className="inline-flex items-center gap-1 rounded bg-warning-soft px-1.5 py-0.5 text-xs font-normal text-warning-text"
+                    className="inline-flex items-center gap-1 rounded-lg bg-warning-soft px-2 py-1 text-xs font-normal text-warning-text"
                   >
                     <Lock className="h-3 w-3" />
                     Locked

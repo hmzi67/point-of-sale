@@ -101,10 +101,11 @@ export function ItemSearchBar({ onResultsChange }: ItemSearchBarProps) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Search something sweet on your mind…"
-        className="w-full rounded-2xl bg-surface py-3.5 pl-5 pr-14 text-sm shadow-soft placeholder:text-fg-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+        aria-label="Search products or scan a barcode"
+        placeholder="Search products or scan a barcode…"
+        className="w-full rounded-xl border border-line bg-surface py-3.5 pl-12 pr-4 text-sm placeholder:text-fg-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
       />
-      <span className="pointer-events-none absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-surface-3">
+      <span className="pointer-events-none absolute left-3 top-6 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg">
         <Search className="h-4 w-4 text-fg-muted" />
       </span>
 

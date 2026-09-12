@@ -40,8 +40,8 @@ export function AreaPinSection() {
   };
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-6">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-fg">
+    <div className="rounded-2xl border border-line bg-surface p-6">
+      <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-fg">
         <KeyRound className="h-4 w-4 text-fg-muted" />
         Area PIN
       </h2>
@@ -62,7 +62,7 @@ export function AreaPinSection() {
               setOldPin(e.target.value.replace(/\D/g, ""));
               setSuccess(false);
             }}
-            className="w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none"
+            className="w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm focus:border-accent focus:outline-none"
           />
         </label>
 
@@ -78,7 +78,7 @@ export function AreaPinSection() {
               setSuccess(false);
             }}
             placeholder="4-6 digits"
-            className="w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none"
+            className="w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm focus:border-accent focus:outline-none"
           />
         </label>
 
@@ -93,7 +93,7 @@ export function AreaPinSection() {
               setConfirmPin(e.target.value.replace(/\D/g, ""));
               setSuccess(false);
             }}
-            className="w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none"
+            className="w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm focus:border-accent focus:outline-none"
           />
           {mismatch && <span className="mt-1 block text-xs text-danger-text">PINs don't match.</span>}
         </label>
@@ -104,7 +104,7 @@ export function AreaPinSection() {
         <button
           type="submit"
           disabled={!canSubmit || isSaving}
-          className="mt-1 w-fit rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-1 w-fit rounded-xl bg-accent px-3 py-2.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSaving ? "Saving…" : "Change PIN"}
         </button>

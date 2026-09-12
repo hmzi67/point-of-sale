@@ -15,8 +15,8 @@ interface RefundsTableProps {
  * multiple rows, since a receipt # only applies once per refund. */
 export function RefundsTable({ data, currency, isLoading }: RefundsTableProps) {
   return (
-    <div className="rounded-2xl border border-line bg-surface shadow-soft">
-      <div className="border-b border-line px-4 py-3">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+      <div className="border-b border-line px-5 py-5">
         <h3 className="text-sm font-semibold text-fg">Refunds</h3>
         <p className="mt-0.5 text-xs text-fg-muted">Every refund recorded in this range, most recent first.</p>
       </div>
@@ -32,27 +32,27 @@ export function RefundsTable({ data, currency, isLoading }: RefundsTableProps) {
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-line text-xs uppercase tracking-wide text-fg-muted">
+            <thead className="border-b border-line bg-surface-2/50 text-[10px] uppercase tracking-wider text-fg-muted">
               <tr>
-                <th className="px-4 py-2 font-medium">Receipt #</th>
-                <th className="px-4 py-2 font-medium">Item(s)</th>
-                <th className="px-4 py-2 font-medium">Reason</th>
-                <th className="px-4 py-2 font-medium">Processed by</th>
-                <th className="px-4 py-2 font-medium">Date</th>
-                <th className="px-4 py-2 text-right font-medium">Amount</th>
+                <th className="px-4 py-3 font-medium">Receipt #</th>
+                <th className="px-4 py-3 font-medium">Item(s)</th>
+                <th className="px-4 py-3 font-medium">Reason</th>
+                <th className="px-4 py-3 font-medium">Processed by</th>
+                <th className="px-4 py-3 font-medium">Date</th>
+                <th className="px-4 py-3 text-right font-medium">Amount</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {data.refunds.map((refund) => (
                 <tr key={refund.id}>
-                  <td className="px-4 py-2 font-medium text-fg">#{refund.originalSaleId}</td>
-                  <td className="max-w-xs px-4 py-2 text-fg-2">
+                  <td className="px-4 py-3 font-medium text-fg">#{refund.originalSaleId}</td>
+                  <td className="max-w-xs px-4 py-3 text-fg-2">
                     {refund.items.map((line) => `${line.itemName} ×${line.qtyRefunded}`).join(", ")}
                   </td>
-                  <td className="px-4 py-2 text-fg-muted">{refund.reason ?? "—"}</td>
-                  <td className="px-4 py-2 text-fg-muted">{refund.refundedByName ?? "—"}</td>
-                  <td className="px-4 py-2 whitespace-nowrap text-fg-muted">{refund.createdAt}</td>
-                  <td className="px-4 py-2 text-right text-fg">
+                  <td className="px-4 py-3 text-fg-muted">{refund.reason ?? "—"}</td>
+                  <td className="px-4 py-3 text-fg-muted">{refund.refundedByName ?? "—"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-fg-muted">{refund.createdAt}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-fg tabular-nums">
                     {formatMinor(refund.totalRefundAmountMinor, currency)}
                   </td>
                 </tr>
@@ -60,10 +60,10 @@ export function RefundsTable({ data, currency, isLoading }: RefundsTableProps) {
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-line-strong bg-surface-2">
-                <td className="px-4 py-2.5 text-sm font-bold text-fg" colSpan={5}>
+                <td className="px-4 py-3.5 text-sm font-bold text-fg" colSpan={5}>
                   Grand Total
                 </td>
-                <td className="px-4 py-2.5 text-right text-sm font-bold text-fg">
+                <td className="px-4 py-3.5 text-right text-sm font-bold text-fg">
                   {formatMinor(data.grandTotalRefundedMinor, currency)}
                 </td>
               </tr>

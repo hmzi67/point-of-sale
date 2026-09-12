@@ -55,7 +55,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
-      <div className="w-full max-w-sm rounded-lg bg-surface shadow-xl">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h3 className="text-sm font-semibold text-fg">
             {isEditing ? `Edit ${employee.name}` : "Add employee"}
@@ -72,7 +72,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
-              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -83,7 +83,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               onChange={(e) => setRole(e.target.value)}
               list="employee-role-suggestions"
               placeholder="e.g. Cashier"
-              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
             />
             <datalist id="employee-role-suggestions">
               {ROLE_SUGGESTIONS.map((r) => (
@@ -98,7 +98,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               value={contact}
               onChange={(e) => setContact(e.target.value)}
               placeholder="Optional"
-              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -113,7 +113,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               value={baseSalary}
               onChange={(e) => setBaseSalary(e.target.value)}
               placeholder="0.00"
-              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -123,14 +123,14 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
+              className="rounded-xl border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving || !name.trim()}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSaving ? "Saving…" : isEditing ? "Save changes" : "Add employee"}
             </button>

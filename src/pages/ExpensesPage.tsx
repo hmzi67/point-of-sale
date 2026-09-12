@@ -1,3 +1,6 @@
+import { Receipt, Wallet, Layers } from "lucide-react";
+import { ManagementSummary } from "../components/ui/ManagementSummary";
+import { formatMinor } from "../utils/format";
 import { useEffect, useState } from "react";
 import { AddExpenseForm } from "../components/expenses/AddExpenseForm";
 import { CategoryBreakdown } from "../components/expenses/CategoryBreakdown";
@@ -60,23 +63,31 @@ export function ExpensesPage() {
   };
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-fg">Expenses</h2>
-        <p className="text-sm text-fg-muted">Log daily shop expenses and see where the money's going.</p>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-accent-text">Business spending</p>
+          <h2 className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">Expenses</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-relaxed text-fg-muted">Log daily shop expenses and see where the money's going.</p>
       </div>
+
+      <ManagementSummary isLoading={isLoading} items={[
+        { label: "Expenses in view", value: formatMinor(expenses.reduce((sum, expense) => sum + expense.amountMinor, 0), config.currency), detail: "Total matching your dates and category", icon: Wallet },
+        { label: "Expense entries", value: expenses.length, detail: "Records matching your current filters", icon: Receipt },
+        { label: "Spending categories", value: totals.length, detail: "Across all categories in this date range", icon: Layers, tone: "warning" },
+      ]} />
 
       <AddExpenseForm categories={categories} onAdded={reload} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-md border border-line-strong p-0.5">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface p-4">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-line bg-surface p-1.5">
           {PRESETS.map((p) => (
             <button
               key={p}
               type="button"
               onClick={() => applyPreset(p)}
+              aria-pressed={preset === p}
               className={[
-                "rounded px-3 py-1.5 text-sm font-medium transition-colors",
+                "rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
                 preset === p ? "bg-accent text-accent-ink" : "text-fg-2 hover:bg-surface-3",
               ].join(" ")}
             >
@@ -88,31 +99,34 @@ export function ExpensesPage() {
         <div className="flex items-center gap-1.5">
           <input
             type="date"
+            aria-label="Expense start date"
             value={startDate}
             max={endDate || undefined}
             onChange={(e) => {
               setPreset("custom");
               setStartDate(e.target.value);
             }}
-            className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
           />
           <span className="text-fg-muted">–</span>
           <input
             type="date"
+            aria-label="Expense end date"
             value={endDate}
             min={startDate || undefined}
             onChange={(e) => {
               setPreset("custom");
               setEndDate(e.target.value);
             }}
-            className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
           />
         </div>
 
         <select
+          aria-label="Expense category"
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+          className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
         >
           <option value="">All categories</option>
           {categories.map((c) => (
@@ -123,9 +137,9 @@ export function ExpensesPage() {
         </select>
       </div>
 
-      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+      {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <ExpenseList expenses={expenses} currency={config.currency} isLoading={isLoading} />
         </div>

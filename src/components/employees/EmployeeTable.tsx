@@ -1,3 +1,4 @@
+import { ActiveBadge, PersonAvatar } from "../ui/ManagementSummary";
 import { formatMinor } from "../../utils/format";
 import type { ManagedEmployee } from "../../types";
 
@@ -15,28 +16,28 @@ interface EmployeeTableProps {
  * (greyed out) and reactivatable, rather than disappearing entirely. */
 export function EmployeeTable({ employees, currency, isLoading, busyId, onEdit, onToggleActive }: EmployeeTableProps) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
       <table className="min-w-full divide-y divide-line text-sm">
-        <thead className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-fg-muted">
+        <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
           <tr>
-            <th className="px-4 py-2">Name</th>
-            <th className="px-4 py-2">Role</th>
-            <th className="px-4 py-2">Contact</th>
-            <th className="px-4 py-2 text-right">Base salary</th>
-            <th className="px-4 py-2">Status</th>
-            <th className="px-4 py-2" />
+            <th className="px-4 py-3.5">Name</th>
+            <th className="px-4 py-3.5">Role</th>
+            <th className="px-4 py-3.5">Contact</th>
+            <th className="px-4 py-3.5 text-right">Base salary</th>
+            <th className="px-4 py-3.5">Status</th>
+            <th className="px-4 py-3.5" />
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
           {isLoading ? (
             <tr>
-              <td colSpan={6} className="px-4 py-6 text-center text-fg-muted">
+              <td colSpan={6} className="px-4 py-12 text-center text-fg-muted">
                 Loading…
               </td>
             </tr>
           ) : employees.length === 0 ? (
             <tr>
-              <td colSpan={6} className="px-4 py-6 text-center text-fg-muted">
+              <td colSpan={6} className="px-4 py-12 text-center text-fg-muted">
                 No employees yet.
               </td>
             </tr>
@@ -44,21 +45,21 @@ export function EmployeeTable({ employees, currency, isLoading, busyId, onEdit, 
             employees.map((employee) => {
               const busy = busyId === employee.id;
               return (
-                <tr key={employee.id} className={employee.isActive ? "" : "opacity-60"}>
-                  <td className="px-4 py-2 font-medium text-fg">{employee.name}</td>
-                  <td className="px-4 py-2 text-fg-2">{employee.role}</td>
-                  <td className="px-4 py-2 text-fg-muted">{employee.contact ?? "—"}</td>
-                  <td className="px-4 py-2 text-right text-fg-2">
+                <tr key={employee.id} className={employee.isActive ? "transition-colors hover:bg-surface-2/50" : "opacity-60"}>
+                  <td className="px-4 py-3.5 font-medium text-fg"><span className="flex items-center gap-3"><PersonAvatar name={employee.name} />{employee.name}</span></td>
+                  <td className="px-4 py-3.5 text-fg-2">{employee.role}</td>
+                  <td className="px-4 py-3.5 text-fg-muted">{employee.contact ?? "—"}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
                     {formatMinor(employee.baseSalaryMinor, currency)}
                   </td>
-                  <td className="px-4 py-2 text-fg-muted">{employee.isActive ? "Active" : "Deactivated"}</td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-3.5 text-fg-muted"><ActiveBadge active={employee.isActive} /></td>
+                  <td className="px-4 py-3.5 text-right">
                     <div className="flex justify-end gap-1.5">
                       <button
                         type="button"
                         onClick={() => onEdit(employee)}
                         disabled={busy}
-                        className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
+                        className="rounded-xl border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
                       >
                         Edit
                       </button>
@@ -66,7 +67,7 @@ export function EmployeeTable({ employees, currency, isLoading, busyId, onEdit, 
                         type="button"
                         onClick={() => onToggleActive(employee)}
                         disabled={busy}
-                        className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-xl border border-line-strong px-3 py-2 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {employee.isActive ? "Deactivate" : "Reactivate"}
                       </button>

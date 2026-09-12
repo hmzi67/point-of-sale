@@ -1,3 +1,4 @@
+import { BarChart3, Boxes, CalendarDays, RotateCcw, Table2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { DateRangePicker } from "../components/reports/DateRangePicker";
 import { ExportButtons } from "../components/reports/ExportButtons";
@@ -131,11 +132,12 @@ export function ReportsPage() {
   }, [view, startDate, endDate]);
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-5 py-1">
         <div>
-          <h2 className="text-lg font-semibold text-fg">Reports</h2>
-          <p className="text-sm text-fg-muted">Daily sales summary and top-selling items.</p>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-accent-text">Business insights</p>
+          <h2 className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">Reports</h2>
+          <p className="mt-2 text-sm text-fg-muted">Explore your sales, spot your best sellers, and track performance.</p>
         </div>
         <ExportButtons
           view={view}
@@ -151,20 +153,25 @@ export function ReportsPage() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface p-2 shadow-soft">
-        <DateRangePicker />
+      <div className="space-y-4 rounded-2xl border border-line bg-surface p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <span className="flex items-center gap-2 text-xs font-semibold text-fg-2"><CalendarDays className="h-4 w-4 text-accent-text" />Reporting period</span>
+          <DateRangePicker />
+        </div>
 
-        <div className="flex shrink-0 rounded-xl bg-surface-3 p-1">
+        <div className="flex flex-wrap gap-2 border-t border-line pt-4">
           {(["overview", "products", ...(tablesEnabled ? (["tables"] as const) : []), "refunds"] as const).map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => setView(v)}
+              aria-pressed={view === v}
               className={[
-                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                view === v ? "bg-accent text-accent-ink shadow-soft" : "text-fg-2 hover:bg-surface",
+                "flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-semibold transition-colors",
+                view === v ? "border-accent/40 bg-accent-soft text-accent-text" : "border-transparent text-fg-muted hover:bg-surface-2",
               ].join(" ")}
             >
+              {v === "overview" ? <BarChart3 className="h-4 w-4" /> : v === "products" ? <Boxes className="h-4 w-4" /> : v === "tables" ? <Table2 className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
               {v === "overview"
                 ? "Overview"
                 : v === "products"

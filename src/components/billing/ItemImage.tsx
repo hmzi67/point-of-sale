@@ -1,11 +1,12 @@
-import { useEffect } from "react";
-import { ImageOff } from "lucide-react";
+import { useEffect, type ReactNode } from "react";
+import { Package } from "lucide-react";
 import { useInventoryStore } from "../../store";
 
 interface ItemImageProps {
   imagePath: string | null;
   alt: string;
   className?: string;
+  fallback?: ReactNode;
 }
 
 /**
@@ -14,7 +15,7 @@ interface ItemImageProps {
  * already fetched for the Inventory screen (or another item card) is never
  * re-fetched here, and vice versa.
  */
-export function ItemImage({ imagePath, alt, className = "" }: ItemImageProps) {
+export function ItemImage({ imagePath, alt, className = "", fallback }: ItemImageProps) {
   const dataUrl = useInventoryStore((state) => (imagePath ? state.imageCache[imagePath] : undefined));
   const ensureImage = useInventoryStore((state) => state.ensureImage);
 
@@ -28,7 +29,7 @@ export function ItemImage({ imagePath, alt, className = "" }: ItemImageProps) {
 
   return (
     <div className={`flex items-center justify-center bg-gradient-to-br from-surface-2 to-surface-3 text-fg-faint ${className}`}>
-      <ImageOff className="h-1/3 w-1/3 min-h-4 min-w-4" />
+      {fallback ?? <Package className="h-1/3 w-1/3 min-h-4 min-w-4" strokeWidth={1.25} />}
     </div>
   );
 }

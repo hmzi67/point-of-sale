@@ -84,9 +84,9 @@ export function CountersSection() {
   };
 
   return (
-    <div className="rounded-lg border border-line bg-surface">
-      <div className="border-b border-line p-6">
-        <h2 className="text-lg font-semibold text-fg">Counters</h2>
+    <div className="rounded-2xl border border-line bg-surface">
+      <div className="border-b border-line bg-surface-2/30 p-6">
+        <h2 className="text-base font-semibold tracking-tight text-fg">Counters</h2>
         <p className="mt-1 text-sm text-fg-2">
           The kitchen/prep stations a KOT token can print to (e.g. "Channa Counter", "Drinks Counter",
           "Tandoor"). Assign items to a counter from the item's edit form — an item with no counter never
@@ -107,13 +107,13 @@ export function CountersSection() {
             }
           }}
           placeholder="New counter name"
-          className="w-full max-w-xs rounded-md border border-line-strong px-3 py-2 text-sm"
+          className="w-full max-w-xs rounded-xl border border-line-strong px-3 py-2 text-sm"
         />
         <button
           type="button"
           onClick={() => void submitNewCounter()}
           disabled={isAdding || !newName.trim()}
-          className="flex shrink-0 items-center gap-1 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1 rounded-xl bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
           Add
@@ -143,20 +143,20 @@ export function CountersSection() {
                       }
                       if (e.key === "Escape") setEditingId(null);
                     }}
-                    className="w-full max-w-xs rounded-md border border-line-strong px-3 py-2 text-sm"
+                    className="w-full max-w-xs rounded-xl border border-line-strong px-3 py-2 text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => void submitRename(counter.id)}
                     disabled={pendingId === counter.id}
-                    className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
+                    className="rounded-xl bg-accent px-3 py-2 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
                   >
                     Save
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditingId(null)}
-                    className="rounded-md px-3 py-2 text-sm text-fg-muted hover:bg-surface-3"
+                    className="rounded-xl px-3 py-2 text-sm text-fg-muted hover:bg-surface-3"
                   >
                     Cancel
                   </button>

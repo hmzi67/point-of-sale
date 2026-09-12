@@ -68,7 +68,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
-      <div className="w-full max-w-sm rounded-lg bg-surface shadow-xl">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h3 className="text-sm font-semibold text-fg">
             {isEditing ? `Edit ${user.name}` : "Add staff account"}
@@ -85,14 +85,14 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
-              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
             />
           </div>
 
           {isOwnerAccount ? (
             <div>
               <label className="block text-xs font-medium text-fg-muted">Role</label>
-              <p className="mt-1 rounded-md bg-surface-2 px-2.5 py-1.5 text-sm text-fg-muted">
+              <p className="mt-1 rounded-xl bg-surface-2 px-3 py-2.5 text-sm text-fg-muted">
                 Owner — the installation's single Owner account, can't be changed
               </p>
             </div>
@@ -102,7 +102,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as Role)}
-                className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+                className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
               >
                 {selectableRoles.map((r) => (
                   <option key={r} value={r}>
@@ -125,7 +125,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
               value={pin}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
               placeholder={isEditing ? "Leave blank to keep current PIN" : "4-6 digits"}
-              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -135,14 +135,14 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
+              className="rounded-xl border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving || !name.trim() || (!isEditing && pin.length < 4)}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSaving ? "Saving…" : isEditing ? "Save changes" : "Create account"}
             </button>

@@ -12,40 +12,40 @@ interface ExpenseListProps {
  * agree on what range they're looking at. */
 export function ExpenseList({ expenses, currency, isLoading }: ExpenseListProps) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+    <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
       <table className="min-w-full divide-y divide-line text-sm">
-        <thead className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-fg-muted">
+        <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
           <tr>
-            <th className="px-4 py-2">Date</th>
-            <th className="px-4 py-2">Category</th>
-            <th className="px-4 py-2">Note</th>
-            <th className="px-4 py-2 text-right">Amount</th>
+            <th className="px-4 py-3.5">Date</th>
+            <th className="px-4 py-3.5">Category</th>
+            <th className="px-4 py-3.5">Note</th>
+            <th className="px-4 py-3.5 text-right">Amount</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
           {isLoading ? (
             <tr>
-              <td colSpan={4} className="px-4 py-6 text-center text-fg-muted">
+              <td colSpan={4} className="px-4 py-12 text-center text-fg-muted">
                 Loading…
               </td>
             </tr>
           ) : expenses.length === 0 ? (
             <tr>
-              <td colSpan={4} className="px-4 py-6 text-center text-fg-muted">
+              <td colSpan={4} className="px-4 py-12 text-center text-fg-muted">
                 No expenses in this range.
               </td>
             </tr>
           ) : (
             expenses.map((expense) => (
-              <tr key={expense.id}>
-                <td className="px-4 py-2 text-fg-2">{expense.expenseDate}</td>
-                <td className="px-4 py-2">
+              <tr key={expense.id} className="transition-colors hover:bg-surface-2/50">
+                <td className="px-4 py-3.5 text-fg-2">{expense.expenseDate}</td>
+                <td className="px-4 py-3.5">
                   <span className="rounded bg-surface-3 px-1.5 py-0.5 text-xs font-medium text-fg-2">
                     {expense.category}
                   </span>
                 </td>
-                <td className="px-4 py-2 text-fg-muted">{expense.note ?? "—"}</td>
-                <td className="px-4 py-2 text-right font-medium text-fg">
+                <td className="px-4 py-3.5 text-fg-muted">{expense.note ?? "—"}</td>
+                <td className="px-4 py-3.5 whitespace-nowrap text-right font-semibold text-fg tabular-nums">
                   {formatMinor(expense.amountMinor, currency)}
                 </td>
               </tr>
@@ -55,10 +55,10 @@ export function ExpenseList({ expenses, currency, isLoading }: ExpenseListProps)
         {expenses.length > 0 && (
           <tfoot className="border-t border-line bg-surface-2">
             <tr>
-              <td colSpan={3} className="px-4 py-2 text-right text-xs font-medium uppercase tracking-wide text-fg-muted">
+              <td colSpan={3} className="px-4 py-3.5 text-right text-xs font-medium uppercase tracking-wide text-fg-muted">
                 Total
               </td>
-              <td className="px-4 py-2 text-right font-semibold text-fg">
+              <td className="px-4 py-3.5 text-right font-semibold text-fg">
                 {formatMinor(
                   expenses.reduce((sum, e) => sum + e.amountMinor, 0),
                   currency,

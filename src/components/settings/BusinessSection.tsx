@@ -5,20 +5,21 @@ import type { AppConfig } from "../../types";
  * live till has receipt/report consequences that need their own flow. */
 export function BusinessSection({ config }: { config: AppConfig }) {
   return (
-    <div className="rounded-lg border border-line bg-surface p-6">
-      <h2 className="text-lg font-semibold text-fg">Business</h2>
-      <dl className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-        <div>
-          <dt className="text-fg-muted">Type</dt>
-          <dd className="capitalize text-fg">{config.businessType}</dd>
+    <div className="rounded-2xl border border-line bg-surface p-6">
+      <h2 className="text-base font-semibold tracking-tight text-fg">Business</h2>
+      <p className="mt-1 text-xs text-fg-muted">Your business setup at a glance.</p>
+      <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+        <div className="rounded-xl border border-line bg-surface-2/40 p-4">
+          <dt className="text-[11px] text-fg-muted">Type</dt>
+          <dd className="mt-2 font-semibold capitalize text-fg">{config.businessType}</dd>
         </div>
-        <div>
-          <dt className="text-fg-muted">Currency</dt>
-          <dd className="text-fg">{config.currency}</dd>
+        <div className="rounded-xl border border-line bg-surface-2/40 p-4">
+          <dt className="text-[11px] text-fg-muted">Currency</dt>
+          <dd className="mt-2 font-semibold text-fg">{config.currency}</dd>
         </div>
-        <div>
-          <dt className="text-fg-muted">Tax</dt>
-          <dd className="text-fg">{config.taxPercent}%</dd>
+        <div className="rounded-xl border border-line bg-surface-2/40 p-4">
+          <dt className="text-[11px] text-fg-muted">Tax</dt>
+          <dd className="mt-2 font-semibold text-fg">{config.taxPercent}%</dd>
         </div>
       </dl>
     </div>

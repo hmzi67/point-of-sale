@@ -45,7 +45,7 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
-      <div className="w-full max-w-sm rounded-lg bg-surface shadow-xl">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <div>
             <h3 className="text-sm font-semibold text-fg">Record payment</h3>
@@ -59,7 +59,7 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
         </div>
 
         <form onSubmit={(e) => void submit(e)} className="space-y-3 px-5 py-4">
-          <dl className="grid grid-cols-2 gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs text-fg-2">
+          <dl className="grid grid-cols-2 gap-2 rounded-xl bg-surface-2 px-3 py-2 text-xs text-fg-2">
             <div>
               <dt>Calculated</dt>
               <dd className="font-medium text-fg">{formatMinor(row.calculatedAmountMinor, currency)}</dd>
@@ -79,7 +79,7 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
               autoFocus
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -90,7 +90,7 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
               value={date}
               max={todayString()}
               onChange={(e) => setDate(e.target.value)}
-              className="mt-1 w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -100,14 +100,14 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
+              className="rounded-xl border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving || !amount}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isSaving ? "Saving…" : "Save payment"}
             </button>

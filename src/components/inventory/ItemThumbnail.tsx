@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { ImageOff } from "lucide-react";
+import { Package } from "lucide-react";
 import { useInventoryStore } from "../../store";
 
 interface ItemThumbnailProps {
@@ -24,15 +24,15 @@ export function ItemThumbnail({ imagePath, name, size = 36 }: ItemThumbnailProps
     return (
       <span
         style={style}
-        className="flex shrink-0 items-center justify-center rounded-md bg-surface-3 text-fg-faint"
+        className="flex shrink-0 items-center justify-center rounded-xl border border-accent/10 bg-accent-soft text-accent-text"
       >
-        <ImageOff className="h-4 w-4" />
+        <Package className="h-5 w-5" strokeWidth={1.5} />
       </span>
     );
   }
 
   if (!dataUrl) {
-    return <span style={style} className="shrink-0 animate-pulse rounded-md bg-surface-3" />;
+    return <span style={style} className="shrink-0 animate-pulse rounded-xl bg-surface-3" />;
   }
 
   return (
@@ -40,7 +40,7 @@ export function ItemThumbnail({ imagePath, name, size = 36 }: ItemThumbnailProps
       src={dataUrl}
       alt={name}
       style={style}
-      className="shrink-0 rounded-md border border-line object-cover"
+      className="shrink-0 rounded-xl border border-line object-cover"
     />
   );
 }

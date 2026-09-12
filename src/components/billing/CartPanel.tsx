@@ -1,4 +1,4 @@
-import { ClipboardList } from "lucide-react";
+import { ShoppingBag, Plus } from "lucide-react";
 import { useBillingStore } from "../../store";
 import { CartRow } from "./CartRow";
 
@@ -19,9 +19,13 @@ export function CartPanel({ currency, onEditLine }: CartPanelProps) {
     // header and the totals/Place Order footer, just with centered empty-
     // state content instead of rows.
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-fg-faint">
-        <ClipboardList className="h-10 w-10" />
-        <p className="text-sm font-medium text-fg-muted">No Item Selected</p>
+      <div className="flex min-h-44 flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-line bg-surface-2/30 px-5 py-6 text-center">
+        <span className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-soft text-accent-text">
+          <ShoppingBag className="h-7 w-7" strokeWidth={1.5} />
+          <span className="absolute -bottom-1 -right-1 rounded-full border-4 border-surface bg-accent p-1 text-accent-ink"><Plus className="h-3 w-3" /></span>
+        </span>
+        <p className="mt-1 text-sm font-semibold text-fg">Your order starts here</p>
+        <p className="max-w-52 text-xs leading-relaxed text-fg-muted">Add products from the menu to see your order and total.</p>
       </div>
     );
   }
@@ -47,7 +51,7 @@ export function CartPanel({ currency, onEditLine }: CartPanelProps) {
     // bleed has to be the list's padding (never a row's negative margin) —
     // this is a scroll container, and anything a child pushes outside it
     // is clipped. See `CartRow`'s className comment.
-    <ul className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
+    <ul className="-mx-2 min-h-0 flex-1 space-y-2 overflow-y-auto px-2">
       {cartOrder.map((itemId) => (
         <CartRow key={itemId} itemId={itemId} currency={currency} onEditLine={onEditLine} />
       ))}

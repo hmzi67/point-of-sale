@@ -14,7 +14,11 @@ function Card({
   value,
   tone = "default",
   isLoading,
+  detail,
+  featured = false,
 }: {
+  detail: string;
+  featured?: boolean;
   icon: typeof Wallet;
   label: string;
   value: string;
@@ -25,14 +29,20 @@ function Card({
     tone === "positive" ? "text-success-text" : tone === "negative" ? "text-danger-text" : "text-fg";
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-4">
-      <div className="flex items-center gap-2 text-fg-muted">
-        <Icon className="h-4 w-4" />
-        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+    <div className={`relative overflow-hidden rounded-2xl border p-5 ${featured ? "border-accent/30 bg-linear-to-br from-accent-soft via-surface to-surface" : "border-line bg-surface"}`}>
+      {featured && <div aria-hidden="true" className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full border-[16px] border-accent/5" />}
+      <div className="relative flex items-center justify-between gap-3">
+        <span className="text-xs font-medium text-fg-muted">{label}</span>
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone === "negative" ? "bg-danger-soft text-danger-text" : featured || tone === "positive" ? "bg-accent-soft text-accent-text" : "bg-surface-3 text-fg-2"}`}>
+          <Icon className="h-5 w-5" strokeWidth={1.75} />
+        </span>
       </div>
-      <p className={`mt-2 text-2xl font-bold ${valueColor}`}>
-        {isLoading ? <span className="inline-block h-7 w-24 animate-pulse rounded bg-surface-3" /> : value}
+      <p className={`relative mt-4 break-words text-2xl font-bold tracking-tight tabular-nums ${valueColor}`}>
+        {isLoading ? <span className="inline-block h-8 w-32 animate-pulse rounded bg-surface-3" /> : value}
       </p>
+      <div className="mt-4 border-t border-line/70 pt-3 text-xs text-fg-muted">
+        {isLoading ? <span className="block h-3 w-24 animate-pulse rounded bg-surface-3" /> : detail}
+      </div>
     </div>
   );
 }
@@ -45,7 +55,7 @@ function Card({
  * Inventory is on and there's something to flag.
  */
 export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsProps) {
-  const showExpenses = isLoading || summary?.totalExpensesMinor !== null;
+  const showExpenses = isLoading || (summary != null && summary.totalExpensesMinor !== null);
   const showLowStock = !isLoading && summary !== null && summary.lowStockItemCount !== null && summary.lowStockItemCount > 0;
   // Only shown when there actually were refunds today — same "don't clutter
   // the snapshot with a card that's always zero" treatment as low stock.
@@ -57,10 +67,12 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
   const showTopTable = isLoading || summary?.topTableBySales != null;
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Card
         icon={TrendingUp}
         label="Sales today"
+        featured
+        detail={`${summary?.transactionCount ?? 0} completed transaction${summary?.transactionCount === 1 ? "" : "s"}`}
         value={formatMinor(summary?.totalSalesMinor ?? 0, currency)}
         isLoading={isLoading}
       />
@@ -68,6 +80,7 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
         <Card
           icon={Receipt}
           label="Expenses today"
+          detail="Recorded expenses today"
           value={formatMinor(summary?.totalExpensesMinor ?? 0, currency)}
           isLoading={isLoading}
         />
@@ -75,6 +88,7 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
       <Card
         icon={Wallet}
         label="Net profit today"
+        detail="After refunds and tracked costs"
         value={formatMinor(summary?.netProfitMinor ?? 0, currency)}
         tone={!isLoading && summary && summary.netProfitMinor < 0 ? "negative" : "positive"}
         isLoading={isLoading}
@@ -83,6 +97,7 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
         <Card
           icon={RotateCcw}
           label="Refunds today"
+          detail="Refunds issued today"
           value={formatMinor(summary?.refundsMinor ?? 0, currency)}
           tone="negative"
           isLoading={isLoading}
@@ -92,6 +107,7 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
         <Card
           icon={Table2}
           label="Top table by sales"
+          detail="Highest table sales today"
           value={
             summary?.topTableBySales
               ? `${summary.topTableBySales.name} · ${formatMinor(summary.topTableBySales.totalMinor, currency)}`
@@ -104,6 +120,7 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
         <Card
           icon={AlertTriangle}
           label="Low stock items"
+          detail="Items at or below their stock threshold"
           value={String(summary?.lowStockItemCount ?? 0)}
           tone="negative"
           isLoading={isLoading}

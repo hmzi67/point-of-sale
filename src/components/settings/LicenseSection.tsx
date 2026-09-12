@@ -75,8 +75,8 @@ export function LicenseSection() {
   };
 
   return (
-    <div ref={sectionRef} id="license" className="scroll-mt-4 rounded-lg border border-line bg-surface p-6">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-fg">
+    <div ref={sectionRef} id="license" className="scroll-mt-4 rounded-2xl border border-line bg-surface p-6">
+      <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-fg">
         <BadgeCheck className="h-4 w-4 text-fg-muted" />
         Licence
       </h2>
@@ -113,7 +113,7 @@ export function LicenseSection() {
           type="button"
           onClick={() => void onRefresh()}
           disabled={isBusy || keyMissing}
-          className="inline-flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-line-strong px-3 py-2.5 text-sm font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${isBusy ? "animate-spin" : ""}`} />
           Re-check now
@@ -125,7 +125,7 @@ export function LicenseSection() {
               setShowKeyForm((open) => !open);
               setMessage(null);
             }}
-            className="rounded-md border border-line-strong px-3 py-1.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
+            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm font-medium text-fg-2 hover:bg-surface-2"
           >
             {showKeyForm ? "Cancel" : "Change licence key"}
           </button>
@@ -146,7 +146,7 @@ export function LicenseSection() {
               placeholder="DIWAN-XXXX-XXXX-XXXX-XXXX"
               value={key}
               onChange={(e) => setKey(e.target.value.toUpperCase())}
-              className="w-full rounded-md border border-line-strong px-2.5 py-1.5 font-mono text-sm uppercase focus:border-accent focus:outline-none"
+              className="w-full rounded-xl border border-line-strong px-2.5 py-1.5 font-mono text-sm uppercase focus:border-accent focus:outline-none"
             />
           </label>
           <p className="text-xs text-fg-muted">
@@ -157,7 +157,7 @@ export function LicenseSection() {
             <button
               type="submit"
               disabled={isBusy || key.trim().length < 10}
-              className="rounded-md bg-accent px-4 py-1.5 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:opacity-50"
+              className="rounded-xl bg-accent px-4 py-1.5 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:opacity-50"
             >
               {isBusy ? "Activating…" : "Activate on this device"}
             </button>

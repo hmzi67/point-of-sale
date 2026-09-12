@@ -25,10 +25,10 @@ export function OrderSummaryHeader() {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-center justify-between gap-3 border-b border-line pb-4">
       <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent-text">
-          <ClipboardList className="h-4 w-4" />
+        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent-soft text-accent-text">
+          <ClipboardList className="h-5 w-5" />
         </span>
         <div>
           {isEditing ? (
@@ -45,9 +45,9 @@ export function OrderSummaryHeader() {
               className="w-40 border-b border-accent/40 bg-transparent text-sm font-semibold text-fg focus:outline-none"
             />
           ) : (
-            <p className="text-sm font-semibold text-fg">{customerName || "Counter Sale"}</p>
+            <p className="text-base font-semibold text-fg">{customerName || "Counter Sale"}</p>
           )}
-          <p className="text-xs text-fg-muted">Order Number #{String(draftOrderNumber).padStart(3, "0")}</p>
+          <p className="mt-1 text-[11px] font-medium text-fg-muted">Order #{String(draftOrderNumber).padStart(3, "0")}</p>
         </div>
       </div>
 
@@ -55,7 +55,7 @@ export function OrderSummaryHeader() {
         type="button"
         onClick={startEditing}
         aria-label="Edit customer name"
-        className="rounded-full p-2 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
+        className="rounded-xl border border-line p-2 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
       >
         <Pencil className="h-4 w-4" />
       </button>

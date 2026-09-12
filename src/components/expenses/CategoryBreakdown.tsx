@@ -14,7 +14,7 @@ interface CategoryBreakdownProps {
 export function CategoryBreakdown({ totals, currency, isLoading }: CategoryBreakdownProps) {
   if (isLoading) {
     return (
-      <div className="space-y-2 rounded-lg border border-line bg-surface p-4">
+      <div className="space-y-2 rounded-2xl border border-line bg-surface p-5">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="h-6 animate-pulse rounded bg-surface-3" />
         ))}
@@ -24,7 +24,7 @@ export function CategoryBreakdown({ totals, currency, isLoading }: CategoryBreak
 
   if (totals.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed border-line-strong px-4 py-8 text-center text-sm text-fg-muted">
+      <p className="rounded-2xl border border-dashed border-line-strong px-4 py-8 text-center text-sm text-fg-muted">
         No expenses in this range.
       </p>
     );
@@ -34,13 +34,14 @@ export function CategoryBreakdown({ totals, currency, isLoading }: CategoryBreak
   const maxTotal = Math.max(...totals.map((t) => t.totalMinor));
 
   return (
-    <div className="space-y-3 rounded-lg border border-line bg-surface p-4">
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold text-fg">By category</h3>
+    <div className="space-y-5 rounded-2xl border border-line bg-surface p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold text-fg">Spending by category</h3>
         <span className="text-sm font-semibold text-fg">{formatMinor(grandTotal, currency)}</span>
       </div>
 
-      <div className="space-y-2.5">
+      <p className="text-xs text-fg-muted">All categories in the selected date range</p>
+      <div className="space-y-5">
         {totals.map((t) => (
           <div key={t.category}>
             <div className="flex items-center justify-between text-xs text-fg-2">
@@ -49,9 +50,9 @@ export function CategoryBreakdown({ totals, currency, isLoading }: CategoryBreak
               </span>
               <span>{formatMinor(t.totalMinor, currency)}</span>
             </div>
-            <div className="mt-1 h-1.5 rounded-full bg-surface-3">
+            <div className="mt-2 h-2 rounded-full bg-surface-3">
               <div
-                className="h-1.5 rounded-full bg-accent"
+                className="h-2 rounded-full bg-linear-to-r from-accent/40 to-accent"
                 style={{ width: `${maxTotal > 0 ? (t.totalMinor / maxTotal) * 100 : 0}%` }}
               />
             </div>

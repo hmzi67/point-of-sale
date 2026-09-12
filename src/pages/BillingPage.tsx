@@ -1,3 +1,4 @@
+import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BillingHeader } from "../components/billing/BillingHeader";
 import { CartPanel } from "../components/billing/CartPanel";
@@ -163,7 +164,7 @@ export function BillingPage() {
   return (
     <div className="flex h-full flex-col gap-4 lg:flex-row lg:gap-6">
       {/* Browsing column */}
-      <div className="flex min-w-0 flex-1 flex-col gap-4">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
         <BillingHeader onRefunded={loadCatalog} />
         {IS_ANDROID ? (
           <MobileCategoryChips categories={categories} selected={selectedCategoryId} onSelect={setSelectedCategoryId} />
@@ -185,7 +186,11 @@ export function BillingPage() {
         {loadError && <p className="rounded-2xl bg-danger-soft px-4 py-2.5 text-sm text-danger-text">{loadError}</p>}
         {notice && <p className="rounded-2xl bg-success-soft px-4 py-2.5 text-sm text-success-text">{notice}</p>}
 
-        <div className="flex-1 overflow-y-auto pb-2">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-fg">{isSearching ? "Search results" : selectedCategoryId === null ? "All products" : selectedCategoryId === "best-seller" ? "Best sellers" : categories.find((category) => category.id === selectedCategoryId)?.name ?? "Products"}</h3>
+          <span className="rounded-lg bg-surface px-2 py-1 text-[11px] text-fg-muted">{isLoadingItems ? "Loading…" : `${visibleItems.length} items`}</span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-0.5 pb-2">
           <ItemGrid
             items={visibleItems}
             currency={config.currency}
@@ -198,7 +203,7 @@ export function BillingPage() {
       </div>
 
       {/* Checkout column */}
-      <div className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-3xl bg-surface p-5 shadow-soft lg:w-110">
+      <div className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-line bg-surface p-5 shadow-soft lg:w-96 xl:w-100 2xl:w-110">
         <OrderSummaryHeader />
 
         {tablesEnabled && (
@@ -222,7 +227,7 @@ export function BillingPage() {
          * cart size, instead of trailing right under a short item list. */}
         <CartPanel currency={config.currency} onEditLine={setEditingItemId} />
 
-        <dl className="space-y-1.5 border-t border-line pt-3 text-sm">
+        <dl className="space-y-2 rounded-xl border border-line bg-surface-2/40 p-4 text-sm tabular-nums">
           <div className="flex justify-between text-fg-muted">
             <dt>Subtotal</dt>
             <dd>{formatMinor(totals.subtotalMinor, config.currency)}</dd>
@@ -239,13 +244,13 @@ export function BillingPage() {
               <dd>-{formatMinor(totals.discountMinor, config.currency)}</dd>
             </div>
           )}
-          <div className="flex justify-between border-t border-line pt-1.5 text-base font-bold text-fg">
-            <dt>TOTAL</dt>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-line-strong pt-3 text-lg font-bold text-fg">
+            <dt className="text-sm font-semibold">Total amount</dt>
             <dd>{formatMinor(totals.totalMinor, config.currency)}</dd>
           </div>
         </dl>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <DiscountControl />
           <PaymentMethodSelector />
         </div>
@@ -256,9 +261,10 @@ export function BillingPage() {
           type="button"
           onClick={() => void completeSale()}
           disabled={cartOrder.length === 0 || isSubmitting}
-          className="rounded-2xl bg-accent py-3.5 text-base font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex items-center justify-between gap-3 rounded-xl bg-accent px-4 py-4 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
         >
-          {isSubmitting ? "Placing order…" : `Place Order · ${formatMinor(totals.totalMinor, config.currency)}`}
+          <span>{isSubmitting ? "Placing order…" : "Place order"}</span>
+          <span className="flex items-center gap-2 tabular-nums">{formatMinor(totals.totalMinor, config.currency)} <ArrowRight className="h-4 w-4" /></span>
         </button>
       </div>
 

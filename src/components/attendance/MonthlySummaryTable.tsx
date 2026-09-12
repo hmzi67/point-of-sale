@@ -34,51 +34,51 @@ export function MonthlySummaryTable() {
         type="month"
         value={month}
         onChange={(e) => setMonth(e.target.value)}
-        className="rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+        className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
       />
 
-      {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+      {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
-      <div className="overflow-x-auto rounded-lg border border-line bg-surface">
+      <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
         <table className="min-w-full divide-y divide-line text-sm">
-          <thead className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-fg-muted">
+          <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
             <tr>
-              <th className="px-4 py-2">Employee</th>
-              <th className="px-4 py-2 text-right">Days present</th>
-              <th className="px-4 py-2 text-right">Days absent</th>
-              <th className="px-4 py-2 text-right">Total hours</th>
+              <th className="px-4 py-3.5">Employee</th>
+              <th className="px-4 py-3.5 text-right">Days present</th>
+              <th className="px-4 py-3.5 text-right">Days absent</th>
+              <th className="px-4 py-3.5 text-right">Total hours</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {isLoading ? (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-fg-muted">
+                <td colSpan={4} className="px-4 py-12 text-center text-fg-muted">
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-fg-muted">
+                <td colSpan={4} className="px-4 py-12 text-center text-fg-muted">
                   No employees on file.
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.employeeId}>
-                  <td className="px-4 py-2 text-fg-2">{row.employeeName}</td>
-                  <td className="px-4 py-2 text-right text-fg-2">
+                <tr key={row.employeeId} className="transition-colors hover:bg-surface-2/50">
+                  <td className="px-4 py-3.5 text-fg-2">{row.employeeName}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
                     {row.daysPresent}
                     {row.incompleteDays > 0 && (
                       <span
                         title={`${row.incompleteDays} shift${row.incompleteDays === 1 ? "" : "s"} missing a check-out`}
-                        className="ml-1.5 rounded bg-warning-soft px-1.5 py-0.5 text-xs font-medium text-warning-text"
+                        className="ml-1.5 rounded-lg bg-warning-soft px-2.5 py-1 text-xs font-medium text-warning-text"
                       >
                         {row.incompleteDays} incomplete
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right text-fg-2">{row.daysAbsent}</td>
-                  <td className="px-4 py-2 text-right text-fg-2">{formatHours(row.totalHours)}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">{row.daysAbsent}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">{formatHours(row.totalHours)}</td>
                 </tr>
               ))
             )}
