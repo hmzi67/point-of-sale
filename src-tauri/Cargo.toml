@@ -105,6 +105,13 @@ rusb = { version = "0.9", features = ["vendored"] }
 # this doesn't drag in a second copy.
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+# reqwest checks TLS certificates with rustls-platform-verifier, which on
+# Android must be handed the JVM and app Context before the first request or
+# it panics — see `license::android_tls`. Its init API takes `jni` 0.22 types
+# (its own dependency, already in the tree), hence the renamed second copy.
+# The Kotlin half is added to Gradle by scripts/patch_android_tls_verifier.py.
+rustls-platform-verifier = "0.7"
+jni022 = { package = "jni", version = "0.22" }
 
 # Windows printer transport: the Print Spooler ("winspool"), via Microsoft's
 # own official Rust bindings — see `printer::windows_spool`'s module doc

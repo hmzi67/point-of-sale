@@ -77,6 +77,13 @@ struct ErrorBody {
 }
 
 fn client() -> Result<&'static reqwest::Client, ClientError> {
+    // reqwest verifies certificates through rustls-platform-verifier, which
+    // on Android panics on first use unless it has been handed the JVM —
+    // the panic killed the activate command mid-flight, so the key screen
+    // spun and never activated. Must run before the client is built.
+    #[cfg(target_os = "android")]
+    super::android_tls::ensure_initialized().map_err(ClientError::Offline)?;
+
     static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
     CLIENT
         .get_or_init(|| {

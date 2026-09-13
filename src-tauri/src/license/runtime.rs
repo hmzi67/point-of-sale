@@ -47,10 +47,14 @@ pub enum LicenseError {
     NoFingerprint(String),
     /// The server refused (wrong key, bound elsewhere, rate limited…).
     Refused(String),
-    /// Couldn't reach the server or it misbehaved. For `activate` this is
-    /// fatal (there is nothing to fall back to); for `refresh` the caller
-    /// keeps the cached state and reports this only as a hint.
+    /// Couldn't reach the server. For `activate` this is fatal (there is
+    /// nothing to fall back to); for `refresh` the caller keeps the cached
+    /// state and reports this only as a hint.
     Unreachable(String),
+    /// Reached the server but it failed (5xx, malformed body). Handled
+    /// exactly like `Unreachable`; worded differently so a server outage
+    /// isn't misreported as the shop's internet being down.
+    ServerError(String),
     /// The server's response failed signature/shape verification, or was
     /// signed for a different device. Should never happen against a
     /// correctly configured server; when it does the message says why.
@@ -64,6 +68,7 @@ impl std::fmt::Display for LicenseError {
             LicenseError::NoFingerprint(m) => write!(f, "{m}"),
             LicenseError::Refused(m) => write!(f, "{m}"),
             LicenseError::Unreachable(m) => write!(f, "Could not reach the licence server — {m}"),
+            LicenseError::ServerError(m) => write!(f, "The licence server had a problem — {m}"),
             LicenseError::Untrusted(m) => write!(f, "Licence response could not be verified: {m}"),
             LicenseError::Db(m) => write!(f, "{m}"),
         }
@@ -239,7 +244,8 @@ impl LicenseRuntime {
 fn map_client_error(e: ClientError) -> LicenseError {
     match e {
         ClientError::Refused { message, .. } => LicenseError::Refused(message),
-        ClientError::Offline(m) | ClientError::Server(m) => LicenseError::Unreachable(m),
+        ClientError::Offline(m) => LicenseError::Unreachable(m),
+        ClientError::Server(m) => LicenseError::ServerError(m),
     }
 }
 

@@ -464,7 +464,10 @@ pub async fn license_refresh(
     session.current().ok_or_else(|| "Not signed in".to_string())?;
     match license.refresh(&app, &db).await {
         Ok(state) => Ok(LicenseRefreshOutcome { state, hint: None }),
-        Err(crate::license::runtime::LicenseError::Unreachable(msg)) => {
+        Err(
+            crate::license::runtime::LicenseError::Unreachable(msg)
+            | crate::license::runtime::LicenseError::ServerError(msg),
+        ) => {
             Ok(LicenseRefreshOutcome { state: license.current(), hint: Some(msg) })
         }
         Err(e) => Err(e.to_string()),
