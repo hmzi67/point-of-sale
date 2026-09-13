@@ -72,8 +72,10 @@ def main() -> int:
     block = f"""{BEGIN}
 repositories {{
     maven {{
+        // Default metadata sources (the .pom): it declares <packaging>aar</packaging>.
+        // `metadataSources {{ artifact() }}` skips the pom and makes Gradle look
+        // for a .jar that does not exist — "Could not find rustls:rustls-platform-verifier".
         url = uri({json.dumps(maven.as_posix())})
-        metadataSources {{ artifact() }}
     }}
 }}
 
