@@ -381,14 +381,6 @@ jobs:
       - name: Patch AndroidManifest.xml with printer permissions
         run: python3 scripts/patch_android_manifest.py
 
-      # Same reason again, for app/build.gradle.kts: the licence client's
-      # HTTPS goes through rustls-platform-verifier, whose Kotlin component
-      # ships inside the Rust crate as a local Maven repo and must be added to
-      # the app (plus a ProGuard keep rule, since only JNI references it).
-      # Without it, licence activation on Android cannot verify the server.
-      - name: Patch Android Gradle project with the TLS verifier component
-        run: python3 scripts/patch_android_tls_verifier.py
-
       # Tauri's Android signing reads src-tauri/gen/android/keystore.properties
       # (see https://v2.tauri.app/distribute/sign/android/). The documented
       # format uses a single `password` field for the keystore; `keyPassword`

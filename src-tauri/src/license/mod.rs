@@ -32,8 +32,6 @@
 //! renders the state it is told; the money-moving commands refuse to run
 //! while the licence is not OK, so bypassing the UI lock changes nothing.
 
-#[cfg(target_os = "android")]
-mod android_tls;
 pub mod client;
 pub mod fingerprint;
 pub mod runtime;

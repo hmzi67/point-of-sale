@@ -77,13 +77,6 @@ struct ErrorBody {
 }
 
 fn client() -> Result<&'static reqwest::Client, ClientError> {
-    // reqwest verifies certificates through rustls-platform-verifier, which
-    // on Android panics on first use unless it has been handed the JVM —
-    // the panic killed the activate command mid-flight, so the key screen
-    // spun and never activated. Must run before the client is built.
-    #[cfg(target_os = "android")]
-    super::android_tls::ensure_initialized().map_err(ClientError::Offline)?;
-
     static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
@@ -91,14 +84,34 @@ fn client() -> Result<&'static reqwest::Client, ClientError> {
             // second `install_default` (if tauri already did) just reports
             // that one is present, which is fine.
             let _ = rustls::crypto::ring::default_provider().install_default();
-            reqwest::Client::builder()
+            let builder = reqwest::Client::builder()
                 .timeout(REQUEST_TIMEOUT)
-                .user_agent(concat!("Diwan/", env!("CARGO_PKG_VERSION")))
-                .build()
-                .map_err(|e| e.to_string())
+                .user_agent(concat!("Diwan/", env!("CARGO_PKG_VERSION")));
+            #[cfg(target_os = "android")]
+            let builder = with_bundled_roots(builder);
+            builder.build().map_err(|e| e.to_string())
         })
         .as_ref()
         .map_err(|e| ClientError::Server(e.clone()))
+}
+
+/// Android verifies the licence server against Mozilla's root set compiled
+/// into the binary instead of the OS verifier. rustls-platform-verifier's
+/// Android path (JNI init, a Kotlin class that has to survive R8, the
+/// device's trust store, a PKIX revocation check against a certificate
+/// that — like every Let's Encrypt one since 2025 — has no OCSP URL) failed
+/// on real phones, and every failure in it surfaced as a *connect* error:
+/// "check the internet connection" on a phone that was online. Nothing is
+/// lost by skipping the OS store here: the licence payload is Ed25519-signed
+/// and verified regardless of transport, and a shop's phone has no reason
+/// to trust a user-installed CA for this one host.
+#[cfg(any(target_os = "android", test))]
+fn with_bundled_roots(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    builder.tls_certs_only(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|der| reqwest::Certificate::from_der(der.as_ref()).ok()),
+    )
 }
 
 async fn post<T: serde::de::DeserializeOwned>(path: &str, body: &serde_json::Value) -> Result<T, ClientError> {
@@ -158,12 +171,46 @@ pub async fn fetch_status(license_key: &str, fingerprint: &str) -> Result<Signed
 /// shopkeeper; these are the words the lock screen shows.
 fn describe_transport_error(e: reqwest::Error) -> String {
     if e.is_timeout() {
-        "the server took too long to answer".into()
-    } else if e.is_connect() {
-        "check the internet connection".into()
+        return "the server took too long to answer".into();
+    }
+    // A certificate failure is also a "connect" error to reqwest; saying
+    // "check the internet connection" for it sent owners chasing their wifi.
+    if let Some(tls) = find_tls_error(&e) {
+        return format!("the secure connection to the server failed ({tls})");
+    }
+    if e.is_connect() {
+        format!("check the internet connection ({})", root_cause(&e))
     } else {
         e.without_url().to_string()
     }
+}
+
+/// hyper wraps the handshake's `rustls::Error` in an `io::Error`, whose
+/// `source()` skips straight past it — hence the `get_ref` peek.
+fn find_tls_error(e: &(dyn std::error::Error + 'static)) -> Option<String> {
+    let mut current = Some(e);
+    while let Some(err) = current {
+        if let Some(tls) = err.downcast_ref::<rustls::Error>() {
+            return Some(tls.to_string());
+        }
+        if let Some(tls) = err
+            .downcast_ref::<std::io::Error>()
+            .and_then(|io| io.get_ref())
+            .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+        {
+            return Some(tls.to_string());
+        }
+        current = err.source();
+    }
+    None
+}
+
+fn root_cause(e: &(dyn std::error::Error + 'static)) -> String {
+    let mut current = e;
+    while let Some(next) = current.source() {
+        current = next;
+    }
+    current.to_string()
 }
 
 /// For the vendor's dashboard only ("Windows x86_64") — never anything
@@ -207,6 +254,27 @@ mod tests {
         // and a dead port is Offline, not Refused
         std::env::set_var("DIWAN_LICENSE_API_BASE", "http://127.0.0.1:9");
         assert!(matches!(rt.block_on(fetch_status("X", &fp)), Err(ClientError::Offline(_))));
+    }
+
+    /// The Android TLS setup against the real production server —
+    /// `cargo test live_bundled_roots -- --ignored`. Reaching a 403 proves
+    /// the handshake verified with only the compiled-in roots.
+    #[test]
+    #[ignore]
+    fn live_bundled_roots_verify_the_production_server() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let status = rt.block_on(async {
+            let client = with_bundled_roots(reqwest::Client::builder().timeout(REQUEST_TIMEOUT)).build().unwrap();
+            client
+                .post(format!("{DEFAULT_API_BASE}/license-status.php"))
+                .json(&serde_json::json!({ "license_key": "DIWAN-ZZZZ-ZZZZ-ZZZZ-ZZZZ", "machine_fingerprint": "ab".repeat(32) }))
+                .send()
+                .await
+                .map(|r| r.status().as_u16())
+                .map_err(describe_transport_error)
+        });
+        assert_eq!(status, Ok(403));
     }
 
     #[test]

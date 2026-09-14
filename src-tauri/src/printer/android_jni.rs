@@ -90,13 +90,6 @@ pub unsafe extern "system" fn JNI_OnLoad(
     }
 }
 
-/// The raw `JavaVM*` captured by [`JNI_OnLoad`], for code that has to hand
-/// it to a crate built on a different `jni` major version (the TLS
-/// verifier — see `license::android_tls`).
-pub fn raw_java_vm() -> Option<*mut jni::sys::JavaVM> {
-    JAVA_VM.get().map(|vm| vm.get_java_vm_pointer())
-}
-
 /// Attaches the current thread to [`JAVA_VM`] and runs `f` with the
 /// resulting `JNIEnv` and the app's `Application` object (a valid `Context`
 /// for everything except requesting a permission) — a callback rather than

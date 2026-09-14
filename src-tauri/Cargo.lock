@@ -4022,14 +4022,12 @@ dependencies = [
  "ed25519-dalek",
  "image",
  "jni 0.21.1",
- "jni 0.22.4",
  "machine-uid",
  "reqwest",
  "rfd",
  "rusb",
  "rusqlite",
  "rustls",
- "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sha2",
@@ -4040,6 +4038,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-os",
  "tokio",
+ "webpki-root-certs",
  "windows",
 ]
 
