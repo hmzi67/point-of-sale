@@ -74,10 +74,9 @@ export function SplashGate({ children }: SplashGateProps) {
           "fixed inset-0 z-[9999] flex items-center justify-center transition-opacity duration-[250ms] ease-out",
           fadingOut ? "opacity-0" : "opacity-100",
         ].join(" ")}
-        // Fixed brand color, not bg-canvas: brand-logo.png is a light/cream
-        // card (baked-in background, not transparent — see splashscreen.html's
-        // matching comment), so it needs a deliberately dark backdrop for
-        // contrast rather than one that tracks the app's own light theme.
+        // Fixed brand color, not bg-canvas: matches brand-logo.png's own
+        // dark background (see splashscreen.html's matching comment) rather
+        // than tracking the app's own light theme.
         style={{ backgroundColor: "#123326" }}
         aria-hidden="true"
       >
