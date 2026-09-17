@@ -175,6 +175,24 @@ pub fn run() {
     let launched_at = std::time::Instant::now();
     startup_log::log("run() entered");
 
+    // Installed here, deterministically, before anything else in the
+    // process could touch TLS — rather than lazily inside
+    // `license::client`'s first call, on whatever thread the background
+    // refresh timer happens to fire on. `license::client::client()` still
+    // calls `install_default()` too (belt and braces, and it's the only
+    // caller on the doc-comment's original reasoning), but this is what
+    // actually closes the race: on Android a panic anywhere aborts the
+    // whole process (`tao`'s `ndk_glue` entry point converts any unwind to
+    // `process::abort()` rather than let it cross the JNI boundary), so
+    // reqwest's internal "no crypto provider installed" panic — normally
+    // impossible to hit since every `reqwest::Client` this app builds goes
+    // through `license::client::client()` — must never depend on install
+    // timing.
+    let provider_installed = rustls::crypto::ring::default_provider().install_default().is_ok();
+    startup_log::log(&format!(
+        "run(): rustls ring crypto provider installed={provider_installed} (already-present is also fine)"
+    ));
+
     tauri::Builder::default()
         // `Session`/`ProductOwnerSession`/`LaunchedAt`/`SplashRevealed` need
         // nothing but their own constructors — no `AppHandle`, no filesystem

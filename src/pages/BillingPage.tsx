@@ -1,4 +1,4 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ShoppingBag, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BillingHeader } from "../components/billing/BillingHeader";
 import { CartPanel } from "../components/billing/CartPanel";
@@ -112,6 +112,12 @@ export function BillingPage() {
   const [tokenPrintRequestId, setTokenPrintRequestId] = useState(0);
   const [isTokenDialogOpen, setIsTokenDialogOpen] = useState(false);
 
+  // Android only: the checkout column becomes a bottom sheet opened from a
+  // floating cart button instead of a second column stacked under the item
+  // grid — a phone-width screen doesn't have room to show both at once
+  // without burying the grid below a scroll.
+  const [isCartOpen, setIsCartOpen] = useState(false);
+
   // Keyboard fast billing (desktop only — Android stays touch-first) is
   // disabled while any modal already has the cashier's attention, so arrow
   // keys/Delete/quick-entry never fight with a field inside one of them.
@@ -152,6 +158,7 @@ export function BillingPage() {
       });
       setCompletedSale(sale);
       clearCart();
+      setIsCartOpen(false);
       loadCatalog(); // stock just changed — the grid should reflect it
       reloadBestSellers(); // this sale may have moved the best-sellers ranking
     } catch (e) {
@@ -164,7 +171,7 @@ export function BillingPage() {
   return (
     <div className="flex h-full flex-col gap-4 lg:flex-row lg:gap-6">
       {/* Browsing column */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 pb-20 lg:pb-0">
         <BillingHeader onRefunded={loadCatalog} />
         {IS_ANDROID ? (
           <MobileCategoryChips categories={categories} selected={selectedCategoryId} onSelect={setSelectedCategoryId} />
@@ -202,8 +209,33 @@ export function BillingPage() {
         </div>
       </div>
 
-      {/* Checkout column */}
-      <div className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-line bg-surface p-5 shadow-soft lg:w-96 xl:w-100 2xl:w-110">
+      {/* Checkout column — always on for desktop; on Android it's a bottom
+       * sheet, only mounted while `isCartOpen`, opened from the floating
+       * cart button below. */}
+      {IS_ANDROID && isCartOpen && (
+        <div className="fixed inset-0 z-40 bg-scrim" onClick={() => setIsCartOpen(false)} />
+      )}
+      {(!IS_ANDROID || isCartOpen) && (
+      <div
+        className={
+          IS_ANDROID
+            ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] w-full flex-col gap-4 overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-soft-lg"
+            : "flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-line bg-surface p-5 shadow-soft lg:w-96 xl:w-100 2xl:w-110"
+        }
+      >
+        {IS_ANDROID && (
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold text-fg">Your order</h3>
+            <button
+              type="button"
+              onClick={() => setIsCartOpen(false)}
+              className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-2"
+              aria-label="Close order"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        )}
         <OrderSummaryHeader />
 
         {tablesEnabled && (
@@ -267,6 +299,27 @@ export function BillingPage() {
           <span className="flex items-center gap-2 tabular-nums">{formatMinor(totals.totalMinor, config.currency)} <ArrowRight className="h-4 w-4" /></span>
         </button>
       </div>
+      )}
+
+      {/* Floating cart button — Android only, hidden while the sheet above
+       * is already open (its own header X closes it instead). */}
+      {IS_ANDROID && !isCartOpen && (
+        <button
+          type="button"
+          onClick={() => setIsCartOpen(true)}
+          className="fixed bottom-20 right-4 z-30 flex items-center gap-2 rounded-full bg-accent px-4 py-3.5 text-accent-ink shadow-soft-lg"
+        >
+          <span className="relative flex items-center">
+            <ShoppingBag className="h-5 w-5" />
+            {cartOrder.length > 0 && (
+              <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-ink px-1 text-[10px] font-bold text-accent">
+                {cartOrder.length}
+              </span>
+            )}
+          </span>
+          <span className="text-sm font-semibold tabular-nums">{formatMinor(totals.totalMinor, config.currency)}</span>
+        </button>
+      )}
 
       {editingItemId !== null && editingEntry && (
         <EditNoteModal

@@ -63,7 +63,7 @@ export function SettingsPage() {
       </header>
 
       <div className="grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="space-y-4 lg:sticky lg:top-6">
+        <aside className="min-w-0 space-y-4 lg:sticky lg:top-6">
           <div className="hidden items-center gap-3 rounded-2xl border border-accent/20 bg-linear-to-br from-accent-soft to-surface p-5 lg:flex">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-text"><Store className="h-5 w-5" /></span>
             <div className="min-w-0"><p className="truncate text-sm font-semibold text-fg" title={config.businessName}>{config.businessName}</p><p className="mt-1 text-xs capitalize text-fg-muted">{config.businessType} · {config.currency}</p></div>
