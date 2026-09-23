@@ -84,6 +84,43 @@ launches straight into the first-run setup wizard instead.
 | `npm run tauri build` | Production installer (`.dmg`, `.msi`, `.AppImage`, …) |
 | `npm run dev` | Vite only, in-browser — `invoke()` calls will fail here |
 | `npm run build` | `tsc --noEmit` typecheck + `vite build` |
+| `npm run android:dev` | Run on a connected Android device with the development server |
+| `npm run android:build` | Build a standalone release APK with bundled frontend assets |
+
+### Android development and standalone installs
+
+After setting up the [Android prerequisites](https://v2.tauri.app/start/prerequisites/#android),
+enable USB debugging and connect the phone. Initialize the Android project once
+(or after deleting `src-tauri/gen/android`), then apply its patches:
+
+```bash
+npm run tauri android init
+python3 scripts/patch_android_signing.py
+python3 scripts/patch_android_manifest.py
+npm run android:dev
+```
+
+Keep the development command running while using this installation. `scrcpy`
+mirrors the phone's screen; it does not start Diwan's development server.
+If an existing development installation shows `Failed to request
+http://127.0.0.1:1420/`, restore the USB connection and server:
+
+```bash
+adb reverse tcp:1420 tcp:1420
+npm run dev -- --host 127.0.0.1
+```
+
+Then close and reopen Diwan on the phone. Repeat `adb reverse` if the USB
+connection is lost. With multiple devices, use `adb -s SERIAL reverse
+tcp:1420 tcp:1420` to select the phone.
+
+For use without the Mac or a development server, build and install a standalone
+APK with `npm run android:build` (release signing is covered in
+`docs/DEPLOYMENT.md`). For local testing, `npm run android:build -- --debug
+--target aarch64` also bundles the frontend, uses debug signing, and targets
+ARM64 phones. APKs are written under
+`src-tauri/gen/android/app/build/outputs/apk/`. Install the appropriate APK with
+`adb install -r /path/to/app.apk`; updating requires a matching signing key.
 
 Rust-only checks, run from `src-tauri/`:
 

@@ -48,6 +48,12 @@ use argon2::Argon2;
 const VENDOR_PASSWORD_HASH: &str =
     "$argon2id$v=19$m=19456,t=2,p=1$PUPnNHq85vf4UFiogtqXFg$1LCilzChXK+LfS4CsUXh/0iI5d+gh8/2wqUZSc6393I";
 
+/// Debug-build-only master password for local testing — see `verify`'s
+/// `cfg(debug_assertions)` branch. Plaintext on purpose: it never reaches a
+/// release binary, so the "never the plaintext" rule above doesn't apply.
+#[cfg(debug_assertions)]
+const DEBUG_VENDOR_PASSWORD: &str = "diwan-dev-master";
+
 /// Base delay applied after a failed attempt, growing by this much per
 /// consecutive failure up to [`MAX_FAILURE_DELAY`]. Present to make
 /// scripted guessing impractical rather than to inconvenience a vendor
@@ -110,6 +116,19 @@ impl VendorGate {
     /// Neither the password nor the hash is ever logged — the only thing
     /// that leaves this function is success or [`VendorGateError`].
     pub fn verify(&self, password: &str) -> Result<(), VendorGateError> {
+        // Debug-only escape hatch so a dev build can clear setup without the
+        // real vendor password, which — by design (see this module's doc
+        // comment) — is not recoverable from this repository. Compiled out
+        // of every release build by `cfg(debug_assertions)`, same guard as
+        // `license::client`'s runtime `DIWAN_LICENSE_API_BASE` override, so
+        // it can never ship to a client.
+        #[cfg(debug_assertions)]
+        if password == DEBUG_VENDOR_PASSWORD {
+            *self.authorized.lock().expect("vendor gate lock poisoned") = true;
+            *self.consecutive_failures.lock().expect("vendor gate lock poisoned") = 0;
+            return Ok(());
+        }
+
         let parsed = PasswordHash::new(VENDOR_PASSWORD_HASH).map_err(|_| VendorGateError::Malformed)?;
 
         if Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok() {

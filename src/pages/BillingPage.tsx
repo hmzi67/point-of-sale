@@ -302,12 +302,15 @@ export function BillingPage() {
       )}
 
       {/* Floating cart button — Android only, hidden while the sheet above
-       * is already open (its own header X closes it instead). */}
+       * is already open (its own header X closes it instead). No shadow-*
+       * utility here: this WebView renders `shadow-soft-lg`'s large blurred
+       * box-shadow as a hard rectangle instead of a soft blur, which looked
+       * like a stray dark panel behind the pill. A ring is enough lift. */}
       {IS_ANDROID && !isCartOpen && (
         <button
           type="button"
           onClick={() => setIsCartOpen(true)}
-          className="fixed bottom-20 right-4 z-30 flex items-center gap-2 rounded-full bg-accent px-4 py-3.5 text-accent-ink shadow-soft-lg"
+          className="fixed bottom-20 right-4 z-30 flex items-center gap-2 rounded-full bg-accent px-4 py-3.5 text-accent-ink ring-1 ring-black/10"
         >
           <span className="relative flex items-center">
             <ShoppingBag className="h-5 w-5" />
