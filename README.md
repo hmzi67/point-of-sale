@@ -9,11 +9,15 @@
 One codebase, configured per client — modules are toggled on or off per
 installation rather than forked into separate builds.
 
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#system-requirements)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-blue)](#system-requirements)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB)](https://tauri.app)
 [![Frontend](https://img.shields.io/badge/React-19-61DAFB)](https://react.dev)
 [![Backend](https://img.shields.io/badge/Rust-SQLite-DEA584)](https://www.rust-lang.org)
-[![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+[**Watch the demo**](#demo) · [Features](#features) · [Getting started](#getting-started) · [Architecture](#architecture) · [License](#license)
+
+Created by **[Hamza Waheed](https://github.com/hmzi67)**
 
 </div>
 
@@ -54,9 +58,20 @@ A first-run **setup wizard** walks a new installation through business info →
 suggested module defaults → module toggles, so a new client is configured into
 existence rather than built.
 
-## Screenshots
+## Demo
 
-> _Add screenshots of the billing screen, dashboard, and setup wizard here._
+<div align="center">
+
+<a href="src/assets/branding/demo.MP4">
+  <img src="src/assets/branding/logo.png" alt="Watch the Diwan demo video" width="220">
+</a>
+
+**[▶ Watch the demo video](src/assets/branding/demo.MP4)**
+
+</div>
+
+A short walkthrough of Diwan running as a real till. Click the logo or the link
+above to play it; GitHub opens the video in its built-in player.
 
 ## Getting started
 
@@ -204,17 +219,28 @@ the working copy but are not published with the source:
 
 ## Contributing
 
-This is a proprietary product, not an open-source project; it does not accept
-outside contributions. If you have been granted access to work on it, read
-`CLAUDE.md` first, keep changes inside the phase structure of
-`docs/buildPlan.md`, and run `cargo test`, `cargo clippy`, and `npm run build`
-before opening a pull request.
+Issues and pull requests are welcome. Before opening one:
+
+1. Read `CLAUDE.md` — it is the canonical guide to the module system, IPC
+   conventions and database invariants.
+2. Keep all SQLite access in Rust and all money in integer minor units.
+3. Run `cargo test`, `cargo clippy` (from `src-tauri/`) and `npm run build`.
+
+## Author
+
+**Hamza Waheed** — design and development
+GitHub: [@hmzi67](https://github.com/hmzi67)
+
+If Diwan is useful to you, a ⭐ on the repository is appreciated.
 
 ## License
 
-Copyright © 2026 Applr. All rights reserved.
+Diwan's source code is released under the [MIT License](LICENSE).
+Copyright © 2026 Hamza Waheed.
 
-Diwan is proprietary software, licensed rather than sold. Possession of this
-repository grants no rights to use, copy, modify, or redistribute it — those
-are granted only under a separate written agreement with Applr. See
-[LICENSE](LICENSE) for the full terms.
+## Trademark
+
+**Diwan™**, its name, logo and app icon are trademarks of Hamza Waheed. The MIT
+License covers the code only and grants no right to use the Diwan name or
+branding — a modified or redistributed build must use its own name and icon.
+See [TRADEMARKS.md](TRADEMARKS.md) for what is and isn't allowed.

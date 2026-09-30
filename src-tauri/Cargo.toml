@@ -2,8 +2,8 @@
 name = "tauri-app"
 version = "1.0.0"
 description = "Offline-first, module-configurable point of sale for retail and restaurant shops"
-authors = ["Applr"]
-license-file = "../LICENSE"
+authors = ["Hamza Waheed"]
+license = "MIT"
 publish = false
 edition = "2021"
 
@@ -59,10 +59,11 @@ tokio = { version = "1", features = ["time", "rt"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 
 # `rfd` (the fatal-startup-error dialog in `lib.rs`) is desktop-only because
-# it has no backend implementation at all for Android — `FileDialogImpl`/
-# `MessageDialogImpl` simply aren't implemented for that target, a hard
-# compile error, not a runtime one. `lib.rs`'s `run()` falls back to logging
-# via `eprintln!` (reaches `adb logcat`) on Android instead.
+# it has no backend implementation at all for Android or iOS —
+# `FileDialogImpl`/`MessageDialogImpl` simply aren't implemented for those
+# targets, a hard compile error, not a runtime one. `lib.rs`'s `run()` falls
+# back to logging via `eprintln!` (reaches `adb logcat` / the Xcode console)
+# on mobile instead.
 #
 # default-features disabled + explicit "gtk3": rfd's own defaults are
 # ["xdg-portal", "wayland"], while tauri-plugin-dialog's rfd dependency
@@ -73,15 +74,16 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # here matches tauri-plugin-dialog's own default and this repo's existing
 # CI dependency install (libwebkit2gtk/libgtk are already required for the
 # webview itself), so it adds nothing new to the Linux build environment.
-[target.'cfg(not(target_os = "android"))'.dependencies]
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 # OS-native machine id (IOPlatformUUID / /etc/machine-id / MachineGuid) for
-# the licence device fingerprint. No Android backend — `license::fingerprint`
-# falls back to a per-install random id there.
+# the licence device fingerprint. No mobile backend — `license::fingerprint`
+# falls back to a per-install random id on Android and a Keychain-held one
+# on iOS.
 machine-uid = "0.6"
 
-# macOS/Linux desktop printer transport: raw USB. Gated to
-# "not Android, not Windows" — Android is excluded for the libusb/permission
+# macOS/Linux desktop printer transport: raw USB. Gated to exactly those two
+# (so "not Android, not Windows, not iOS") — Android is excluded for the libusb/permission
 # reasons below; Windows is excluded because a USB thermal printer with an
 # installed driver has that driver's own service (usbprint.sys) bound to the
 # device's Printer-class interface, which blocks libusb/WinUSB from ever
@@ -91,7 +93,7 @@ machine-uid = "0.6"
 # application drives a printer, instead of raw USB at all). "vendored"
 # builds libusb from source instead of requiring it preinstalled on the dev
 # machine (e.g. `brew install libusb` on macOS).
-[target.'cfg(all(not(target_os = "android"), not(target_os = "windows")))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 rusb = { version = "0.9", features = ["vendored"] }
 
 # Android printer transport: Bluetooth Classic (SPP), via direct JNI calls
@@ -109,6 +111,15 @@ jni = "0.21"
 # Mozilla's set compiled in, instead of the OS verifier, which failed on real
 # phones. Already in the tree (a rustls-platform-verifier dependency).
 webpki-root-certs = "1"
+
+# iOS: App Store purchases + Sign in with Apple (a local Tauri plugin whose
+# Swift half lives in plugins/storekit/ios — see `iap.rs`), and the Keychain,
+# which holds the licence device id so it survives an app reinstall
+# (`license::fingerprint`). security-framework is already in the tree on
+# Apple targets via reqwest's TLS verifier, so this adds no new copy.
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-storekit = { path = "plugins/storekit" }
+security-framework = "3"
 
 [dev-dependencies]
 # So `license::client`'s live test can exercise the Android TLS setup on a desktop.

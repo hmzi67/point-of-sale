@@ -46,12 +46,17 @@ impl Platform {
     /// its own platform via `IS_ANDROID`/`PLATFORM` in `types.ts`, but a few
     /// backend-only decisions — like which printer transport to use — have
     /// no frontend-supplied value to read instead).
+    ///
+    /// iOS shares the `Android` columns: "android" in `enabled_modules` has
+    /// always meant "the phone/tablet build" (the frontend's `PLATFORM`
+    /// makes the same call), and a vendor configuring a mobile install
+    /// shouldn't have to configure it twice.
     pub fn current() -> Self {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             Platform::Android
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             Platform::Desktop
         }

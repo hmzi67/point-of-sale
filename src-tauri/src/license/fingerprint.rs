@@ -15,15 +15,26 @@
 //! generates. Where no OS machine id exists (Android), a random id is
 //! generated once and persisted in the app data directory; on that
 //! platform, wiping app data = a new device, which support resolves the
-//! same way as any hardware move.
+//! same way as any hardware move. iOS has no machine id either, but it has
+//! the Keychain, whose items outlive an uninstall: the random id lives
+//! there, so deleting and reinstalling the app is still the same device.
+//! (A genuinely new iPhone is a new device; an App Store licence moves to
+//! it through "Restore purchases" — see `iap.rs`.)
 
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-/// Filename of the Android fallback id, under `app_data_dir()`.
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+/// Filename of the mobile fallback id, under `app_data_dir()`.
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(dead_code))]
 const INSTALL_ID_FILE: &str = "device-id";
+
+/// Keychain service/account holding the iOS device id. Renaming either
+/// would silently re-fingerprint every iOS install.
+#[cfg(target_os = "ios")]
+const KEYCHAIN_SERVICE: &str = "com.diwan.pos.license";
+#[cfg(target_os = "ios")]
+const KEYCHAIN_ACCOUNT: &str = "device-id";
 
 #[derive(Debug)]
 pub enum FingerprintError {
@@ -50,17 +61,46 @@ fn hex_sha256(bytes: &[u8]) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn machine_id(_app_data_dir: &Path) -> Result<String, FingerprintError> {
     machine_uid::get().map_err(|e| FingerprintError::Unavailable(e.to_string()))
 }
 
 /// Android: no OS-level machine id is reachable without JNI into
 /// `Settings.Secure.ANDROID_ID`, so use a per-install random id instead.
-/// Persisted as a file (not in SQLite) so it is independent of the
-/// database's lifecycle — same reasoning as `images.rs`.
 #[cfg(target_os = "android")]
 fn machine_id(app_data_dir: &Path) -> Result<String, FingerprintError> {
+    install_id_file(app_data_dir)
+}
+
+/// iOS: a random id kept in the Keychain (see the module doc for why not a
+/// file). If the Keychain is unusable the install-id file is the fallback —
+/// still stable for this install, just not across a reinstall.
+#[cfg(target_os = "ios")]
+fn machine_id(app_data_dir: &Path) -> Result<String, FingerprintError> {
+    use security_framework::passwords::{get_generic_password, set_generic_password};
+
+    if let Ok(bytes) = get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
+        if let Ok(existing) = String::from_utf8(bytes) {
+            if existing.trim().len() >= 32 {
+                return Ok(existing);
+            }
+        }
+    }
+    // Carry an id this install already has over into the Keychain, so a
+    // licence activated before the Keychain was reachable stays bound.
+    let id = install_id_file(app_data_dir)?;
+    if let Err(e) = set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, id.trim().as_bytes()) {
+        crate::startup_log::log(&format!("fingerprint: Keychain unavailable, using the install id file ({e})"));
+    }
+    Ok(id)
+}
+
+/// Reads — or generates once and persists — a random per-install id.
+/// Persisted as a file (not in SQLite) so it is independent of the
+/// database's lifecycle — same reasoning as `images.rs`.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn install_id_file(app_data_dir: &Path) -> Result<String, FingerprintError> {
     let path = app_data_dir.join(INSTALL_ID_FILE);
     if let Ok(existing) = std::fs::read_to_string(&path) {
         if existing.trim().len() >= 32 {
@@ -76,7 +116,7 @@ fn machine_id(app_data_dir: &Path) -> Result<String, FingerprintError> {
     Ok(id)
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn getrandom_fill(buf: &mut [u8]) -> Result<(), String> {
     use std::io::Read;
     std::fs::File::open("/dev/urandom")

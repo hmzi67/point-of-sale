@@ -31,8 +31,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "publisher": "Applr",
-    "copyright": "Copyright © 2026 Applr",
+    "publisher": "Hamza Waheed",
+    "copyright": "Copyright © 2026 Hamza Waheed",
     "category": "Business",
     "shortDescription": "Offline-first point of sale for retail and restaurant shops",
     "longDescription": "Diwan is an offline-first, module-configurable point of sale system for small retail and restaurant businesses — billing, inventory, tables, staff attendance, expenses, salary and reporting, all running locally with no internet dependency.",

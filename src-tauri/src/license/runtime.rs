@@ -123,6 +123,14 @@ impl LicenseRuntime {
         self.fingerprint.as_deref().map_err(|e| LicenseError::NoFingerprint(e.clone()))
     }
 
+    /// The fingerprint licences bind to, for the App Store flow (`iap.rs`),
+    /// which sends it with a purchase so the server can move an App Store
+    /// licence to this device on "Restore purchases".
+    #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+    pub fn device_fingerprint(&self) -> Result<String, String> {
+        self.fingerprint().map(str::to_string).map_err(|e| e.to_string())
+    }
+
     /// Re-evaluates the cached row against the current clock — what the
     /// periodic tick does between server refreshes so a licence that
     /// expires while the app is open flips to `Expired` on time.

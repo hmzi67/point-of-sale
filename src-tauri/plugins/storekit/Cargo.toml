@@ -1,0 +1,21 @@
+[package]
+name = "tauri-plugin-storekit"
+version = "0.1.0"
+description = "StoreKit 2 purchases and Sign in with Apple for Diwan's iOS build"
+authors = ["Applr"]
+license-file = "../../../LICENSE"
+publish = false
+edition = "2021"
+# Required by tauri-plugin's build script: `links` must equal the crate name.
+links = "tauri-plugin-storekit"
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+# Same major as tauri-plugin's own copy, for `update_entitlements`'s
+# `plist::Dictionary` argument — no second copy in the tree.
+plist = "1"

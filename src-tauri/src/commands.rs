@@ -34,6 +34,7 @@ use crate::db::{
     refunds, reports, salary, sales, security_pin, shifts, tables, tokens, users, Db,
 };
 use crate::area_access_session::AreaAccessSession;
+use crate::iap::{self, AppleAccount, AppleAccountInfo, IapProduct, PurchaseResult};
 use crate::images;
 use crate::license::runtime::LicenseRuntime;
 use crate::license::state::LicenseState;
@@ -497,6 +498,84 @@ pub async fn license_activate(
 ) -> Result<LicenseState, String> {
     require_role(&session, STAFF_ROLES)?;
     license.activate(&app, &db, &license_key).await.map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// App Store (iOS) — buying, restoring and moving a licence through Apple.
+// All the logic is in `iap.rs`; these are the role-checked entry points.
+// Owner/Admin only, like `license_activate`: a purchase replaces the
+// installation's licence. Off iOS every one of them refuses.
+// ---------------------------------------------------------------------------
+
+/// The licence products, priced by the App Store for this user's storefront.
+#[tauri::command]
+pub async fn iap_get_products(app: AppHandle, session: State<'_, Session>) -> Result<Vec<IapProduct>, String> {
+    require_role(&session, STAFF_ROLES)?;
+    iap::products(&app).await
+}
+
+/// Buys a licence and activates it on this device — see `iap.rs` for the
+/// purchase → verify → activate → finish order that keeps this safe.
+#[tauri::command]
+pub async fn iap_purchase(
+    app: AppHandle,
+    db: State<'_, Db>,
+    license: State<'_, LicenseRuntime>,
+    account: State<'_, AppleAccount>,
+    session: State<'_, Session>,
+    product_id: String,
+) -> Result<PurchaseResult, String> {
+    require_role(&session, STAFF_ROLES)?;
+    iap::purchase(&app, &db, &license, &account, &product_id).await
+}
+
+/// "Restore purchases" — also how an App Store licence moves to a new device.
+#[tauri::command]
+pub async fn iap_restore(
+    app: AppHandle,
+    db: State<'_, Db>,
+    license: State<'_, LicenseRuntime>,
+    account: State<'_, AppleAccount>,
+    session: State<'_, Session>,
+) -> Result<LicenseState, String> {
+    require_role(&session, STAFF_ROLES)?;
+    iap::restore(&app, &db, &license, &account).await
+}
+
+/// Optional Sign in with Apple, to link purchases to a Diwan web account.
+/// `None` = the user dismissed Apple's sheet.
+#[tauri::command]
+pub async fn iap_apple_sign_in(
+    app: AppHandle,
+    license: State<'_, LicenseRuntime>,
+    account: State<'_, AppleAccount>,
+    session: State<'_, Session>,
+) -> Result<Option<AppleAccountInfo>, String> {
+    require_role(&session, STAFF_ROLES)?;
+    iap::sign_in(&app, &license, &account).await
+}
+
+/// Who is signed in with Apple in this app run, if anyone.
+#[tauri::command]
+pub fn iap_apple_account(account: State<'_, AppleAccount>) -> Option<AppleAccountInfo> {
+    account.info()
+}
+
+#[tauri::command]
+pub fn iap_apple_sign_out(account: State<'_, AppleAccount>) {
+    account.sign_out();
+}
+
+/// Deletes the Diwan account behind Sign in with Apple (re-authenticates
+/// first). `false` = dismissed. The licence on this device keeps working.
+#[tauri::command]
+pub async fn iap_delete_account(
+    app: AppHandle,
+    account: State<'_, AppleAccount>,
+    session: State<'_, Session>,
+) -> Result<bool, String> {
+    require_role(&session, STAFF_ROLES)?;
+    iap::delete_account(&app, &account).await
 }
 
 /// Saves an uploaded logo to disk (in its own directory, distinct from

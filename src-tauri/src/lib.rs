@@ -1,6 +1,7 @@
 mod area_access_session;
 mod commands;
 mod db;
+mod iap;
 mod images;
 mod license;
 mod printer;
@@ -102,13 +103,14 @@ fn reveal_main_window(app: &tauri::AppHandle) {
                 // (gated `#[cfg(desktop)]` inside the `tauri` crate itself —
                 // there's no window manager concept of "minimized" or
                 // "centered" for a single fullscreen mobile view) — this
-                // whole function is already a runtime no-op on Android (see
+                // whole function is already a runtime no-op on mobile (see
                 // its doc comment), but it still has to *compile* there,
                 // since `reveal_main_window` isn't itself behind a
-                // `#[cfg(not(target_os = "android"))]`.
-                #[cfg(not(target_os = "android"))]
+                // `#[cfg(desktop)]`. (`desktop`/`mobile` are tauri-build's
+                // cfg aliases; `mobile` covers Android and iOS.)
+                #[cfg(desktop)]
                 let unminimized = main.unminimize();
-                #[cfg(target_os = "android")]
+                #[cfg(mobile)]
                 let unminimized: tauri::Result<()> = Ok(());
                 // Force back to the configured size/position rather than
                 // trusting whatever the OS restored — confirmed on Windows
@@ -118,9 +120,9 @@ fn reveal_main_window(app: &tauri::AppHandle) {
                     MAIN_WINDOW_WIDTH,
                     MAIN_WINDOW_HEIGHT,
                 )));
-                #[cfg(not(target_os = "android"))]
+                #[cfg(desktop)]
                 let centered = main.center();
-                #[cfg(target_os = "android")]
+                #[cfg(mobile)]
                 let centered: tauri::Result<()> = Ok(());
                 let focused = main.set_focus();
                 let visible_after = main.is_visible();
@@ -193,7 +195,7 @@ pub fn run() {
         "run(): rustls ring crypto provider installed={provider_installed} (already-present is also fine)"
     ));
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // `Session`/`ProductOwnerSession`/`LaunchedAt`/`SplashRevealed` need
         // nothing but their own constructors — no `AppHandle`, no filesystem
         // access — so they're managed here, directly on the builder, before
@@ -206,6 +208,7 @@ pub fn run() {
         .manage(ProductOwnerSession::new())
         .manage(AreaAccessSession::new())
         .manage(VendorGate::new())
+        .manage(iap::AppleAccount::new())
         .manage(LaunchedAt(launched_at))
         .manage(SplashRevealed(std::sync::atomic::AtomicBool::new(false)))
         .plugin(tauri_plugin_opener::init())
@@ -217,7 +220,12 @@ pub fn run() {
         // blob trick, which desktop browsers handle but Android's WebView
         // does not (see `src/services/fileExportService.ts`).
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_fs::init());
+    // App Store purchases + Sign in with Apple (`iap.rs`); the crate only
+    // exists in iOS builds (see Cargo.toml).
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_storekit::init());
+    builder
         .setup(move |app| {
             // The whole body is wrapped in `catch_unwind`: every fallible
             // step below already returns a proper `Result` via `?` (nothing
@@ -250,6 +258,9 @@ pub fn run() {
                     app_ref.manage(db);
                     app_ref.manage(license);
                     license::runtime::spawn_background_refresh(app_ref.handle().clone());
+                    // iOS: redeem App Store purchases StoreKit is still
+                    // holding (see `iap.rs`). A no-op everywhere else.
+                    iap::spawn_unfinished_sweep(app_ref.handle().clone());
 
                     // The "main" window is built here — *after* `db` is
                     // managed — rather than left in `tauri.conf.json`'s
@@ -280,10 +291,10 @@ pub fn run() {
                     .inner_size(1280.0, 800.0);
                     // Desktop only: mobile has no splash *window* to reveal
                     // past (see `reveal_main_window`'s doc comment) —
-                    // Android's "main" is shown immediately, at its config's
-                    // default size, with no minimum-size constraint of its
-                    // own.
-                    #[cfg(not(target_os = "android"))]
+                    // Android's and iOS's "main" is shown immediately, at its
+                    // config's default size, with no minimum-size constraint
+                    // of its own.
+                    #[cfg(desktop)]
                     {
                         main_window = main_window.min_inner_size(1024.0, 640.0).visible(false);
                     }
@@ -339,6 +350,13 @@ pub fn run() {
             commands::license_get_info,
             commands::license_refresh,
             commands::license_activate,
+            commands::iap_get_products,
+            commands::iap_purchase,
+            commands::iap_restore,
+            commands::iap_apple_sign_in,
+            commands::iap_apple_account,
+            commands::iap_apple_sign_out,
+            commands::iap_delete_account,
             commands::config_upload_logo,
             commands::config_get_logo,
             commands::get_enabled_modules,
@@ -469,7 +487,7 @@ pub fn run() {
             // Android at all (a compile error, not a runtime gap — see
             // Cargo.toml's doc comment), so this falls back to `eprintln!`
             // there, which reaches `adb logcat`.
-            #[cfg(not(target_os = "android"))]
+            #[cfg(desktop)]
             rfd::MessageDialog::new()
                 .set_title("Diwan failed to start")
                 .set_description(&format!(
@@ -478,7 +496,7 @@ pub fn run() {
                 ))
                 .set_level(rfd::MessageLevel::Error)
                 .show();
-            #[cfg(target_os = "android")]
+            #[cfg(mobile)]
             eprintln!(
                 "Diwan failed to start: {error}\n\nDetails were written to: {}",
                 startup_log::active_log_path().display()

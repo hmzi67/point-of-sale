@@ -70,9 +70,9 @@ use crate::printer::layout::{
     bordered_line, bordered_row, box_line, box_row, divider, dashed_divider, double_divider, format_minor,
     format_qty, row, truncate_line, two_col, BoxLinePosition, LINE_WIDTH,
 };
-#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use rusb::{Direction, TransferType};
-#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::time::Duration;
 
 // Control bytes from the ESC/POS command reference:
@@ -1331,23 +1331,32 @@ fn send_to_printer_dispatch(bytes: &[u8], config: &AppConfig) -> Result<(), Prin
             _ => Err(PrinterError::NoPrinterSelected),
         }
     }
-    #[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let _ = config; // macOS/Linux's USB auto-detect doesn't need a stored selection (see module doc)
         send_to_printer_usb(bytes)
+    }
+    // iOS has no thermal-printer transport (no raw USB, and Bluetooth
+    // Classic SPP isn't open to apps without MFi). `NoPrinterSelected` is
+    // the "nothing chosen" answer every caller already turns into the PDF
+    // receipt fallback.
+    #[cfg(target_os = "ios")]
+    {
+        let _ = (bytes, config);
+        Err(PrinterError::NoPrinterSelected)
     }
 }
 
 /// The standard USB device-class code for printers (USB.org base class
 /// 0x07) — this is what lets a compatible printer be found without any
 /// vendor/product ID configuration.
-#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const USB_PRINTER_CLASS: u8 = 0x07;
 
 /// How long to wait for the printer to accept the write before giving up.
 /// A receipt is small (well under 1 KB of ESC/POS bytes), so this only
 /// needs to cover a slow/busy printer, not a large transfer.
-#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const USB_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Finds the first attached USB device that exposes a Printer-class (0x07)
@@ -1362,7 +1371,7 @@ const USB_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 /// macOS/Linux only — see this module's doc comment and `Cargo.toml` for
 /// why this (and the `rusb` dependency it needs) is `cfg`'d out of Android
 /// and Windows entirely; `windows_spool` is Windows' equivalent.
-#[cfg(all(not(target_os = "android"), not(target_os = "windows")))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn send_to_printer_usb(bytes: &[u8]) -> Result<(), PrinterError> {
     let devices = rusb::devices().map_err(|e| PrinterError::Io(format!("USB enumeration failed: {e}")))?;
 

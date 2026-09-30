@@ -114,11 +114,21 @@ fn with_bundled_roots(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder
     )
 }
 
-async fn post<T: serde::de::DeserializeOwned>(path: &str, body: &serde_json::Value) -> Result<T, ClientError> {
+/// POSTs JSON to `<api base>/<path>`. Shared with the App Store flow
+/// (`iap.rs`), which talks to the same server with the same error rules.
+pub(crate) async fn post<T: serde::de::DeserializeOwned>(path: &str, body: &serde_json::Value) -> Result<T, ClientError> {
     let url = format!("{}/{path}", api_base());
-    let response = client()?
-        .post(&url)
-        .json(body)
+    send(client()?.post(&url).json(body)).await
+}
+
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))] // only the App Store flow GETs
+pub(crate) async fn get<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, ClientError> {
+    let url = format!("{}/{path}", api_base());
+    send(client()?.get(&url)).await
+}
+
+async fn send<T: serde::de::DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T, ClientError> {
+    let response = request
         .send()
         .await
         .map_err(|e| ClientError::Offline(describe_transport_error(e)))?;
@@ -215,7 +225,7 @@ fn root_cause(e: &(dyn std::error::Error + 'static)) -> String {
 
 /// For the vendor's dashboard only ("Windows x86_64") — never anything
 /// identifying. The server truncates and strips it further.
-fn machine_hint() -> String {
+pub(crate) fn machine_hint() -> String {
     format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)
 }
 

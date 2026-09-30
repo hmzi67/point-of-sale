@@ -4028,6 +4028,7 @@ dependencies = [
  "rusb",
  "rusqlite",
  "rustls",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2",
@@ -4037,6 +4038,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-plugin-os",
+ "tauri-plugin-storekit",
  "tokio",
  "webpki-root-certs",
  "windows",
@@ -4200,6 +4202,17 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "tauri-plugin-storekit"
+version = "0.1.0"
+dependencies = [
+ "plist",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]
