@@ -60,11 +60,18 @@ existence rather than built.
 
 ## Demo
 
-<video src="https://github.com/hmzi67/point-of-sale/raw/main/src/assets/branding/demo.MP4" autoplay muted loop playsinline controls width="100%">
-  <a href="src/assets/branding/demo.MP4">▶ Watch the demo video</a>
-</video>
+![Diwan demo: billing, checkout, tables and the dashboard](.github/media/demo.gif)
 
-A short walkthrough of Diwan running as a real till.
+A short walkthrough of Diwan running as a real till. The full video with sound is
+[here](src/assets/branding/demo.MP4).
+
+### Screenshots
+
+| Billing | Checkout |
+| --- | --- |
+| ![Billing: build a bill from the catalogue](.github/media/billing.png) | ![Checkout: sale complete with receipt preview](.github/media/checkout.png) |
+| **Tables** | **Dashboard** |
+| ![Tables: resume a parked order](.github/media/tables.png) | ![Dashboard: today's sales at a glance](.github/media/dashboard.png) |
 
 ## Getting started
 
