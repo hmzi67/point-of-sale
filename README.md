@@ -60,18 +60,11 @@ existence rather than built.
 
 ## Demo
 
-<div align="center">
+<video src="https://github.com/hmzi67/point-of-sale/raw/main/src/assets/branding/demo.MP4" autoplay muted loop playsinline controls width="100%">
+  <a href="src/assets/branding/demo.MP4">▶ Watch the demo video</a>
+</video>
 
-<a href="src/assets/branding/demo.MP4">
-  <img src="src/assets/branding/logo.png" alt="Watch the Diwan demo video" width="220">
-</a>
-
-**[▶ Watch the demo video](src/assets/branding/demo.MP4)**
-
-</div>
-
-A short walkthrough of Diwan running as a real till. Click the logo or the link
-above to play it; GitHub opens the video in its built-in player.
+A short walkthrough of Diwan running as a real till.
 
 ## Getting started
 
