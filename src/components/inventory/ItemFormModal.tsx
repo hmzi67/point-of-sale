@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Plus, X } from "lucide-react";
 import { useInventoryStore } from "../../store";
 import { suggestShortCode, uploadItemImage } from "../../services/inventoryService";
-import { useModules } from "../../hooks/useModules";
+import { useModuleEnabled } from "../../hooks/useModules";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import { readImageFile } from "../../utils/image";
 import type { Item, ItemInput } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface ItemFormModalProps {
   /** Omit to add a new item; pass an item to edit it. */
@@ -69,11 +70,10 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   const addCategory = useInventoryStore((state) => state.addCategory);
   const imageCache = useInventoryStore((state) => state.imageCache);
   const ensureImage = useInventoryStore((state) => state.ensureImage);
-  const { modules } = useModules();
   // KOT tokens are a restaurant/tables workflow — hide the counter field
   // entirely for a client that doesn't have Tables enabled, same as
   // BillingPage hides the table picker.
-  const tokensEnabled = modules.some((module) => module.key === "tables" && module.enabled);
+  const tokensEnabled = useModuleEnabled("tables");
 
   const [form, setForm] = useState<FormState>(() => toFormState(item));
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -223,7 +223,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-md overflow-hidden rounded-2xl border border-line bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line bg-surface-2/50 px-5 py-5">
           <h3 className="text-lg font-semibold tracking-tight text-fg">
@@ -571,6 +571,6 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

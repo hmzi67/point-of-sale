@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 import { Lock, LogOut, ShieldAlert, Unlock, X } from "lucide-react";
-import * as productOwnerService from "../../services/productOwnerService";
+import {
+  getModules as getProductOwnerModules,
+  getStatus as getProductOwnerStatus,
+  login as productOwnerLogin,
+  logout as productOwnerLogout,
+  setModule as setProductOwnerModule,
+  setup as setupProductOwner,
+} from "../../services/productOwnerService";
 import { useModuleStore } from "../../store";
-import { PLATFORM } from "../../types";
 import type { ModuleState } from "../../types";
 
 interface ProductOwnerModalProps {
@@ -25,6 +31,7 @@ type Stage = "loading" | "setup" | "login" | "panel";
 export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [stage, setStage] = useState<Stage>("loading");
+  const [vendorPassword, setVendorPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -32,16 +39,14 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
   const [modules, setModules] = useState<ModuleState[]>([]);
 
   const loadModules = () => {
-    productOwnerService
-      .getModules("desktop")
+    getProductOwnerModules("desktop")
       .then((list) => {
         setModules(list);
         setStage("panel");
       })
       .catch(() => {
         // No valid session yet — fall back to figuring out setup vs login.
-        productOwnerService
-          .getStatus()
+        getProductOwnerStatus()
           .then((hasAccount) => setStage(hasAccount ? "login" : "setup"))
           .catch((e: Error) => setError(e.message));
       });
@@ -51,6 +56,10 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
 
   const submitSetup = async () => {
     setError(null);
+    if (!vendorPassword) {
+      setError("Enter the vendor authorization password");
+      return;
+    }
     if (password.length < 8) {
       setError("Password must be at least 8 characters");
       return;
@@ -61,7 +70,8 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
     }
     setIsSubmitting(true);
     try {
-      await productOwnerService.setup(password);
+      await setupProductOwner(vendorPassword, password);
+      setVendorPassword("");
       setPassword("");
       setConfirmPassword("");
       loadModules();
@@ -76,7 +86,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
     setError(null);
     setIsSubmitting(true);
     try {
-      await productOwnerService.login(password);
+      await productOwnerLogin(password);
       setPassword("");
       loadModules();
     } catch (e) {
@@ -90,14 +100,16 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
     setError(null);
     setIsUpdating(true);
     try {
-      const list = await productOwnerService.setModule(
+      const list = await setProductOwnerModule(
         moduleKey,
         platform,
         patch.enabled ?? null,
         patch.locked ?? null,
       );
       setModules(list);
-      useModuleStore.setState({ modules: list.map((module) => ({ ...module, enabled: PLATFORM === "android" ? module.androidEnabled : module.desktopEnabled, locked: PLATFORM === "android" ? module.androidLocked : module.desktopLocked })), isLoaded: true });
+      // Re-read this platform's view through the store's own action rather
+      // than re-deriving the enabled/locked mapping here.
+      void useModuleStore.getState().load();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -106,7 +118,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
   };
 
   const endSession = async () => {
-    await productOwnerService.logout().catch(() => undefined);
+    await productOwnerLogout().catch(() => undefined);
     onClose();
   };
 
@@ -135,6 +147,13 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
               <input
                 type="password"
                 autoFocus
+                value={vendorPassword}
+                onChange={(e) => setVendorPassword(e.target.value)}
+                placeholder="Vendor authorization password"
+                className="w-full rounded border border-line-strong bg-surface-2 px-3 py-2 text-sm placeholder:text-fg-muted focus:border-warning-line focus:outline-none"
+              />
+              <input
+                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="New password (min 8 characters)"

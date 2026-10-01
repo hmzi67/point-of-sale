@@ -114,3 +114,63 @@ pub fn get_full_report(
         table_sales,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema::test_conn;
+
+    /// The seeded sales fall within the last few weeks; reports cap how
+    /// wide a range may be, so use a recent window rather than "all time".
+    fn range() -> (String, String) {
+        let today = chrono::Local::now().date_naive();
+        let start = today - chrono::Duration::days(60);
+        (start.format("%Y-%m-%d").to_string(), today.format("%Y-%m-%d").to_string())
+    }
+
+    #[test]
+    fn table_sales_follow_the_tables_module() {
+        let conn = test_conn();
+        let platform = Platform::Desktop;
+        let (start, end) = range();
+        let (start, end) = (start.as_str(), end.as_str());
+
+        modules::set_enabled(&conn, "tables", platform, true).unwrap();
+        assert!(get_full_report(&conn, start, end, platform).unwrap().table_sales.is_some());
+
+        modules::set_enabled(&conn, "tables", platform, false).unwrap();
+        assert!(get_full_report(&conn, start, end, platform).unwrap().table_sales.is_none());
+    }
+
+    /// The whole point of assembling one payload: every section agrees with
+    /// the standalone query it stands in for.
+    #[test]
+    fn sections_match_the_standalone_reports_for_the_same_range() {
+        let conn = test_conn();
+        let platform = Platform::Desktop;
+        let (start, end) = range();
+        let (start, end) = (start.as_str(), end.as_str());
+        let report = get_full_report(&conn, start, end, platform).unwrap();
+
+        let dashboard = dashboard::get_summary(&conn, start, end, platform).unwrap();
+        assert_eq!(report.overview.total_sales_minor, dashboard.total_sales_minor);
+        assert_eq!(report.overview.refunds_minor, dashboard.refunds_minor);
+        assert_eq!(report.overview.transaction_count, dashboard.transaction_count);
+
+        let summary = reports::get_sales_summary(&conn, start, end).unwrap();
+        assert_eq!(report.average_sale_minor, summary.average_sale_minor);
+        assert_eq!(report.overview.total_sales_minor, summary.total_sales_minor);
+
+        let refunds = reports::get_refunds_summary(&conn, start, end).unwrap();
+        assert_eq!(report.refunds.grand_total_refunded_minor, refunds.grand_total_refunded_minor);
+        let categories = reports::get_category_sales(&conn, start, end).unwrap();
+        assert_eq!(report.category_sales.grand_total_minor, categories.grand_total_minor);
+    }
+
+    #[test]
+    fn a_backwards_range_is_rejected() {
+        let conn = test_conn();
+        let (start, end) = range();
+        assert!(get_full_report(&conn, &end, &start, Platform::Desktop).is_err());
+    }
+}

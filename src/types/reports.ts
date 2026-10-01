@@ -73,7 +73,7 @@ export interface TableSalesSummary {
 
 /** The "Refunds" report — every refund in the range (by refund date, not
  * the date of the original sale), most recent first. Reuses the same
- * `Refund` shape `refund_get`/the reprint flow already return, so this row
+ * `Refund` shape `refunds_get`/the reprint flow already return, so this row
  * and a single reprinted refund can never drift in shape. */
 export interface RefundsSummary {
   startDate: string;

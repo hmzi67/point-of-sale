@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use chrono::NaiveDate;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use crate::db::dates;
 
 /// Reports spanning more than this many days are rejected — a guard against
 /// an accidental all-time query on a shop with years of history, not a real
@@ -47,16 +48,7 @@ impl From<rusqlite::Error> for ReportError {
 /// Parses and checks a `start_date`/`end_date` pair, returning the full
 /// `created_at`-comparable timestamp bounds for the SQL WHERE clause.
 fn validate_range(start_date: &str, end_date: &str) -> Result<(String, String), ReportError> {
-    let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
-        .map_err(|_| ReportError::InvalidDateRange(format!("Invalid start date: {}", start_date)))?;
-    let end = NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
-        .map_err(|_| ReportError::InvalidDateRange(format!("Invalid end date: {}", end_date)))?;
-
-    if start > end {
-        return Err(ReportError::InvalidDateRange(
-            "Start date must not be after the end date".into(),
-        ));
-    }
+    let (start, end) = dates::parse_date_range(start_date, end_date).map_err(ReportError::InvalidDateRange)?;
     if (end - start).num_days() > MAX_RANGE_DAYS {
         return Err(ReportError::RangeTooLarge);
     }
@@ -513,7 +505,7 @@ pub fn get_table_sales_summary(
 /// same shape the single-refund receipt/reprint already return) rather than
 /// a parallel type, so the frontend's existing `Refund` type covers this
 /// report's rows for free and the two can never drift in shape.
-use crate::db::refunds::{Refund, RefundLine};
+use crate::db::refunds::{self, Refund};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -552,29 +544,14 @@ pub fn get_refunds_summary(
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
-    let mut item_stmt = conn.prepare(
-        "SELECT ri.sale_item_id, si.item_id, i.name, ri.qty_refunded, ri.amount_refunded_minor
-           FROM refund_items ri
-           JOIN sale_items si ON si.id = ri.sale_item_id
-           JOIN items i ON i.id = si.item_id
-          WHERE ri.refund_id = ?1
-          ORDER BY ri.id",
-    )?;
+    let mut item_stmt = conn.prepare(refunds::REFUND_LINES_SQL)?;
 
     let mut refunds = Vec::with_capacity(headers.len());
     let mut grand_total_refunded_minor: i64 = 0;
     for (id, original_sale_id, refunded_by, refunded_by_name, reason, total_refund_amount_minor, created_at) in headers
     {
         let items = item_stmt
-            .query_map(params![id], |row| {
-                Ok(RefundLine {
-                    sale_item_id: row.get(0)?,
-                    item_id: row.get(1)?,
-                    item_name: row.get(2)?,
-                    qty_refunded: row.get(3)?,
-                    amount_refunded_minor: row.get(4)?,
-                })
-            })?
+            .query_map(params![id], refunds::refund_line_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
 
         grand_total_refunded_minor += total_refund_amount_minor;
@@ -717,6 +694,7 @@ pub fn get_best_selling_item_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::{item_id, one_line_sale};
     use crate::db::schema::test_conn;
     use chrono::{Duration, Local};
 
@@ -879,21 +857,12 @@ mod tests {
     /// hang off something real without depending on which seeded sale IDs
     /// exist.
     fn seed_sale_today(conn: &mut Connection) -> (i64, i64) {
-        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        use crate::db::sales::create_sale;
         let tx = conn.transaction().unwrap();
-        let cola: i64 =
-            tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+        let cola = item_id(&tx, "Cola 500ml");
         let sale = create_sale(
             &tx,
-            CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 2.0, notes: None }],
-                discount_minor: 0,
-                tax_minor: 0,
-                payment_method: "cash".into(),
-                cashier_id: None,
-                table_id: None,
-                shift_id: None,
-            },
+            one_line_sale(cola, 2.0),
         )
         .unwrap();
         let sale_item_id: i64 = tx
@@ -1018,26 +987,17 @@ mod tests {
     /// data's counter sales — a clean way to exercise a genuine table row,
     /// since none of the seeded sales are table-linked.
     fn seed_one_table_sale(conn: &mut Connection) {
-        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        use crate::db::sales::{create_sale, CreateSaleInput};
         use crate::db::tables::start_table_order;
 
         let tx = conn.transaction().unwrap();
         let table_id: i64 =
             tx.query_row("SELECT id FROM tables LIMIT 1", [], |row| row.get(0)).unwrap();
         start_table_order(&tx, table_id).unwrap();
-        let cola: i64 =
-            tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+        let cola = item_id(&tx, "Cola 500ml");
         create_sale(
             &tx,
-            CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 1.0, notes: None }],
-                discount_minor: 0,
-                tax_minor: 0,
-                payment_method: "cash".into(),
-                cashier_id: None,
-                table_id: Some(table_id),
-                shift_id: None,
-            },
+            CreateSaleInput { table_id: Some(table_id), ..one_line_sale(cola, 1.0) },
         )
         .unwrap();
         tx.commit().unwrap();
@@ -1217,23 +1177,14 @@ mod tests {
     /// checks the report against.
     fn seed_one_refund(conn: &mut Connection) -> i64 {
         use crate::db::refunds::{create_refund, CreateRefundInput, RefundLineInput};
-        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        use crate::db::sales::create_sale;
 
         let tx = conn.transaction().unwrap();
-        let cola: i64 =
-            tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+        let cola = item_id(&tx, "Cola 500ml");
         let owner_id: i64 = tx.query_row("SELECT id FROM users LIMIT 1", [], |row| row.get(0)).unwrap();
         let sale = create_sale(
             &tx,
-            CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 2.0, notes: None }],
-                discount_minor: 0,
-                tax_minor: 0,
-                payment_method: "cash".into(),
-                cashier_id: None,
-                table_id: None,
-                shift_id: None,
-            },
+            one_line_sale(cola, 2.0),
         )
         .unwrap();
         let sale_item_id: i64 =

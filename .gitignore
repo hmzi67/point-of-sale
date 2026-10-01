@@ -33,9 +33,20 @@ docs/
 *.jks
 *.p12
 *.pem
+*.key
+keystore.properties
+key.properties
+service-account*.json
 .env
 .env.*
 !.env.example
+
+# Local SQLite databases (a copied-out pos.db holds real client data)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 
 # Python bytecode (scripts/)
 __pycache__/

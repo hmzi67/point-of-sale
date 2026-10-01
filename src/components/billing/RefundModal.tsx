@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Download, Printer, ReceiptText, Search, X } from "lucide-react";
 import { listRecentSales } from "../../services/billingService";
-import { createRefund, getSaleForRefund } from "../../services/refundsService";
+import { createRefund, getSaleForRefund, printRefundThermal } from "../../services/refundsService";
 import { formatMinor, formatQty } from "../../utils/format";
 import type { AppConfig, Refund, RefundableLine, RefundableSale, SaleListItem } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 interface RefundModalProps {
   config: AppConfig;
@@ -20,7 +22,7 @@ type Step = "search" | "pick" | "done";
 /** Owner/Admin refund flow: search/select the original sale, choose which
  * items/quantities to refund (accounting for any prior partial refund),
  * optional reason, confirm — then offers to print the "Refund Details"
- * receipt. Server-side validation (`refund_create`) is the real guard —
+ * receipt. Server-side validation (`refunds_create`) is the real guard —
  * this UI's qty caps are a courtesy, not the enforcement. */
 export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
   const [step, setStep] = useState<Step>("search");
@@ -77,9 +79,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
 
   const submit = async () => {
     if (!sale || linesToRefund.length === 0) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
+    await runAction(setIsSubmitting, setError, async () => {
       const created = await createRefund(
         sale.saleId,
         linesToRefund.map(({ line, qty }) => ({
@@ -92,11 +92,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
       setRefund(created);
       setStep("done");
       onRefunded();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   const downloadPdf = async () => {
@@ -113,7 +109,6 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
     if (!refund) return;
     setPrintStatus(null);
     try {
-      const { printRefundThermal } = await import("../../services/refundsService");
       await printRefundThermal(refund.id);
       setPrintStatus("Sent to thermal printer.");
     } catch (e) {
@@ -122,7 +117,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
@@ -292,6 +287,6 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

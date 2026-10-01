@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { login as loginCommand, logout as logoutCommand } from "../services/authService";
+import { reportError } from "../services/logService";
 import type { User } from "../types";
 
 /**
@@ -33,10 +34,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     // Clear the local session immediately for a snappy sign-out; the Rust
     // side (the one that actually gates sensitive commands) is cleared right
-    // behind it. Fire-and-forget — a failed IPC call here shouldn't block
-    // the cashier from walking away from the till.
+    // behind it. Not awaited — a failed IPC call here shouldn't block the
+    // cashier from walking away from the till — but a failure is retried
+    // once and then logged, since it would leave the Rust session signed in.
     set({ user: null, error: null });
-    void logoutCommand();
+    logoutCommand()
+      .catch(() => logoutCommand())
+      .catch((error: Error) => reportError(`[auth] sign-out did not reach the backend: ${error.message}`));
   },
   clearError: () => set({ error: null }),
 }));

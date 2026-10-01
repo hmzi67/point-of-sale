@@ -4,11 +4,7 @@ import { CheckCircle2, Clock, Users, LogIn, LogOut } from "lucide-react";
 import { checkIn, checkOut, getAttendance, getEmployees } from "../../services/attendanceService";
 import { formatTime } from "../../utils/format";
 import type { AttendanceRecord, Employee } from "../../types";
-
-function todayString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
+import { todayString } from "../../utils/dateRanges";
 
 /** One employee's card state, derived from today's attendance row (if
  * any): no row -> "Check in"; a row with a check-in and no check-out ->

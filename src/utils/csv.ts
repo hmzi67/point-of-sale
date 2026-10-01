@@ -1,13 +1,13 @@
 import { saveTextFile } from "../services/fileExportService";
 
-/** Minimal CSV builder — quotes any field containing a comma, quote or
+/** Minimal CSV builder — quotes any field containing a comma, quote, CR or
  * newline, doubling embedded quotes per RFC 4180. Dependency-free since this
  * is the only place in the app that needs it. */
 export function toCsvRow(fields: Array<string | number>): string {
   return fields
     .map((field) => {
       const str = String(field);
-      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+      return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
     })
     .join(",");
 }

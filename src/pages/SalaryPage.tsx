@@ -8,13 +8,9 @@ import { RecordPaymentModal } from "../components/salary/RecordPaymentModal";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { getMonthlyOverview, printMonthlyReportThermal } from "../services/salaryService";
 import type { SalaryCalculation } from "../types";
+import { currentMonth } from "../utils/dateRanges";
 
 type Tab = "overview" | "history";
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
 
 export function SalaryPage() {
   const { config } = useAppConfig();

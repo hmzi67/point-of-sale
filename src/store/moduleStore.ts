@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { getEnabledModules, toggleModule } from "../services/moduleService";
-import { PLATFORM, type ModuleKey, type ModuleState } from "../types";
+import { type ModuleKey, type ModuleState } from "../types";
+import { PLATFORM } from "../services/platform";
 
 /**
  * The module configuration for this installation. Everything that decides what

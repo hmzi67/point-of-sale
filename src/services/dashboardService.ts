@@ -1,4 +1,4 @@
-import { PLATFORM } from "../types";
+import { PLATFORM } from "./platform";
 import type { DashboardSummary } from "../types";
 import { call } from "./tauriClient";
 

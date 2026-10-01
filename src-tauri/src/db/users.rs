@@ -72,7 +72,7 @@ pub enum AuthError {
     /// seeded at first run, see `db::schema::seed_owner`) — this path is
     /// never a legitimate way to create or promote one. Kept here as a
     /// second line of defense; the actual gate a normal caller hits is the
-    /// role-assignment check in `commands::create_user`/`update_user`.
+    /// role-assignment check in `commands::users_create`/`users_update`.
     OwnerRoleNotAssignable,
     /// Refused: the Owner account can never be deactivated, by anyone,
     /// including itself — there being exactly one means there is no other
@@ -173,8 +173,8 @@ pub fn list_all(conn: &Connection) -> Result<Vec<ManagedUser>, rusqlite::Error> 
 }
 
 /// The current role of an account, if it exists — lets the command layer
-/// authorize who may edit/deactivate whom (see `commands::update_user` /
-/// `set_user_active`) without pulling a whole row.
+/// authorize who may edit/deactivate whom (see `commands::users_update` /
+/// `users_set_active`) without pulling a whole row.
 pub fn role_of(conn: &Connection, user_id: i64) -> Result<Option<Role>, rusqlite::Error> {
     conn.query_row("SELECT role FROM users WHERE id = ?1", params![user_id], |row| {
         let role: String = row.get(0)?;
@@ -267,7 +267,7 @@ pub fn update(conn: &Connection, user_id: i64, name: &str, role: Role) -> Result
 /// `db::schema::seed_owner`), and nobody, including the Owner themselves,
 /// may take it offline through this path. Kept here as a second line of
 /// defense; the actual gate a normal caller hits is in
-/// `commands::set_user_active`.
+/// `commands::users_set_active`.
 pub fn set_active(conn: &Connection, user_id: i64, is_active: bool) -> Result<(), AuthError> {
     if !is_active {
         let target_role: Option<String> = conn
@@ -308,14 +308,8 @@ pub fn set_pin(conn: &Connection, user_id: i64, new_pin: &str) -> Result<(), Aut
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::owner_id;
     use crate::db::schema::{test_conn, DEFAULT_OWNER_PIN};
-
-    fn owner_id(conn: &Connection) -> i64 {
-        conn.query_row("SELECT id FROM users WHERE role = 'owner'", [], |row| {
-            row.get(0)
-        })
-        .unwrap()
-    }
 
     #[test]
     fn seeded_owner_logs_in_with_the_default_pin() {

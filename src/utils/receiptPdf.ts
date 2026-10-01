@@ -11,9 +11,11 @@ import {
   drawRuledItemTable,
   loadImageDimensions,
   LOGO_MAX_HEIGHT_MM,
+  MARGIN_MM,
   newReceiptDoc,
   THERMAL_LINE_WIDTH,
 } from "./printLayout";
+import { devWarn } from "../services/logService";
 import type { AppConfig, Sale } from "../types";
 
 /** Resolves `config.logoPath` to a `{ dataUrl, width, height }` triple ready
@@ -29,7 +31,8 @@ async function resolveLogo(logoPath: string | null): Promise<{ dataUrl: string; 
     const dataUrl = await getLogoDataUrl(logoPath);
     const { width, height } = await loadImageDimensions(dataUrl);
     return { dataUrl, width, height };
-  } catch {
+  } catch (error) {
+    devWarn("[receiptPdf] logo could not be loaded, printing without it", error);
     return null;
   }
 }
@@ -128,7 +131,7 @@ function drawReceiptContent(
 
   doc.setFont("courier", "bold");
   doc.setFontSize(8.5);
-  doc.text(`Paid by: ${sale.paymentMethod}`, 4, y + 1.4);
+  doc.text(`Paid by: ${sale.paymentMethod}`, MARGIN_MM, y + 1.4);
   y += 8;
 
   if (config.receiptFooter.trim()) {

@@ -62,7 +62,8 @@ export function formatTime(timestamp: string): string {
   if (!datePart || !timePart) return timestamp;
   const [year, month, day] = datePart.split("-").map(Number);
   const [hour, minute, second] = timePart.split(":").map(Number);
-  const d = new Date(year, month - 1, day, hour, minute, second);
+  const d = new Date(year, month - 1, day, hour, minute, second ?? 0);
+  if (Number.isNaN(d.getTime())) return timestamp;
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
@@ -72,4 +73,9 @@ export function formatHours(hours: number): string {
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/** A chart axis tick -> "12k" from 1,000 up, the plain number below. */
+export function formatCompactTick(value: number): string {
+  return value >= 1000 ? `${Math.round(value / 1000)}k` : String(value);
 }

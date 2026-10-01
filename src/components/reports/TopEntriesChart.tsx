@@ -1,6 +1,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useChartColors } from "../../hooks/useChartColors";
-import { formatMinor, minorToDecimal } from "../../utils/format";
+import { formatCompactTick, formatMinor, minorToDecimal } from "../../utils/format";
+import { ChartTooltipCard } from "../ui/ChartTooltipCard";
 
 export interface TopEntry {
   label: string;
@@ -31,10 +32,10 @@ function ChartTooltip({
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
-    <div className="rounded-xl border border-line bg-surface px-3 py-2 text-sm shadow-lg">
+    <ChartTooltipCard>
       <p className="font-medium text-fg">{point.label}</p>
       <p className="text-fg-2">{formatMinor(point.valueMinor, currency)}</p>
-    </div>
+    </ChartTooltipCard>
   );
 }
 
@@ -78,7 +79,7 @@ export function TopEntriesChart({
                 tick={{ fontSize: 11, fill: chartColors.tick }}
                 axisLine={{ stroke: chartColors.grid }}
                 tickLine={false}
-                tickFormatter={(value: number) => (value >= 1000 ? `${Math.round(value / 1000)}k` : String(value))}
+                tickFormatter={formatCompactTick}
               />
               <YAxis
                 type="category"
@@ -99,7 +100,6 @@ export function TopEntriesChart({
   );
 }
 
-// Recharts is a large dependency with no reason to load on any screen but
-// this one — ReportsPage pulls this component in via `React.lazy`, which
-// requires a default export, same as `SalesChart`.
-export default TopEntriesChart;
+// Recharts is a large dependency (~150KB) with no reason to load on any other
+// screen — ReportsPage pulls this in via `React.lazy`, mapping the named
+// export to the `default` that `lazy` expects.

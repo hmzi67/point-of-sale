@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { reportError } from "../../services/logService";
 
 interface RootErrorBoundaryProps {
   children: ReactNode;
@@ -29,8 +30,10 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // eslint-disable-next-line no-console
-    console.error("RootErrorBoundary caught:", error, info.componentStack);
+    // The persisted line is clipped (see `startup_log::clip`), so keep it to
+    // the message plus the innermost component — the frame that matters.
+    const innermostFrame = info.componentStack?.split("\n").map((line) => line.trim()).find(Boolean);
+    reportError(`RootErrorBoundary caught: ${error.message}${innermostFrame ? ` | ${innermostFrame}` : ""}`);
   }
 
   render() {

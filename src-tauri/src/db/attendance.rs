@@ -12,9 +12,9 @@
 //! time to measure), and is called out via `incomplete_days` so the UI and,
 //! later, payroll can flag it instead of silently under- or over-counting.
 
-use chrono::{Datelike, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use crate::db::dates;
 
 #[derive(Debug)]
 pub enum AttendanceError {
@@ -101,9 +101,8 @@ pub struct MonthlySummary {
 }
 
 fn hours_between(check_in: &str, check_out: &str) -> Option<f64> {
-    const FMT: &str = "%Y-%m-%d %H:%M:%S";
-    let start = chrono::NaiveDateTime::parse_from_str(check_in, FMT).ok()?;
-    let end = chrono::NaiveDateTime::parse_from_str(check_out, FMT).ok()?;
+    let start = chrono::NaiveDateTime::parse_from_str(check_in, super::dates::TIMESTAMP_FORMAT).ok()?;
+    let end = chrono::NaiveDateTime::parse_from_str(check_out, super::dates::TIMESTAMP_FORMAT).ok()?;
     let minutes = (end - start).num_minutes();
     if minutes < 0 {
         return None;
@@ -360,16 +359,7 @@ fn load_record(conn: &Connection, id: i64) -> Result<AttendanceRecord, Attendanc
 }
 
 fn validate_date_range(start_date: &str, end_date: &str) -> Result<(), AttendanceError> {
-    let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
-        .map_err(|_| AttendanceError::InvalidDateRange(format!("Invalid start date: {}", start_date)))?;
-    let end = NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
-        .map_err(|_| AttendanceError::InvalidDateRange(format!("Invalid end date: {}", end_date)))?;
-    if start > end {
-        return Err(AttendanceError::InvalidDateRange(
-            "Start date must not be after the end date".into(),
-        ));
-    }
-    Ok(())
+    dates::parse_date_range(start_date, end_date).map(|_| ()).map_err(AttendanceError::InvalidDateRange)
 }
 
 /// The attendance log for a date range, optionally scoped to one employee —
@@ -404,11 +394,10 @@ pub fn get_attendance(
 /// employee was actually expected in, so every day the shop has been open
 /// this month counts.
 pub fn get_monthly_summary(conn: &Connection, month: &str) -> Result<Vec<MonthlySummary>, AttendanceError> {
-    let month_start = NaiveDate::parse_from_str(&format!("{}-01", month), "%Y-%m-%d")
-        .map_err(|_| AttendanceError::InvalidMonth(format!("Invalid month: {} (expected YYYY-MM)", month)))?;
+    let month_start = dates::parse_month(month).map_err(AttendanceError::InvalidMonth)?;
 
     let today = chrono::Local::now().date_naive();
-    let month_end = last_day_of_month(month_start);
+    let month_end = dates::last_day_of_month(month_start);
     // Never count days that haven't happened yet.
     let range_end = month_end.min(today);
     let days_in_range = if range_end < month_start {
@@ -477,18 +466,6 @@ pub fn get_monthly_summary(conn: &Connection, month: &str) -> Result<Vec<Monthly
     Ok(summaries)
 }
 
-fn last_day_of_month(first_of_month: NaiveDate) -> NaiveDate {
-    let next_month = if first_of_month.month() == 12 {
-        NaiveDate::from_ymd_opt(first_of_month.year() + 1, 1, 1)
-    } else {
-        NaiveDate::from_ymd_opt(first_of_month.year(), first_of_month.month() + 1, 1)
-    };
-    // `from_ymd_opt` only returns `None` outside chrono's representable year
-    // range (tens of thousands of years out) — never for a real business
-    // month, and `month` is always a valid 1..=12 constructed just above.
-    next_month.unwrap() - chrono::Duration::days(1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,7 +491,7 @@ mod tests {
     fn list_employees_returns_the_seeded_staff() {
         let conn = test_conn();
         let employees = list_employees(&conn).unwrap();
-        assert_eq!(employees.len(), 3);
+        assert_eq!(employees.len(), conn.query_row("SELECT COUNT(*) FROM employees WHERE is_active = 1", [], |row| row.get::<_, i64>(0)).unwrap() as usize);
         assert!(employees.iter().any(|e| e.name == "Ahmed Raza"));
     }
 
@@ -673,7 +650,7 @@ mod tests {
         let conn = test_conn();
         let month = chrono::Local::now().format("%Y-%m").to_string();
         let summaries = get_monthly_summary(&conn, &month).unwrap();
-        assert_eq!(summaries.len(), 3);
+        assert_eq!(summaries.len(), conn.query_row("SELECT COUNT(*) FROM employees WHERE is_active = 1", [], |row| row.get::<_, i64>(0)).unwrap() as usize);
 
         for s in &summaries {
             assert!(s.days_present >= 0);

@@ -2,7 +2,8 @@ import { useId } from "react";
 import { ChartNoAxesCombined } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useChartColors } from "../../hooks/useChartColors";
-import { formatMinor, formatShortDate, minorToDecimal } from "../../utils/format";
+import { formatCompactTick, formatMinor, formatShortDate, minorToDecimal } from "../../utils/format";
+import { ChartTooltipCard } from "../ui/ChartTooltipCard";
 import type { DailySales } from "../../types";
 
 interface SalesChartProps {
@@ -19,13 +20,13 @@ function ChartTooltip({ active, payload, currency }: { active?: boolean; payload
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
-    <div className="rounded-xl border border-line-strong bg-surface px-4 py-3 text-sm shadow-lg">
+    <ChartTooltipCard>
       <p className="font-medium text-fg">{formatShortDate(point.date)}</p>
       <p className="text-fg-2">{formatMinor(point.totalMinor, currency)}</p>
       <p className="text-xs text-fg-muted">
         {point.transactionCount} sale{point.transactionCount === 1 ? "" : "s"}
       </p>
-    </div>
+    </ChartTooltipCard>
   );
 }
 
@@ -80,7 +81,7 @@ export function SalesChart({ series, currency, isLoading }: SalesChartProps) {
                 axisLine={false}
                 tickLine={false}
                 width={48}
-                tickFormatter={(value: number) => (value >= 1000 ? `${Math.round(value / 1000)}k` : String(value))}
+                tickFormatter={formatCompactTick}
               />
               <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ fill: chartColors.cursor }} />
               <Bar dataKey="totalDecimal" fill={`url(#${gradientId})`} radius={[7, 7, 0, 0]} maxBarSize={56} isAnimationActive={false} />
@@ -92,7 +93,6 @@ export function SalesChart({ series, currency, isLoading }: SalesChartProps) {
   );
 }
 
-// Recharts is a large dependency (~150KB) with no reason to load on any
-// screen but this one — ReportsPage pulls this component in via `React.lazy`,
-// which requires a default export.
-export default SalesChart;
+// Recharts is a large dependency (~150KB) with no reason to load on any other
+// screen — ReportsPage pulls this in via `React.lazy`, mapping the named
+// export to the `default` that `lazy` expects.

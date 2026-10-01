@@ -1,7 +1,18 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
 import { downloadPdf } from "./pdfExport";
-import { drawFooter, drawHeader, drawSectionHeader, drawTable, newReceiptDoc, PAGE_WIDTH_MM } from "./printLayout";
+import {
+  drawBoldRow,
+  drawFooter,
+  drawGrandTotalRow,
+  drawHeader,
+  drawSectionHeader,
+  drawTable,
+  estimateReceiptHeightMm,
+  MARGIN_MM,
+  newReceiptDoc,
+  PAGE_WIDTH_MM,
+} from "./printLayout";
 import type { AppConfig, RefundsSummary } from "../types";
 
 /** Builds the "Refunds Report" PDF: one section per refund (Vno, timestamp,
@@ -12,7 +23,7 @@ import type { AppConfig, RefundsSummary } from "../types";
 export function buildRefundsSummaryPdf(report: RefundsSummary, config: AppConfig): jsPDF {
   const itemRowCount = report.refunds.reduce((sum, r) => sum + r.items.length, 0);
   const estimatedHeightMm =
-    46 + report.refunds.length * 18 + itemRowCount * 6 + 20 + (config.receiptFooter.trim() ? 10 : 0);
+    estimateReceiptHeightMm(report.refunds.length * 18 + itemRowCount * 6 + 20, config.receiptFooter);
   const doc = newReceiptDoc(estimatedHeightMm);
 
   let y = drawHeader(doc, config.businessName, ["Refunds Report", `${report.startDate} to ${report.endDate}`]);
@@ -33,7 +44,7 @@ export function buildRefundsSummaryPdf(report: RefundsSummary, config: AppConfig
     const infoLine = [refund.createdAt, refund.refundedByName ? `By: ${refund.refundedByName}` : null]
       .filter(Boolean)
       .join("   ·   ");
-    doc.text(infoLine, 4, y);
+    doc.text(infoLine, MARGIN_MM, y);
     doc.setTextColor(0);
     y += 4;
 
@@ -46,28 +57,14 @@ export function buildRefundsSummaryPdf(report: RefundsSummary, config: AppConfig
 
     if (refund.reason) {
       doc.setFontSize(8);
-      doc.text(`Reason: ${refund.reason}`, 4, y, { maxWidth: PAGE_WIDTH_MM - 8 });
+      doc.text(`Reason: ${refund.reason}`, MARGIN_MM, y, { maxWidth: PAGE_WIDTH_MM - MARGIN_MM * 2 });
       y += 5;
     }
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text("Refund Total", 4, y);
-    doc.text(formatMinor(refund.totalRefundAmountMinor, config.currency), PAGE_WIDTH_MM - 4, y, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    y += 8;
+    y = drawBoldRow(doc, y, "Refund Total", formatMinor(refund.totalRefundAmountMinor, config.currency));
   }
 
-  doc.setDrawColor(15, 23, 42);
-  doc.setLineWidth(0.4);
-  doc.line(4, y, PAGE_WIDTH_MM - 4, y);
-  y += 6;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("TOTAL REFUNDED", 4, y);
-  doc.text(formatMinor(report.grandTotalRefundedMinor, config.currency), PAGE_WIDTH_MM - 4, y, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  y += 6;
+  y = drawGrandTotalRow(doc, y, "TOTAL REFUNDED", formatMinor(report.grandTotalRefundedMinor, config.currency), "heavy");
 
   drawFooter(doc, y, config.receiptFooter);
   return doc;

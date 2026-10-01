@@ -73,6 +73,14 @@
   --color-success-line: var(--t-success-line);
   /* Modal scrim — the one colour that is the same in both themes. */
   --color-scrim: rgba(0, 0, 0, 0.55);
+  /* A dark chip laid over content of unknown colour (a product photo, the
+   * page under a floating toast) — theme-independent for the same reason
+   * as the scrim: it has to read against whatever is underneath. */
+  --color-overlay: rgba(0, 0, 0, 0.75);
+  --color-overlay-ink: #ffffff;
+  /* The splash backdrop — brand-logo.png's own background colour, so the
+   * logo sits seamlessly on it in either theme (see SplashGate). */
+  --color-brand-splash: #123326;
 
   /* Soft-UI billing surface (Phase: Billing redesign). Originally a
    * hard-coded very-light canvas + slate shadows; the shadow is now a

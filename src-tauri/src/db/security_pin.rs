@@ -102,10 +102,51 @@ pub fn set(conn: &Connection, old_pin: &str, new_pin: &str) -> Result<(), Securi
     Ok(())
 }
 
+/// Which of the two shipped-with-a-known-value credentials are still at
+/// that value — drives the "change your default PINs" warning. Worked out by
+/// checking the stored hashes against the known defaults, so it needs no
+/// extra column and can't drift out of step with the real PINs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultCredentials {
+    pub owner_pin_is_default: bool,
+    pub area_pin_is_default: bool,
+}
+
+pub fn default_credentials(conn: &Connection) -> Result<DefaultCredentials, rusqlite::Error> {
+    use crate::db::schema::{DEFAULT_AREA_PIN, DEFAULT_OWNER_PIN};
+    let owner_id: Option<i64> = rusqlite::OptionalExtension::optional(conn.query_row(
+        "SELECT id FROM users WHERE role = 'owner'",
+        [],
+        |row| row.get(0),
+    ))?;
+    let owner_pin_is_default =
+        owner_id.is_some_and(|id| users::authenticate(conn, id, DEFAULT_OWNER_PIN).is_ok());
+    let area_pin_is_default = verify(conn, DEFAULT_AREA_PIN).is_ok();
+    Ok(DefaultCredentials { owner_pin_is_default, area_pin_is_default })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::schema::{test_conn, DEFAULT_AREA_PIN};
+
+    #[test]
+    fn a_fresh_install_reports_both_pins_as_default_until_changed() {
+        let conn = test_conn();
+        assert_eq!(
+            default_credentials(&conn).unwrap(),
+            DefaultCredentials { owner_pin_is_default: true, area_pin_is_default: true }
+        );
+
+        set(&conn, DEFAULT_AREA_PIN, "5678").unwrap();
+        let owner_id: i64 = conn.query_row("SELECT id FROM users WHERE role = 'owner'", [], |r| r.get(0)).unwrap();
+        users::set_pin(&conn, owner_id, "8642").unwrap();
+        assert_eq!(
+            default_credentials(&conn).unwrap(),
+            DefaultCredentials { owner_pin_is_default: false, area_pin_is_default: false }
+        );
+    }
 
     #[test]
     fn a_fresh_install_verifies_with_the_default_pin() {

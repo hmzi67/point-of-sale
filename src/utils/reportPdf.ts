@@ -1,5 +1,6 @@
-import { jsPDF } from "jspdf";
+import type { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { A4_MARGIN_MM, A4_TABLE_STYLES, drawA4SectionTitle, drawA4StatTiles, drawA4Title, newA4Doc } from "./a4Pdf";
 import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
 import type { ReportData } from "./reportCsv";
@@ -9,45 +10,23 @@ import type { ReportData } from "./reportCsv";
  * Kept in its own module (pulled in only via dynamic import) so jsPDF's
  * ~140KB never loads on the reports screen itself — only on export. */
 export function buildReportPdf({ summary, topItems, config }: ReportData): jsPDF {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 14;
-  let y = 18;
+  const doc = newA4Doc();
+  const margin = A4_MARGIN_MM;
+  let y = drawA4Title(doc, `${config.businessName} — Sales Report`, `${summary.startDate} to ${summary.endDate}`);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text(`${config.businessName} — Sales Report`, margin, y);
-  y += 7;
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`${summary.startDate} to ${summary.endDate}`, margin, y);
-  y += 10;
-  doc.setTextColor(0);
-
-  const stats: Array<[string, string]> = [
-    ["Total sales", formatMinor(summary.totalSalesMinor, config.currency)],
-    ["Transactions", String(summary.transactionCount)],
-    ["Average sale", formatMinor(summary.averageSaleMinor, config.currency)],
-  ];
-  const columnWidth = (pageWidth - margin * 2) / stats.length;
-  stats.forEach(([label, value], index) => {
-    const x = margin + index * columnWidth;
-    doc.setFontSize(9);
-    doc.setTextColor(100);
-    doc.text(label.toUpperCase(), x, y);
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0);
-    doc.text(value, x, y + 7);
-    doc.setFont("helvetica", "normal");
-  });
+  drawA4StatTiles(
+    doc,
+    y,
+    [
+      ["Total sales", formatMinor(summary.totalSalesMinor, config.currency)],
+      ["Transactions", String(summary.transactionCount)],
+      ["Average sale", formatMinor(summary.averageSaleMinor, config.currency)],
+    ],
+    14,
+  );
   y += 16;
 
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
-  doc.text("Top-selling items", margin, y);
+  drawA4SectionTitle(doc, "Top-selling items", y);
   y += 3;
 
   autoTable(doc, {
@@ -61,7 +40,7 @@ export function buildReportPdf({ summary, topItems, config }: ReportData): jsPDF
       formatMinor(item.revenueMinor, config.currency),
     ]),
     styles: { fontSize: 9, cellPadding: 2.5 },
-    headStyles: { fillColor: [30, 41, 59] },
+    headStyles: A4_TABLE_STYLES.headStyles,
     columnStyles: { 0: { cellWidth: 10 }, 2: { halign: "right" }, 3: { halign: "right" } },
     theme: "striped",
   });

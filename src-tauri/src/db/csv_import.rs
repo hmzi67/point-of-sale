@@ -65,6 +65,11 @@ fn parse_money(raw: &str) -> Result<i64, String> {
         .trim()
         .parse()
         .map_err(|_| format!("\"{}\" isn't a valid amount", raw))?;
+    // "NaN" and "inf" parse as valid f64s — without this they would land as
+    // a price of 0 or i64::MAX.
+    if !amount.is_finite() {
+        return Err(format!("\"{}\" isn't a valid amount", raw));
+    }
     if amount < 0.0 {
         return Err("Amount cannot be negative".into());
     }
@@ -316,5 +321,48 @@ Unique Item,,90
             )
             .unwrap();
         assert_eq!((price, stock), (1550, 7.0));
+    }
+
+    #[test]
+    fn negative_price_or_cost_and_non_numeric_amounts_are_row_errors() {
+        let conn = test_conn();
+        let csv = "\
+name,price,cost
+Neg Price,-1,0
+Neg Cost,10,-2
+NaN Price,NaN,0
+Inf Price,inf,0
+Ok Row,10,0
+";
+        let summary = import_csv(&conn, csv).unwrap();
+        assert_eq!(summary.imported, 1);
+        let rows: Vec<i64> = summary.errors.iter().map(|e| e.row).collect();
+        assert_eq!(rows, vec![2, 3, 4, 5]);
+        assert!(summary.errors[0].message.contains("negative"));
+        assert!(summary.errors[1].message.contains("negative"));
+        assert!(summary.errors[2].message.contains("NaN"));
+        assert!(summary.errors[3].message.contains("inf"));
+    }
+
+    #[test]
+    fn a_negative_low_stock_threshold_is_a_row_error() {
+        let conn = test_conn();
+        let summary = import_csv(&conn, "name,price,low_stock_threshold\nWidget,10,-1\n").unwrap();
+        assert_eq!(summary.imported, 0);
+        assert!(summary.errors[0].message.contains("negative"));
+    }
+
+    #[test]
+    fn a_header_only_file_imports_nothing_without_error() {
+        let conn = test_conn();
+        let summary = import_csv(&conn, "name,price\n").unwrap();
+        assert_eq!(summary.imported, 0);
+        assert!(summary.errors.is_empty());
+    }
+
+    #[test]
+    fn an_empty_file_is_rejected_for_missing_columns() {
+        let conn = test_conn();
+        assert!(matches!(import_csv(&conn, ""), Err(ImportError::MissingColumn("name"))));
     }
 }

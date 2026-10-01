@@ -170,7 +170,7 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
 /// (the one place per-install preferences are persisted — no second storage
 /// mechanism just for these) but are deliberately *not* part of `AppConfig`
 /// / `AppConfigUpdate`: any signed-in user may flip them from the top bar or
-/// sidebar, whereas `update_app_config` is Owner/Admin-only. Read together
+/// sidebar, whereas `config_update` is Owner/Admin-only. Read together
 /// at boot by `commands::config_get_ui_prefs`, before login, so the login
 /// screen is already themed.
 #[derive(Debug, Clone, Serialize)]

@@ -8,6 +8,7 @@ pub mod connection;
 pub mod counters;
 pub mod csv_import;
 pub mod dashboard;
+pub mod dates;
 pub mod expenses;
 pub mod full_report;
 pub mod items;
@@ -23,6 +24,8 @@ pub mod security_pin;
 pub mod seed;
 pub mod shifts;
 pub mod tables;
+#[cfg(test)]
+pub mod test_support;
 pub mod tokens;
 pub mod users;
 

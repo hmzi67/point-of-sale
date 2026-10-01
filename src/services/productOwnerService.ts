@@ -13,9 +13,10 @@ export function getStatus(): Promise<boolean> {
 }
 
 /** Sets the initial credential for this install and grants an elevated
- * session immediately. Rejects if one is already set. */
-export function setup(password: string): Promise<void> {
-  return call<void>("product_owner_setup", { password });
+ * session immediately. Requires the vendor password; rejects if a
+ * credential is already set. */
+export function setup(vendorPassword: string, password: string): Promise<void> {
+  return call<void>("product_owner_setup", { vendorPassword, password });
 }
 
 /** Verifies `password` and, on success, grants an elevated session. */

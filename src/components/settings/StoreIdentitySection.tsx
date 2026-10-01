@@ -13,7 +13,7 @@ interface StoreIdentitySectionProps {
  * Business name + logo, editable post-setup (Phase 14's onboarding wizard
  * is still the *first* time these are set; this is how they change after).
  * Owner/Admin only — same gate as the rest of Settings, enforced server-side
- * by `update_app_config`/`config_upload_logo` regardless of what this
+ * by `config_update`/`config_upload_logo` regardless of what this
  * screen shows.
  */
 export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {

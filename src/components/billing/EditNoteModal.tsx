@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { X } from "lucide-react";
+import { useAppConfig } from "../../hooks/useAppConfig";
 import { decimalToMinor, formatMinor, formatQty } from "../../utils/format";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface EditNoteModalProps {
   itemName: string;
@@ -42,6 +44,7 @@ interface EditNoteModalProps {
  *    replace of the 2 they already had.
  */
 export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountEntry }: EditNoteModalProps) {
+  const { config } = useAppConfig();
   const [notes, setNotes] = useState(initialNotes);
   const [qtyText, setQtyText] = useState(amountEntry ? String(amountEntry.qty) : "");
   const [amountText, setAmountText] = useState("");
@@ -77,7 +80,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="text-sm font-semibold text-fg">
@@ -135,7 +138,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
                 </label>
               ) : (
                 <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-fg-muted">Add amount (PKR)</span>
+                  <span className="mb-1 block text-xs font-medium text-fg-muted">Add amount ({config.currency})</span>
                   <input
                     type="number"
                     min="0"
@@ -171,7 +174,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
                     )}
                   </div>
                   <span className="mt-1 block text-[11px] text-fg-muted">
-                    E.g. "customer also wants {amountEntry.priceMinor > 0 ? formatMinor(amountEntry.priceMinor) : ""}{" "}
+                    E.g. "customer also wants {amountEntry.priceMinor > 0 ? formatMinor(amountEntry.priceMinor, config.currency) : ""}{" "}
                     worth more" — this adds to the line, it doesn't replace it.
                   </span>
                 </label>
@@ -207,6 +210,6 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

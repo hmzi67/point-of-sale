@@ -17,8 +17,10 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use super::client::{self, ClientError};
 use super::fingerprint::device_fingerprint;
+use rusqlite::Connection;
+
 use super::state::{accepts_replacement, evaluate, evaluate_stored, Clocks, LicenseState};
-use super::verify::verify_signed;
+use super::verify::{verify_signed, LicensePayload};
 use crate::db::{self, Db};
 
 /// Event name the frontend subscribes to. Payload: the new `LicenseState`.
@@ -86,15 +88,9 @@ impl LicenseRuntime {
         let fingerprint = device_fingerprint(&app_data_dir).map_err(|e| e.to_string());
         let now = now_unix();
         let state = match &fingerprint {
-            Ok(fp) => {
-                let fp = fp.clone();
-                db.with_conn(|conn| {
-                    db::license::touch_high_water(conn, now)?;
-                    let stored = db::license::get(conn)?;
-                    Ok(evaluate_stored(stored.as_ref(), &fp, now))
-                })
-                .unwrap_or_else(|e| LicenseState::Invalid { message: e.to_string() })
-            }
+            Ok(fp) => db
+                .with_conn(|conn| evaluate_cached(conn, fp, now))
+                .unwrap_or_else(|e| LicenseState::Invalid { message: e.to_string() }),
             Err(e) => LicenseState::Invalid { message: e.clone() },
         };
         crate::startup_log::log(&format!("license: loaded as {}", kind_of(&state)));
@@ -138,10 +134,7 @@ impl LicenseRuntime {
         let now = now_unix();
         let next = match self.fingerprint() {
             Ok(fp) => db
-                .with_conn(|conn| {
-                    db::license::touch_high_water(conn, now)?;
-                    Ok(evaluate_stored(db::license::get(conn)?.as_ref(), fp, now))
-                })
+                .with_conn(|conn| evaluate_cached(conn, fp, now))
                 .unwrap_or_else(|e| LicenseState::Invalid { message: e.to_string() }),
             Err(e) => LicenseState::Invalid { message: e.to_string() },
         };
@@ -167,16 +160,18 @@ impl LicenseRuntime {
 
         let signed = match client::fetch_status(&stored.license_key, &fp).await {
             Ok(signed) => signed,
-            Err(ClientError::Refused { status: 409, .. }) => {
-                client::activate(&stored.license_key, &fp).await.map_err(map_client_error)?;
-                client::fetch_status(&stored.license_key, &fp).await.map_err(map_client_error)?
-            }
-            Err(ClientError::Refused { status: 403, message }) => {
-                db.with_conn(db::license::clear).map_err(|e| LicenseError::Db(e.to_string()))?;
-                self.set(app, LicenseState::Missing);
-                return Err(LicenseError::Refused(message));
-            }
-            Err(e) => return Err(map_client_error(e)),
+            Err(e) => match on_refresh_error(e) {
+                RefreshFailure::Reactivate => {
+                    client::activate(&stored.license_key, &fp).await.map_err(map_client_error)?;
+                    client::fetch_status(&stored.license_key, &fp).await.map_err(map_client_error)?
+                }
+                RefreshFailure::Disowned(message) => {
+                    db.with_conn(db::license::clear).map_err(|e| LicenseError::Db(e.to_string()))?;
+                    self.set(app, LicenseState::Missing);
+                    return Err(LicenseError::Refused(message));
+                }
+                RefreshFailure::Fail(e) => return Err(e),
+            },
         };
 
         self.adopt(app, db, &stored.license_key, &fp, signed, Some(stored.server_issued_at))
@@ -214,13 +209,7 @@ impl LicenseRuntime {
         stored_issued_at: Option<i64>,
     ) -> Result<LicenseState, LicenseError> {
         let payload = verify_signed(&signed.payload, &signed.signature).map_err(|e| LicenseError::Untrusted(e.to_string()))?;
-        if payload.device_fingerprint != fp {
-            return Err(LicenseError::Untrusted("issued for a different device".into()));
-        }
-        if !payload.license_key.eq_ignore_ascii_case(license_key) {
-            return Err(LicenseError::Untrusted("issued for a different licence key".into()));
-        }
-        if !accepts_replacement(stored_issued_at, payload.issued_at) {
+        if !check_adoptable(&payload, fp, license_key, stored_issued_at)? {
             // Older than what we have (a stale response). Keep ours; report
             // the current state rather than an error — nothing is wrong.
             return Ok(self.reevaluate(app, db));
@@ -247,6 +236,53 @@ impl LicenseRuntime {
         );
         Ok(self.set(app, next))
     }
+}
+
+/// Offline evaluation of the cached row: advances the high-water mark to
+/// `now` (this moment is now the latest time seen), then verifies and
+/// evaluates whatever is stored. Shared by launch and the periodic tick.
+fn evaluate_cached(conn: &Connection, fp: &str, now: i64) -> Result<LicenseState, rusqlite::Error> {
+    db::license::touch_high_water(conn, now)?;
+    Ok(evaluate_stored(db::license::get(conn)?.as_ref(), fp, now))
+}
+
+/// What a failed status fetch during `refresh` means.
+#[derive(Debug)]
+enum RefreshFailure {
+    /// 409 "not activated": support reset the binding for a device move —
+    /// re-activate on this device and fetch again.
+    Reactivate,
+    /// 403: the server no longer recognises this key for this device. The
+    /// cache is cleared so the install locks and asks for a key.
+    Disowned(String),
+    /// Anything else: keep the cached state and report why.
+    Fail(LicenseError),
+}
+
+fn on_refresh_error(e: ClientError) -> RefreshFailure {
+    match e {
+        ClientError::Refused { status: 409, .. } => RefreshFailure::Reactivate,
+        ClientError::Refused { status: 403, message } => RefreshFailure::Disowned(message),
+        other => RefreshFailure::Fail(map_client_error(other)),
+    }
+}
+
+/// The checks a verified payload must pass before it replaces the cache.
+/// `Ok(false)` means it is older than what's stored (a stale response):
+/// nothing is wrong, but it must not be adopted.
+fn check_adoptable(
+    payload: &LicensePayload,
+    fp: &str,
+    license_key: &str,
+    stored_issued_at: Option<i64>,
+) -> Result<bool, LicenseError> {
+    if payload.device_fingerprint != fp {
+        return Err(LicenseError::Untrusted("issued for a different device".into()));
+    }
+    if !payload.license_key.eq_ignore_ascii_case(license_key) {
+        return Err(LicenseError::Untrusted("issued for a different licence key".into()));
+    }
+    Ok(accepts_replacement(stored_issued_at, payload.issued_at))
 }
 
 fn map_client_error(e: ClientError) -> LicenseError {
@@ -290,7 +326,10 @@ pub fn spawn_background_refresh(app: AppHandle) {
                 since_refresh = Duration::ZERO;
                 match runtime.refresh(&app, &db).await {
                     Ok(_) => crate::startup_log::log("license: background refresh ok"),
-                    Err(e) => crate::startup_log::log(&format!("license: background refresh skipped: {e}")),
+                    Err(e) => crate::startup_log::warn(&format!(
+                        "license: background refresh skipped: {}",
+                        crate::startup_log::clip(&e.to_string())
+                    )),
                 }
             } else {
                 runtime.reevaluate(&app, &db);
@@ -302,4 +341,104 @@ pub fn spawn_background_refresh(app: AppHandle) {
     });
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema::test_conn;
+    use crate::license::verify::LicenseStatus;
 
+    const FP: &str = "this-device";
+
+    fn payload(issued_at: i64) -> LicensePayload {
+        LicensePayload {
+            v: 1,
+            kid: "k1".into(),
+            license_key: "ABCD-EFGH".into(),
+            status: LicenseStatus::Active,
+            issued_at,
+            expires_at: None,
+            device_fingerprint: FP.into(),
+            max_offline_days: 7,
+        }
+    }
+
+    // -- evaluate_cached (load / reevaluate) -------------------------------
+
+    #[test]
+    fn nothing_cached_evaluates_as_missing() {
+        let conn = test_conn();
+        assert_eq!(evaluate_cached(&conn, FP, 1_000).unwrap(), LicenseState::Missing);
+    }
+
+    #[test]
+    fn a_tampered_cached_row_evaluates_as_invalid_never_ok() {
+        let conn = test_conn();
+        db::license::save_signed(&conn, "ABCD-EFGH", "bm90LXNpZ25lZA", "c2ln", "k1", 1_000, 1_000).unwrap();
+        assert!(matches!(evaluate_cached(&conn, FP, 2_000).unwrap(), LicenseState::Invalid { .. }));
+    }
+
+    #[test]
+    fn evaluating_advances_the_high_water_mark_but_never_moves_it_back() {
+        let conn = test_conn();
+        db::license::save_signed(&conn, "ABCD-EFGH", "x", "y", "k1", 1_000, 1_000).unwrap();
+        evaluate_cached(&conn, FP, 5_000).unwrap();
+        assert_eq!(db::license::get(&conn).unwrap().unwrap().high_water_local_ts, 5_000);
+
+        // A clock set back must not drag the mark down with it.
+        evaluate_cached(&conn, FP, 3_000).unwrap();
+        assert_eq!(db::license::get(&conn).unwrap().unwrap().high_water_local_ts, 5_000);
+    }
+
+    // -- on_refresh_error (refresh's 409 / 403 policy) ---------------------
+
+    #[test]
+    fn a_409_reactivates_and_a_403_disowns_the_cache() {
+        assert!(matches!(
+            on_refresh_error(ClientError::Refused { status: 409, message: "not activated".into() }),
+            RefreshFailure::Reactivate
+        ));
+        assert!(matches!(
+            on_refresh_error(ClientError::Refused { status: 403, message: "moved".into() }),
+            RefreshFailure::Disowned(m) if m == "moved"
+        ));
+    }
+
+    #[test]
+    fn offline_server_and_other_refusals_keep_the_cache() {
+        assert!(matches!(
+            on_refresh_error(ClientError::Offline("timeout".into())),
+            RefreshFailure::Fail(LicenseError::Unreachable(_))
+        ));
+        assert!(matches!(
+            on_refresh_error(ClientError::Server("502".into())),
+            RefreshFailure::Fail(LicenseError::ServerError(_))
+        ));
+        assert!(matches!(
+            on_refresh_error(ClientError::Refused { status: 429, message: "slow down".into() }),
+            RefreshFailure::Fail(LicenseError::Refused(_))
+        ));
+    }
+
+    // -- check_adoptable ---------------------------------------------------
+
+    #[test]
+    fn a_payload_for_another_device_or_key_is_untrusted() {
+        let mut other_device = payload(1_000);
+        other_device.device_fingerprint = "someone-else".into();
+        assert!(matches!(check_adoptable(&other_device, FP, "ABCD-EFGH", None), Err(LicenseError::Untrusted(_))));
+        assert!(matches!(check_adoptable(&payload(1_000), FP, "WXYZ-0000", None), Err(LicenseError::Untrusted(_))));
+    }
+
+    #[test]
+    fn the_key_comparison_ignores_case() {
+        assert!(check_adoptable(&payload(1_000), FP, "abcd-efgh", None).unwrap());
+    }
+
+    #[test]
+    fn an_older_payload_is_not_adopted_but_a_same_age_or_newer_one_is() {
+        assert!(!check_adoptable(&payload(900), FP, "ABCD-EFGH", Some(1_000)).unwrap(), "stale");
+        assert!(check_adoptable(&payload(1_000), FP, "ABCD-EFGH", Some(1_000)).unwrap(), "idempotent re-fetch");
+        assert!(check_adoptable(&payload(1_100), FP, "ABCD-EFGH", Some(1_000)).unwrap(), "newer");
+        assert!(check_adoptable(&payload(1), FP, "ABCD-EFGH", None).unwrap(), "nothing cached yet");
+    }
+}

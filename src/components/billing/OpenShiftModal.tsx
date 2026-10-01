@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Wallet, X } from "lucide-react";
 import { useShiftStore } from "../../store";
-import { formatMinor } from "../../utils/format";
+import { decimalToMinor, formatMinor } from "../../utils/format";
+import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 interface OpenShiftModalProps {
   currency: string;
@@ -20,23 +22,17 @@ export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalPr
   const [error, setError] = useState<string | null>(null);
   const open = useShiftStore((state) => state.open);
 
-  const openingBalanceMinor = Math.round((Number(amount) || 0) * 100);
+  const openingBalanceMinor = decimalToMinor(Number(amount) || 0);
 
   const submit = async () => {
-    setIsSubmitting(true);
-    setError(null);
-    try {
+    await runAction(setIsSubmitting, setError, async () => {
       await open(openingBalanceMinor);
       onOpened();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
@@ -88,6 +84,6 @@ export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalPr
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

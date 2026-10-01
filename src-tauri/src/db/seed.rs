@@ -1,7 +1,7 @@
 //! Demo data for development and client demos.
 //!
 //! Runs only when the operational tables are completely empty, and only in a
-//! debug build or when `POS_SEED_DEMO=1` is set — a client's fresh install must
+//! debug build or one compiled with `POS_SEED_DEMO=1` — a client's fresh install must
 //! never come pre-loaded with fake stock. Everything is written in one
 //! transaction, so a failure leaves an empty database rather than half a shop.
 //!
@@ -91,9 +91,11 @@ fn is_empty(conn: &Connection) -> Result<bool, rusqlite::Error> {
 }
 
 /// Demo data is a development convenience, never something a paying client's
-/// fresh install should show.
+/// fresh install should show. A release build only seeds it when it was
+/// *built* with `POS_SEED_DEMO=1` (a vendor's demo binary) — read at compile
+/// time, so setting the variable on a client's machine does nothing.
 fn demo_seeding_allowed() -> bool {
-    cfg!(debug_assertions) || std::env::var("POS_SEED_DEMO").as_deref() == Ok("1")
+    cfg!(debug_assertions) || option_env!("POS_SEED_DEMO") == Some("1")
 }
 
 /// Tax on a taxable base. The rate is inherently fractional, but the result is
@@ -278,7 +280,7 @@ pub fn seed_demo_data(conn: &Connection) -> Result<bool, rusqlite::Error> {
     }
 
     tx.commit()?;
-    println!("[db] seeded demo data ({} items, {} sales)", ITEMS.len(), SALES.len());
+    crate::startup_log::log(&format!("db: seeded demo data ({} items, {} sales)", ITEMS.len(), SALES.len()));
 
     Ok(true)
 }

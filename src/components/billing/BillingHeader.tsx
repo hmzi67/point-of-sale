@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Calendar, Clock, Power, ReceiptText, Wallet } from "lucide-react";
 import { useAppConfig } from "../../hooks/useAppConfig";
-import { useModules } from "../../hooks/useModules";
+import { useModuleEnabled } from "../../hooks/useModules";
 import { isAdminRole } from "../../utils/permissions";
 import { useAuthStore, useBillingStore, useShiftStore } from "../../store";
 import { CloseShiftModal } from "./CloseShiftModal";
@@ -23,9 +23,8 @@ export function BillingHeader({ onRefunded }: BillingHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   const cartOrder = useBillingStore((state) => state.cartOrder);
   const clearCart = useBillingStore((state) => state.clearCart);
-  const { modules } = useModules();
   const { config } = useAppConfig();
-  const shiftsEnabled = modules.some((m) => m.key === "shifts" && m.enabled);
+  const shiftsEnabled = useModuleEnabled("shifts");
   const openShift = useShiftStore((state) => state.openShift);
   const role = useAuthStore((state) => state.user?.role);
   const canRefund = role ? isAdminRole(role) : false;

@@ -17,3 +17,10 @@ export interface ManagedUser {
 
 export const PIN_MIN_LENGTH = 4;
 export const PIN_MAX_LENGTH = 6;
+
+/** Which shipped-with-a-known-value credentials are still unchanged — see
+ * `db::security_pin::default_credentials`. */
+export interface DefaultCredentials {
+  ownerPinIsDefault: boolean;
+  areaPinIsDefault: boolean;
+}

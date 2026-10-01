@@ -1,4 +1,5 @@
 mod area_access_session;
+mod attempt_limiter;
 mod commands;
 mod db;
 mod iap;
@@ -127,16 +128,30 @@ fn reveal_main_window(app: &tauri::AppHandle) {
                 let focused = main.set_focus();
                 let visible_after = main.is_visible();
                 let size_after = main.inner_size();
-                startup_log::log(&format!(
+                let any_failed = shown.is_err()
+                    || unminimized.is_err()
+                    || resized.is_err()
+                    || centered.is_err()
+                    || focused.is_err()
+                    || visible_after.is_err()
+                    || size_after.is_err();
+                let summary = format!(
                     "reveal_main_window: show={shown:?} unminimize={unminimized:?} \
                      set_size={resized:?} center={centered:?} focus={focused:?} \
                      is_visible={visible_after:?} inner_size={size_after:?}"
-                ));
+                );
+                if any_failed {
+                    startup_log::warn(&summary);
+                } else {
+                    startup_log::log(&summary);
+                }
 
                 match app.get_webview_window("splashscreen") {
                     Some(splash) => {
-                        let closed = splash.close();
-                        startup_log::log(&format!("reveal_main_window: splashscreen close={closed:?}"));
+                        match splash.close() {
+                            Ok(()) => startup_log::log("reveal_main_window: splashscreen closed"),
+                            Err(e) => startup_log::warn(&format!("reveal_main_window: splashscreen close failed: {e:?}")),
+                        }
                     }
                     None => startup_log::log(
                         "reveal_main_window: no \"splashscreen\" window found to close (already closed?)",
@@ -146,7 +161,7 @@ fn reveal_main_window(app: &tauri::AppHandle) {
             }
             None => {
                 if waited_ms >= REVEAL_POLL_TIMEOUT_MS {
-                    startup_log::log(&format!(
+                    startup_log::error(&format!(
                         "reveal_main_window: gave up after {waited_ms}ms — \"main\" window never appeared"
                     ));
                     return;
@@ -208,6 +223,7 @@ pub fn run() {
         .manage(ProductOwnerSession::new())
         .manage(AreaAccessSession::new())
         .manage(VendorGate::new())
+        .manage(attempt_limiter::AttemptLimiter::new())
         .manage(iap::AppleAccount::new())
         .manage(LaunchedAt(launched_at))
         .manage(SplashRevealed(std::sync::atomic::AtomicBool::new(false)))
@@ -245,7 +261,8 @@ pub fn run() {
 
                     let dir = app_ref.path().app_data_dir()?;
                     startup_log::set_log_dir(&dir);
-                    startup_log::log(&format!("setup(): app_data_dir resolved to {}", dir.display()));
+                    startup_log::log("setup(): app_data_dir resolved");
+                    startup_log::debug(&format!("setup(): app_data_dir is {}", dir.display()));
 
                     let db = Db::open(dir.clone())?;
                     startup_log::log("setup(): database opened and migrated");
@@ -273,7 +290,7 @@ pub fn run() {
                     // SQLite file, a cold disk) the frontend's very first
                     // command call could land before `Db::open()` above had
                     // finished, failing with "state not managed for field
-                    // `db` on command `get_users`" even though the app
+                    // `db` on command `users_list_active`" even though the app
                     // would have worked fine a moment later. Creating the
                     // window down here instead makes that ordering
                     // impossible: the webview simply doesn't exist yet for
@@ -324,12 +341,12 @@ pub fn run() {
 
             match result {
                 Ok(inner) => inner.map_err(|e| {
-                    startup_log::log(&format!("setup() returned an error: {e}"));
+                    startup_log::error(&format!("setup() returned an error: {e}"));
                     e
                 }),
                 Err(panic) => {
                     let message = panic_message(&*panic);
-                    startup_log::log(&format!("setup() PANICKED: {message}"));
+                    startup_log::error(&format!("setup() PANICKED: {message}"));
                     Err(message.into())
                 }
             }
@@ -337,13 +354,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_ping,
             commands::splashscreen_ready,
+            commands::app_log_frontend_error,
             commands::app_db_version,
             commands::app_db_tables,
-            commands::get_app_config,
+            commands::config_get,
             commands::config_get_ui_prefs,
             commands::config_set_theme,
             commands::config_set_sidebar_collapsed,
-            commands::update_app_config,
+            commands::config_update,
             commands::vendor_gate_status,
             commands::vendor_gate_verify,
             commands::license_get_state,
@@ -359,8 +377,8 @@ pub fn run() {
             commands::iap_delete_account,
             commands::config_upload_logo,
             commands::config_get_logo,
-            commands::get_enabled_modules,
-            commands::toggle_module,
+            commands::config_get_enabled_modules,
+            commands::config_toggle_module,
             commands::inventory_get_items,
             commands::inventory_add_item,
             commands::inventory_update_item,
@@ -386,16 +404,16 @@ pub fn run() {
             commands::printer_list_windows_printers,
             commands::printer_print_diagnostic,
             commands::billing_list_recent_sales,
-            commands::refund_get_sale,
-            commands::refund_create,
-            commands::refund_get,
-            commands::refund_print_thermal,
-            commands::shift_get_open,
-            commands::shift_open,
-            commands::shift_get_summary,
-            commands::shift_close,
-            commands::shift_list_recent,
-            commands::shift_print_summary,
+            commands::refunds_get_sale,
+            commands::refunds_create,
+            commands::refunds_get,
+            commands::refunds_print_thermal,
+            commands::shifts_get_open,
+            commands::shifts_open,
+            commands::shifts_get_summary,
+            commands::shifts_close,
+            commands::shifts_list_recent,
+            commands::shifts_print_summary,
             commands::reports_get_sales_summary,
             commands::reports_get_top_items,
             commands::reports_get_sales_over_time,
@@ -410,7 +428,6 @@ pub fn run() {
             commands::reports_get_product_sales_summary,
             commands::tables_get_tables,
             commands::tables_add_table,
-            commands::tables_rename_table,
             commands::tables_update_table,
             commands::tables_delete_table,
             commands::tables_update_table_status,
@@ -454,21 +471,22 @@ pub fn run() {
             commands::product_owner_logout,
             commands::product_owner_get_modules,
             commands::product_owner_set_module,
-            commands::get_users,
-            commands::login,
-            commands::logout,
-            commands::create_user,
-            commands::set_user_pin,
-            commands::get_all_users,
-            commands::update_user,
-            commands::set_user_active,
+            commands::users_list_active,
+            commands::auth_login,
+            commands::auth_logout,
+            commands::users_create,
+            commands::users_set_pin,
+            commands::users_list_all,
+            commands::users_update,
+            commands::users_set_active,
             commands::security_verify_area_pin,
             commands::security_revoke_area_access,
+            commands::security_get_default_credentials,
             commands::security_set_area_pin
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|error| {
-            startup_log::log(&format!("run() returned a fatal error: {error}"));
+            startup_log::error(&format!("run() returned a fatal error: {error}"));
             // A release build has no attached console, so a fatal startup
             // failure — no writable app-data folder, a database that won't
             // open, a missing WebView2 runtime on Windows, `setup()` erroring

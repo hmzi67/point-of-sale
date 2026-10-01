@@ -16,9 +16,10 @@
 //! Pakistani payroll convention, which divides by the real days in the
 //! month.
 
-use chrono::{Datelike, NaiveDate};
+use chrono::Datelike;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use crate::db::dates;
 
 use crate::db::attendance;
 
@@ -91,19 +92,12 @@ fn validate_month(month: &str) -> Result<(), SalaryError> {
 /// February depending on leap years, 30 or 31 otherwise. This is the salary
 /// divisor: `base_salary / days_in_month * days_present`.
 fn days_in_month(month: &str) -> Result<i64, SalaryError> {
-    let first = NaiveDate::parse_from_str(&format!("{}-01", month), "%Y-%m-%d")
-        .map_err(|_| SalaryError::InvalidMonth(format!("Invalid month: {} (expected YYYY-MM)", month)))?;
-    let (next_year, next_month) =
-        if first.month() == 12 { (first.year() + 1, 1) } else { (first.year(), first.month() + 1) };
-    let next_first = NaiveDate::from_ymd_opt(next_year, next_month, 1)
-        .expect("first-of-month always constructs for a valid year/month");
-    Ok((next_first - first).num_days())
+    let first = dates::parse_month(month).map_err(SalaryError::InvalidMonth)?;
+    Ok(dates::last_day_of_month(first).day() as i64)
 }
 
 fn validate_date(date: &str) -> Result<(), SalaryError> {
-    chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
-        .map(|_| ())
-        .map_err(|_| SalaryError::InvalidDate(format!("Invalid date: {}", date)))
+    dates::parse_date(date).map(|_| ()).map_err(SalaryError::InvalidDate)
 }
 
 struct EmployeeRow {
@@ -398,18 +392,19 @@ mod tests {
         let id = employee_id(&conn, "Ahmed Raza");
         let month = this_month();
 
-        let before = calculate_salary(&conn, id, &month).unwrap();
-
         // Add an extra day present this month — the 1st, so it's always
         // inside the current month regardless of today's date. Cleared first
         // in case the seed data's "last 10 days" window already happens to
         // reach the 1st (days_present counts distinct work_date, so a
-        // leftover duplicate row would silently not move the count).
+        // leftover duplicate row would silently not move the count), and
+        // `before` is measured *after* that clear — on the 1st of a month the
+        // seed always includes today, so measuring first made this fail.
         conn.execute(
             "DELETE FROM attendance WHERE employee_id = ?1 AND work_date = date('now', 'localtime', 'start of month')",
             params![id],
         )
         .unwrap();
+        let before = calculate_salary(&conn, id, &month).unwrap();
         conn.execute(
             "INSERT INTO attendance (employee_id, work_date, check_in, check_out)
              VALUES (?1, date('now', 'localtime', 'start of month'), '09:00:00', '18:00:00')",
@@ -443,7 +438,7 @@ mod tests {
     fn get_monthly_overview_covers_every_active_employee() {
         let conn = test_conn();
         let overview = get_monthly_overview(&conn, &this_month()).unwrap();
-        assert_eq!(overview.len(), 3);
+        assert_eq!(overview.len(), conn.query_row("SELECT COUNT(*) FROM employees WHERE is_active = 1", [], |row| row.get::<_, i64>(0)).unwrap() as usize);
     }
 
     #[test]

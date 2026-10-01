@@ -283,7 +283,7 @@ pub async fn sign_in(
                     client::post("apple-iap-verify.php", &verify_body(transaction, &fingerprint, token.as_deref(), true))
                         .await;
                 if let Err(e) = linked {
-                    crate::startup_log::log(&format!("iap: could not link a purchase to the account: {e}"));
+                    crate::startup_log::warn(&format!("iap: could not link a purchase to the account: {}", crate::startup_log::clip(&e.to_string())));
                 }
             }
         }
@@ -336,7 +336,7 @@ pub fn spawn_unfinished_sweep(app: AppHandle) {
         let pending = match app.storekit().unfinished().await {
             Ok(pending) => pending,
             Err(e) => {
-                crate::startup_log::log(&format!("iap: could not read unfinished transactions: {e}"));
+                crate::startup_log::warn(&format!("iap: could not read unfinished transactions: {}", crate::startup_log::clip(&e.to_string())));
                 return;
             }
         };
@@ -346,7 +346,7 @@ pub fn spawn_unfinished_sweep(app: AppHandle) {
         for transaction in pending.iter().filter(|t| PRODUCT_IDS.contains(&t.product_id.as_str())) {
             match redeem(&app, &db, &license, &account, transaction, Activate::IfNotLicensed).await {
                 Ok(_) => crate::startup_log::log("iap: redeemed an unfinished App Store transaction"),
-                Err(e) => crate::startup_log::log(&format!("iap: unfinished transaction left for next launch: {e}")),
+                Err(e) => crate::startup_log::warn(&format!("iap: unfinished transaction left for next launch: {}", crate::startup_log::clip(&e.to_string()))),
             }
         }
     });
@@ -383,7 +383,7 @@ async fn redeem(
     // re-delivers it and the next sweep re-verifies (idempotent) and
     // finishes it then.
     if let Err(e) = app.storekit().finish(&transaction.transaction_id).await {
-        crate::startup_log::log(&format!("iap: could not finish transaction: {e}"));
+        crate::startup_log::warn(&format!("iap: could not finish transaction: {}", crate::startup_log::clip(&e.to_string())));
     }
     Ok(state)
 }

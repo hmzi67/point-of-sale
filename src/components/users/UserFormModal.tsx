@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { createUser, setUserPin, updateUser } from "../../services/authService";
 import { assignableRoles } from "../../utils/permissions";
 import type { ManagedUser, Role } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 const ROLE_LABEL: Record<Role, string> = { owner: "Owner", admin: "Admin", cashier: "Cashier" };
 
@@ -10,7 +11,7 @@ interface UserFormModalProps {
   /** `null` creates a new account; otherwise edits this one. */
   user: ManagedUser | null;
   /** The signed-in user's own role — decides which roles the dropdown
-   * offers (mirrors `commands::create_user`/`update_user`'s
+   * offers (mirrors `commands::users_create`/`users_update`'s
    * `assignable_roles`, which is what actually enforces it; this just keeps
    * the form from offering a choice the server would reject). */
   actingRole: Role;
@@ -19,7 +20,7 @@ interface UserFormModalProps {
 }
 
 /** Create or edit a staff account: name, role, and — create only, or
- * optionally on edit — a PIN. Editing a PIN is a separate `set_user_pin`
+ * optionally on edit — a PIN. Editing a PIN is a separate `users_set_pin`
  * call from renaming/re-roling, same split the two Rust functions keep.
  *
  * The Owner account is a special case: there is exactly one per
@@ -67,7 +68,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm rounded-2xl border border-line bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h3 className="text-sm font-semibold text-fg">
@@ -149,6 +150,6 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

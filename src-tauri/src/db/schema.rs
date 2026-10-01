@@ -139,13 +139,11 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     ));
 
     if !missing_before.is_empty() {
-        println!(
-            "[db] schema v{} -> v{}: creating {} table(s): {}",
-            previous_version,
-            SCHEMA_VERSION,
+        crate::startup_log::log(&format!(
+            "db: schema v{previous_version} -> v{SCHEMA_VERSION}: creating {} table(s): {}",
             missing_before.len(),
             missing_before.join(", ")
-        );
+        ));
     }
 
     relax_tokens_table_order_id(conn)?;
@@ -159,7 +157,7 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     // If this ever trips, `schema.sql` and EXPECTED_TABLES have drifted apart.
     let missing_after = missing_tables(conn)?;
     if !missing_after.is_empty() {
-        crate::startup_log::log(&format!(
+        crate::startup_log::error(&format!(
             "db: FATAL — schema still incomplete after apply, missing: {}",
             missing_after.join(", ")
         ));

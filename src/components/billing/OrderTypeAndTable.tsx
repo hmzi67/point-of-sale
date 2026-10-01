@@ -7,6 +7,7 @@ import { computeCartTotals } from "../../utils/billingTotals";
 import { DropdownSelect } from "../ui/DropdownSelect";
 import { TokenPrintDialog, type TokenPrintSource } from "./TokenPrintDialog";
 import type { TableSummary } from "../../types";
+import { runAction } from "../../utils/runAction";
 
 interface OrderTypeAndTableProps {
   taxPercent: number;
@@ -98,9 +99,7 @@ export function OrderTypeAndTable({
 
   const saveToTable = async () => {
     if (tableId === null || cartOrder.length === 0) return;
-    setIsBusy(true);
-    setError(null);
-    try {
+    await runAction(setIsBusy, setError, async () => {
       const lines = cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty }));
       const { discountMinor } = computeCartTotals(
         cartOrder.map((id) => cart[id]),
@@ -113,11 +112,7 @@ export function OrderTypeAndTable({
       useBillingStore.getState().clearCart();
       void reloadTables();
       onParked(`Cart saved to ${tableName}.`);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsBusy(false);
-    }
+    });
   };
 
   const resumeParkedOrder = async () => {

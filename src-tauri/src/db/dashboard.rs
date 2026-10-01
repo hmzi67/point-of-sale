@@ -189,6 +189,7 @@ pub fn get_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::{item_id, one_line_sale};
     use crate::db::schema::test_conn;
 
     /// A range wide enough to cover all of the seed data (sales/expenses
@@ -291,7 +292,7 @@ mod tests {
     #[test]
     fn a_refund_reduces_net_profit_by_exactly_its_amount() {
         use crate::db::refunds::{create_refund, CreateRefundInput, RefundLineInput};
-        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        use crate::db::sales::create_sale;
         use chrono::Local;
 
         let mut conn = test_conn();
@@ -299,19 +300,10 @@ mod tests {
 
         let (sale_id, sale_item_id) = {
             let tx = conn.transaction().unwrap();
-            let cola: i64 =
-                tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+            let cola = item_id(&tx, "Cola 500ml");
             let sale = create_sale(
                 &tx,
-                CreateSaleInput {
-                    items: vec![CartLine { item_id: cola, qty: 1.0, notes: None }],
-                    discount_minor: 0,
-                    tax_minor: 0,
-                    payment_method: "cash".into(),
-                    cashier_id: None,
-                    table_id: None,
-                    shift_id: None,
-                },
+                one_line_sale(cola, 1.0),
             )
             .unwrap();
             let sale_item_id: i64 = tx
@@ -373,7 +365,7 @@ mod tests {
 
     #[test]
     fn top_table_reflects_the_highest_selling_real_table() {
-        use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+        use crate::db::sales::{create_sale, CreateSaleInput};
         use crate::db::tables::start_table_order;
 
         let mut conn = test_conn();
@@ -382,19 +374,10 @@ mod tests {
         let table_name: String =
             tx.query_row("SELECT name FROM tables WHERE id = ?1", params![table_id], |row| row.get(0)).unwrap();
         start_table_order(&tx, table_id).unwrap();
-        let cola: i64 =
-            tx.query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0)).unwrap();
+        let cola = item_id(&tx, "Cola 500ml");
         create_sale(
             &tx,
-            CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 3.0, notes: None }],
-                discount_minor: 0,
-                tax_minor: 0,
-                payment_method: "cash".into(),
-                cashier_id: None,
-                table_id: Some(table_id),
-                shift_id: None,
-            },
+            CreateSaleInput { table_id: Some(table_id), ..one_line_sale(cola, 3.0) },
         )
         .unwrap();
         tx.commit().unwrap();

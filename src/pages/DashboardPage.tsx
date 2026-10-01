@@ -12,7 +12,9 @@ import type { DailySales, DashboardSummary } from "../types";
 
 // Recharts is large and only used by the trend chart — deferred so it never
 // loads before the rest of the landing page has painted.
-const MonthlyTrendChart = lazy(() => import("../components/dashboard/MonthlyTrendChart"));
+const MonthlyTrendChart = lazy(() =>
+  import("../components/dashboard/MonthlyTrendChart").then((m) => ({ default: m.MonthlyTrendChart })),
+);
 
 /** The default landing page for owner/admin. Aggregates Billing, Expenses
  * and Salary — the modules Phase 1's system may or may not have enabled for

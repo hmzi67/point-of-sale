@@ -1,7 +1,14 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
-import { drawFooter, drawHeader, drawSectionHeader, drawTable, newReceiptDoc } from "./printLayout";
+import {
+  drawFooter,
+  drawHeader,
+  drawSectionHeader,
+  drawTable,
+  estimateReceiptHeightMm,
+  newReceiptDoc,
+} from "./printLayout";
 import type { AppConfig, ProductSalesSummaryReport } from "../types";
 
 /** Builds the "Product Wise Sales" report PDF: the ranked "sold" rows (in
@@ -10,7 +17,7 @@ import type { AppConfig, ProductSalesSummaryReport } from "../types";
  * `ProductWiseSalesTable`. */
 export function buildProductSalesPdf(report: ProductSalesSummaryReport, config: AppConfig): jsPDF {
   const estimatedHeightMm =
-    46 + report.rows.length * 6 + 14 + report.noSalesItems.length * 6 + (config.receiptFooter.trim() ? 10 : 0);
+    estimateReceiptHeightMm(report.rows.length * 6 + 14 + report.noSalesItems.length * 6, config.receiptFooter);
   const doc = newReceiptDoc(estimatedHeightMm);
 
   const sortLabel = report.sortBy === "revenue" ? "Sorted by revenue" : "Sorted by quantity sold";

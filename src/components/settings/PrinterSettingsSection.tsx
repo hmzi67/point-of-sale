@@ -20,8 +20,9 @@ import {
   usbPermissionGranted,
 } from "../../services/printerService";
 import { useAppStore } from "../../store";
-import { IS_ANDROID, IS_WINDOWS } from "../../types";
+import { IS_ANDROID, IS_WINDOWS } from "../../services/platform";
 import type { AppConfig, BluetoothDeviceOption, UsbDeviceOption, WindowsPrinterOption } from "../../types";
+import { runAction } from "../../utils/runAction";
 
 interface PrinterSettingsSectionProps {
   config: AppConfig;
@@ -240,72 +241,84 @@ function AndroidPrinterSettings({ config }: PrinterSettingsSectionProps) {
   );
 }
 
-function BluetoothPrinterPicker({ config }: PrinterSettingsSectionProps) {
+/** The state every printer picker shares: a device list loaded once on
+ * mount (a manual "Refresh" list, not a live one, same as the rest of
+ * Settings), an error, and a per-row "saving" key for the Select spinner.
+ * `load` is read through a ref so a picker can pass an inline function. */
+function usePrinterPicker<T>(load: () => Promise<T[]>) {
   const save = useAppStore((state) => state.save);
-
-  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
-  const [devices, setDevices] = useState<BluetoothDeviceOption[]>([]);
+  const [items, setItems] = useState<T[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState<string | null>(null); // address being saved, for a per-row spinner
+  const [isSaving, setIsSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [requestingPermission, setRequestingPermission] = useState(false);
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
   const refresh = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const granted = await bluetoothPermissionGranted();
-      setPermissionGranted(granted);
-      if (granted) {
-        setDevices(await listBluetoothDevices());
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
+    await runAction(setIsLoading, setError, async () => {
+      setItems(await loadRef.current());
+    });
   };
 
   useEffect(() => {
     void refresh();
-    // Only on mount — this is a manual "Refresh" list, not a live one, same
-    // as the rest of Settings. Mount only happens on the Bluetooth tab, which
-    // is what keeps these calls off USB-configured installs entirely.
+    // Mount only — mounting is what keeps each transport's calls off
+    // installs configured for a different one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const grantPermission = async () => {
-    setRequestingPermission(true);
+  /** Saves the chosen printer; resolves `false` (with `error` set) on failure. */
+  const saveSelection = async (key: string, patch: Partial<AppConfig>): Promise<boolean> => {
+    setIsSaving(key);
     setError(null);
     try {
+      await save(patch);
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
+  return { items, isLoading, isSaving, error, setError, refresh, saveSelection };
+}
+
+function BluetoothPrinterPicker({ config }: PrinterSettingsSectionProps) {
+  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
+  const [requestingPermission, setRequestingPermission] = useState(false);
+  const {
+    items: devices,
+    isLoading,
+    isSaving, // address being saved, for a per-row spinner
+    error,
+    setError,
+    refresh,
+    saveSelection,
+  } = usePrinterPicker<BluetoothDeviceOption>(async () => {
+    const granted = await bluetoothPermissionGranted();
+    setPermissionGranted(granted);
+    return granted ? listBluetoothDevices() : [];
+  });
+
+  const grantPermission = async () => {
+    await runAction(setRequestingPermission, setError, async () => {
       // Fire-and-forget — see `printerService.requestBluetoothPermission`'s
       // doc comment. The OS dialog is synchronous from the user's point of
       // view even though this call isn't, so re-checking right after it
       // resolves (once the user has answered) reflects their choice.
       await requestBluetoothPermission();
       await refresh();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setRequestingPermission(false);
-    }
+    });
   };
 
-  const selectDevice = async (device: BluetoothDeviceOption) => {
-    setIsSaving(device.address);
-    setError(null);
-    try {
-      await save({
-        printerConnectionType: "bluetooth",
-        printerBluetoothAddress: device.address,
-        printerBluetoothName: device.name,
-      });
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsSaving(null);
-    }
-  };
+  const selectDevice = (device: BluetoothDeviceOption) =>
+    saveSelection(device.address, {
+      printerConnectionType: "bluetooth",
+      printerBluetoothAddress: device.address,
+      printerBluetoothName: device.name,
+    });
 
   const selected =
     config.printerConnectionType === "bluetooth" && config.printerBluetoothAddress
@@ -407,13 +420,16 @@ const USB_PERMISSION_TIMEOUT_MS = 60_000;
  *    needed listing, so the user picks from everything attached.
  */
 function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
-  const save = useAppStore((state) => state.save);
-
-  const [devices, setDevices] = useState<UsbDeviceOption[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState<string | null>(null); // device id being saved, for a per-row spinner
   const [awaitingPermission, setAwaitingPermission] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    items: devices,
+    isLoading,
+    isSaving, // device id being saved, for a per-row spinner
+    error,
+    setError,
+    refresh,
+    saveSelection,
+  } = usePrinterPicker<UsbDeviceOption>(listUsbDevices);
 
   // Guards the permission poll below against setting state after the user has
   // navigated away mid-dialog.
@@ -423,25 +439,6 @@ function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
     return () => {
       isMounted.current = false;
     };
-  }, []);
-
-  const refresh = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      setDevices(await listUsbDevices());
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-    // Only on mount — a manual "Refresh" list, same as every other picker in
-    // Settings. Replugging the printer is a Refresh away.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Shows the system dialog for `deviceId`, then watches for the answer —
@@ -468,20 +465,12 @@ function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
   };
 
   const selectDevice = async (device: UsbDeviceOption) => {
-    setIsSaving(device.id);
-    setError(null);
-    try {
-      await save({
-        printerConnectionType: "usb",
-        printerUsbDevice: device.id,
-        printerUsbName: device.name,
-      });
-    } catch (e) {
-      setError((e as Error).message);
-      return;
-    } finally {
-      setIsSaving(null);
-    }
+    const saved = await saveSelection(device.id, {
+      printerConnectionType: "usb",
+      printerUsbDevice: device.id,
+      printerUsbName: device.name,
+    });
+    if (!saved) return;
 
     // Saving the choice and holding the OS grant are separate steps, so the
     // dialog follows the selection rather than needing a second deliberate
@@ -573,43 +562,17 @@ function AndroidUsbPrinterPicker({ config }: PrinterSettingsSectionProps) {
 }
 
 function WindowsPrinterSettings({ config }: PrinterSettingsSectionProps) {
-  const save = useAppStore((state) => state.save);
+  const {
+    items: printers,
+    isLoading,
+    isSaving, // printer name being saved, for a per-row spinner
+    error,
+    refresh,
+    saveSelection,
+  } = usePrinterPicker<WindowsPrinterOption>(listWindowsPrinters);
 
-  const [printers, setPrinters] = useState<WindowsPrinterOption[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState<string | null>(null); // printer name being saved, for a per-row spinner
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      setPrinters(await listWindowsPrinters());
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-    // Only on mount — this is a manual "Refresh" list, not a live one, same
-    // as the rest of Settings.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const selectPrinter = async (printer: WindowsPrinterOption) => {
-    setIsSaving(printer.name);
-    setError(null);
-    try {
-      await save({ printerConnectionType: "windows", printerWindowsName: printer.name });
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsSaving(null);
-    }
-  };
+  const selectPrinter = (printer: WindowsPrinterOption) =>
+    saveSelection(printer.name, { printerConnectionType: "windows", printerWindowsName: printer.name });
 
   const selectedName = config.printerConnectionType === "windows" ? config.printerWindowsName : null;
 

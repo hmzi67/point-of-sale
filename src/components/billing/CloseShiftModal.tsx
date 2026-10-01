@@ -3,8 +3,10 @@ import { Download, Printer, Wallet, X } from "lucide-react";
 import { getShiftSummary } from "../../services/shiftsService";
 import { useShiftStore } from "../../store";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
-import { formatMinor } from "../../utils/format";
+import { useShiftSummaryOutput } from "../../hooks/useShiftSummaryOutput";
+import { decimalToMinor, formatMinor } from "../../utils/format";
 import type { AppConfig, ShiftSummary } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface CloseShiftModalProps {
   shiftId: number;
@@ -14,7 +16,7 @@ interface CloseShiftModalProps {
 
 /** Declare-cash-count → live reconciliation preview → confirm → print,
  * matching the reference's "Counter-N Sale Details" receipt fields. The
- * preview calls `shift_get_summary` with the in-progress declared amount
+ * preview calls `shifts_get_summary` with the in-progress declared amount
  * (never persisted — see that command's doc comment) so Short/Over is
  * visible before the cashier commits to closing anything. */
 export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalProps) {
@@ -23,10 +25,10 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [closed, setClosed] = useState<ShiftSummary | null>(null);
   const [isClosing, setIsClosing] = useState(false);
-  const [printStatus, setPrintStatus] = useState<string | null>(null);
   const closeShift = useShiftStore((state) => state.close);
+  const { status: printStatus, printThermal, downloadPdf } = useShiftSummaryOutput(config);
 
-  const declaredMinor = declaredInput.trim() === "" ? null : Math.round((Number(declaredInput) || 0) * 100);
+  const declaredMinor = declaredInput.trim() === "" ? null : decimalToMinor(Number(declaredInput) || 0);
   const debouncedDeclared = useDebouncedValue(declaredMinor, 200);
 
   useEffect(() => {
@@ -50,32 +52,11 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
     }
   };
 
-  const printThermal = async () => {
-    setPrintStatus(null);
-    try {
-      const { printShiftSummaryThermal } = await import("../../services/shiftsService");
-      await printShiftSummaryThermal(shiftId);
-      setPrintStatus("Sent to thermal printer.");
-    } catch (e) {
-      setPrintStatus((e as Error).message);
-    }
-  };
-
-  const downloadPdf = async () => {
-    if (!closed) return;
-    try {
-      const { downloadShiftSummaryPdf } = await import("../../utils/shiftSummaryPdf");
-      await downloadShiftSummaryPdf(closed, config);
-    } catch (e) {
-      setPrintStatus(`Could not prepare the PDF: ${(e as Error).message}`);
-    }
-  };
-
   const summary = closed ?? preview;
   const money = (minor: number) => formatMinor(minor, config.currency);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
@@ -163,7 +144,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => void downloadPdf()}
+                  onClick={() => closed && void downloadPdf(closed)}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
                 >
                   <Download className="h-4 w-4" />
@@ -171,7 +152,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
                 </button>
                 <button
                   type="button"
-                  onClick={() => void printThermal()}
+                  onClick={() => void printThermal(shiftId)}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
                 >
                   <Printer className="h-4 w-4" />
@@ -189,7 +170,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }
 

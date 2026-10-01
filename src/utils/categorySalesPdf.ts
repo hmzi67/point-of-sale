@@ -1,7 +1,16 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
-import { drawFooter, drawHeader, drawSectionHeader, drawTable, newReceiptDoc, PAGE_WIDTH_MM } from "./printLayout";
+import {
+  drawBoldRow,
+  drawFooter,
+  drawGrandTotalRow,
+  drawHeader,
+  drawSectionHeader,
+  drawTable,
+  estimateReceiptHeightMm,
+  newReceiptDoc,
+} from "./printLayout";
 import type { AppConfig, CategorySalesReport } from "../types";
 
 /** Builds the "Category Wise Sale" report PDF: one section per category
@@ -10,7 +19,7 @@ import type { AppConfig, CategorySalesReport } from "../types";
 export function buildCategorySalesPdf(report: CategorySalesReport, config: AppConfig): jsPDF {
   const itemRowCount = report.groups.reduce((sum, g) => sum + g.items.length, 0);
   const estimatedHeightMm =
-    46 + report.groups.length * 12 + itemRowCount * 6 + 20 + (config.receiptFooter.trim() ? 10 : 0);
+    estimateReceiptHeightMm(report.groups.length * 12 + itemRowCount * 6 + 20, config.receiptFooter);
   // A category report can run much longer than a receipt (many categories,
   // many items each) — `newReceiptDoc`'s name is receipt-specific, but it's
   // just an 80mm-wide-doc-with-a-given-height constructor, equally correct
@@ -28,24 +37,10 @@ export function buildCategorySalesPdf(report: CategorySalesReport, config: AppCo
       group.items.map((line) => [line.itemName, formatQty(line.qtySold), formatMinor(line.revenueMinor, config.currency)]),
     );
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text("Subtotal", 4, y);
-    doc.text(formatMinor(group.subtotalMinor, config.currency), PAGE_WIDTH_MM - 4, y, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    y += 8;
+    y = drawBoldRow(doc, y, "Subtotal", formatMinor(group.subtotalMinor, config.currency));
   }
 
-  doc.setDrawColor(15, 23, 42);
-  doc.setLineWidth(0.4);
-  doc.line(4, y, PAGE_WIDTH_MM - 4, y);
-  y += 6;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("GRAND TOTAL", 4, y);
-  doc.text(formatMinor(report.grandTotalMinor, config.currency), PAGE_WIDTH_MM - 4, y, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  y += 6;
+  y = drawGrandTotalRow(doc, y, "GRAND TOTAL", formatMinor(report.grandTotalMinor, config.currency), "heavy");
 
   drawFooter(doc, y, config.receiptFooter);
   return doc;

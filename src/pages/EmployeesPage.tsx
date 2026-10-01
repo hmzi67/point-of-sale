@@ -1,8 +1,9 @@
 import { ManagementSummary } from "../components/ui/ManagementSummary";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Plus, Users, UserCheck, UserMinus } from "lucide-react";
 import { EmployeeFormModal } from "../components/employees/EmployeeFormModal";
 import { EmployeeTable } from "../components/employees/EmployeeTable";
+import { useActivatableList } from "../hooks/useActivatableList";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { getAllEmployees, setEmployeeActive } from "../services/attendanceService";
 import type { ManagedEmployee } from "../types";
@@ -16,35 +17,11 @@ import type { ManagedEmployee } from "../types";
  * this screen shows. */
 export function EmployeesPage() {
   const { config } = useAppConfig();
-  const [employees, setEmployees] = useState<ManagedEmployee[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const { items: employees, isLoading, error, busyId, reload, toggleActive } = useActivatableList<ManagedEmployee>(
+    getAllEmployees,
+    setEmployeeActive,
+  );
   const [editingEmployee, setEditingEmployee] = useState<ManagedEmployee | null | "new">(null);
-
-  const reload = () => {
-    setIsLoading(true);
-    setError(null);
-    getAllEmployees()
-      .then(setEmployees)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(reload, []);
-
-  const toggleActive = async (employee: ManagedEmployee) => {
-    setBusyId(employee.id);
-    setError(null);
-    try {
-      await setEmployeeActive(employee.id, !employee.isActive);
-      reload();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusyId(null);
-    }
-  };
 
   return (
     <section className="space-y-6">

@@ -2,11 +2,7 @@ import { useEffect, useState } from "react";
 import { getMonthlySummary } from "../../services/attendanceService";
 import { formatHours } from "../../utils/format";
 import type { MonthlySummary } from "../../types";
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
+import { currentMonth } from "../../utils/dateRanges";
 
 /** One row per employee: days present, days absent and total hours for a
  * month — the feed Phase 9 (Salary) will read from. A day with a check-in

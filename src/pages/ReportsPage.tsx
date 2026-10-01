@@ -8,9 +8,10 @@ import { SummaryCards } from "../components/reports/SummaryCards";
 import { TableWiseSalesTable } from "../components/reports/TableWiseSalesTable";
 import { TopItemsTable } from "../components/reports/TopItemsTable";
 import { useAppConfig } from "../hooks/useAppConfig";
-import { useModules } from "../hooks/useModules";
+import { useModuleEnabled } from "../hooks/useModules";
 import { getDashboardSummary } from "../services/dashboardService";
 import { getCategories } from "../services/inventoryService";
+import { devWarn } from "../services/logService";
 import { getProductSalesSummary, getRefundsSummary, getTableSalesSummary } from "../services/reportsService";
 import { useReportsStore } from "../store";
 import type {
@@ -24,8 +25,10 @@ import type {
 
 // Recharts is large and only ever used here — deferred so it never loads on
 // the (much more frequently visited) Billing/Dashboard/Inventory screens.
-const SalesChart = lazy(() => import("../components/reports/SalesChart"));
-const TopEntriesChart = lazy(() => import("../components/reports/TopEntriesChart"));
+const SalesChart = lazy(() => import("../components/reports/SalesChart").then((m) => ({ default: m.SalesChart })));
+const TopEntriesChart = lazy(() =>
+  import("../components/reports/TopEntriesChart").then((m) => ({ default: m.TopEntriesChart })),
+);
 
 type View = "overview" | "tables" | "products" | "refunds";
 
@@ -33,8 +36,7 @@ const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border
 
 export function ReportsPage() {
   const { config } = useAppConfig();
-  const { modules } = useModules();
-  const tablesEnabled = modules.some((m) => m.key === "tables" && m.enabled);
+  const tablesEnabled = useModuleEnabled("tables");
 
   const summary = useReportsStore((state) => state.summary);
   const topItems = useReportsStore((state) => state.topItems);
@@ -108,7 +110,10 @@ export function ReportsPage() {
 
   useEffect(() => {
     if (view !== "products" || categories.length > 0) return;
-    void getCategories().then(setCategories);
+    // Only feeds the category filter — degrade to "no filter options".
+    getCategories()
+      .then(setCategories)
+      .catch((error) => devWarn("[reports] could not load categories", error));
   }, [view, categories.length]);
 
   useEffect(() => {

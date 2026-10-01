@@ -70,7 +70,7 @@ export function App() {
               `VendorGate` fronts it on a fresh install: setup can't be
               completed until the vendor password is entered. That guard is
               presentational; the binding check is in Rust
-              (`commands::update_app_config`), so reaching this route by any
+              (`commands::config_update`), so reaching this route by any
               other means still can't finish setup. */}
           <Route element={<VendorGate />}>
             <Route path="onboarding" element={<OnboardingPage />} />

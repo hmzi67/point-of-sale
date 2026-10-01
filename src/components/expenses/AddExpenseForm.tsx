@@ -3,11 +3,7 @@ import { Plus } from "lucide-react";
 import { addExpense } from "../../services/expensesService";
 import { decimalToMinor } from "../../utils/format";
 import type { Expense } from "../../types";
-
-function todayString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
+import { todayString } from "../../utils/dateRanges";
 
 interface AddExpenseFormProps {
   categories: string[];

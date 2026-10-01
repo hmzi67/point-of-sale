@@ -17,6 +17,25 @@ import autoTable from "jspdf-autotable";
 export const PAGE_WIDTH_MM = 80;
 export const MARGIN_MM = 4;
 
+/** Header block (logo/name/contact) plus spacing every 80mm template starts
+ * with, in mm — the fixed part of each template's page-height estimate. */
+const RECEIPT_HEADER_MM = 46;
+/** Extra room when a receipt footer is configured. */
+const RECEIPT_FOOTER_MM = 10;
+
+/** A template's estimated page height: the shared header, its own body
+ * (`bodyMm`), and the footer if one is set. */
+export function estimateReceiptHeightMm(bodyMm: number, receiptFooter: string): number {
+  return RECEIPT_HEADER_MM + bodyMm + (receiptFooter.trim() ? RECEIPT_FOOTER_MM : 0);
+}
+
+/** Where the last `autoTable` ended. jspdf-autotable augments the document
+ * with this at runtime with no typed accessor, so it's read through one
+ * narrow, explicit cast here rather than at every call site. */
+export function lastTableEndY(doc: jsPDF, fallback: number): number {
+  return (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? fallback;
+}
+
 export function newReceiptDoc(estimatedHeightMm: number): jsPDF {
   return new jsPDF({ unit: "mm", format: [PAGE_WIDTH_MM, Math.max(estimatedHeightMm, 90)] });
 }
@@ -135,11 +154,7 @@ export function drawTable(doc: jsPDF, startY: number, head: string[], body: stri
     columnStyles: Object.fromEntries(head.slice(1).map((_, i) => [i + 1, { halign: "right" as const }])),
   });
 
-  // jspdf-autotable augments the document with this at runtime; there is no
-  // typed accessor for it, so read it through a narrow, explicit cast rather
-  // than an untyped `any` spread over the rest of the function.
-  const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
-  return (finalY ?? startY) + 6;
+  return lastTableEndY(doc, startY) + 6;
 }
 
 // --- Thermal-styled receipt primitives -----------------------------------
@@ -363,6 +378,39 @@ export function drawKeyValueRows(doc: jsPDF, startY: number, rows: Array<[string
   return y;
 }
 
+/** One bold label/value row (a group's "Subtotal", a refund's "Refund
+ * Total"), returning the y for whatever comes next. */
+export function drawBoldRow(doc: jsPDF, y: number, label: string, value: string, fontSize = 9, advance = 8): number {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(fontSize);
+  doc.text(label, MARGIN_MM, y);
+  doc.text(value, PAGE_WIDTH_MM - MARGIN_MM, y, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  return y + advance;
+}
+
+/** A rule, then a bold, larger grand-total row under it. `heavy` is the dark
+ * rule that closes a multi-section report; `light` the subtle one under a
+ * receipt-style totals block. */
+export function drawGrandTotalRow(
+  doc: jsPDF,
+  startY: number,
+  label: string,
+  value: string,
+  rule: "heavy" | "light" = "light",
+): number {
+  let y = startY;
+  if (rule === "heavy") {
+    doc.setDrawColor(15, 23, 42); // slate-900
+    doc.setLineWidth(0.4);
+  } else {
+    doc.setDrawColor(203, 213, 225); // slate-300
+  }
+  doc.line(MARGIN_MM, y, PAGE_WIDTH_MM - MARGIN_MM, y);
+  y += rule === "heavy" ? 6 : 5;
+  return drawBoldRow(doc, y, label, value, 11, 6);
+}
+
 /** A block of label/value rows, then a bold, larger grand-total row under a
  * rule — the totals section every template ends with. */
 export function drawTotalsBlock(
@@ -372,18 +420,8 @@ export function drawTotalsBlock(
   grandLabel: string,
   grandValue: string,
 ): number {
-  let y = drawKeyValueRows(doc, startY, rows);
-
-  doc.setDrawColor(203, 213, 225); // slate-300
-  doc.line(MARGIN_MM, y, PAGE_WIDTH_MM - MARGIN_MM, y);
-  y += 5;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text(grandLabel, MARGIN_MM, y);
-  doc.text(grandValue, PAGE_WIDTH_MM - MARGIN_MM, y, { align: "right" });
-  doc.setFont("helvetica", "normal");
-  return y + 6;
+  const y = drawKeyValueRows(doc, startY, rows);
+  return drawGrandTotalRow(doc, y, grandLabel, grandValue);
 }
 
 /** The centered footer text every template ends with, if configured. */

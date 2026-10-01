@@ -1,7 +1,17 @@
-import { jsPDF } from "jspdf";
+import type { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import {
+  A4_MARGIN_MM,
+  A4_TABLE_STYLES,
+  drawA4SectionTitle,
+  drawA4StatTiles,
+  drawA4Title,
+  ensureSectionRoom,
+  newA4Doc,
+} from "./a4Pdf";
 import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
+import { lastTableEndY } from "./printLayout";
 import type { AppConfig, FullReport } from "../types";
 
 /** Builds the "Generate Full Report" consolidated PDF — Overview, Category
@@ -14,50 +24,29 @@ import type { AppConfig, FullReport } from "../types";
  * paper case. Kept in its own module, pulled in only via dynamic import,
  * same deferral every other jsPDF builder here uses. */
 export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const doc = newA4Doc();
   const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 14;
+  const margin = A4_MARGIN_MM;
   const money = (minor: number) => formatMinor(minor, config.currency);
-  let y = 18;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text(`${config.businessName} — Full Sales Report`, margin, y);
-  y += 7;
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`${report.startDate} to ${report.endDate}`, margin, y);
-  y += 10;
-  doc.setTextColor(0);
+  let y = drawA4Title(doc, `${config.businessName} — Full Sales Report`, `${report.startDate} to ${report.endDate}`);
 
   // --- Overview -------------------------------------------------------
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Overview", margin, y);
+  drawA4SectionTitle(doc, "Overview", y);
   y += 6;
 
   const { overview } = report;
-  const stats: Array<[string, string]> = [
-    ["Total sales", money(overview.totalSalesMinor)],
-    ["Refunds", money(overview.refundsMinor)],
-    ["Transactions", String(overview.transactionCount)],
-    ["Average sale", money(report.averageSaleMinor)],
-    ["Net profit", money(overview.netProfitMinor)],
-  ];
-  const columnWidth = (pageWidth - margin * 2) / stats.length;
-  stats.forEach(([label, value], index) => {
-    const x = margin + index * columnWidth;
-    doc.setFontSize(9);
-    doc.setTextColor(100);
-    doc.text(label.toUpperCase(), x, y);
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0);
-    doc.text(value, x, y + 7);
-    doc.setFont("helvetica", "normal");
-  });
+  drawA4StatTiles(
+    doc,
+    y,
+    [
+      ["Total sales", money(overview.totalSalesMinor)],
+      ["Refunds", money(overview.refundsMinor)],
+      ["Transactions", String(overview.transactionCount)],
+      ["Average sale", money(report.averageSaleMinor)],
+      ["Net profit", money(overview.netProfitMinor)],
+    ],
+    13,
+  );
   y += 14;
 
   if (overview.totalExpensesMinor != null || overview.totalSalaryPaidMinor != null) {
@@ -72,9 +61,7 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
   }
 
   // --- Refunds ------------------------------------------------------------
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Refunds", margin, y);
+  drawA4SectionTitle(doc, "Refunds", y);
   y += 2;
 
   if (report.refunds.refunds.length === 0) {
@@ -97,24 +84,19 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
         refund.createdAt,
         money(refund.totalRefundAmountMinor),
       ]),
-      styles: { fontSize: 8, cellPadding: 1.8 },
-      headStyles: { fillColor: [30, 41, 59] },
+      styles: A4_TABLE_STYLES.styles,
+      headStyles: A4_TABLE_STYLES.headStyles,
       columnStyles: { 0: { cellWidth: 14 }, 5: { halign: "right" } },
       theme: "striped",
       foot: [["", "", "", "", "Total Refunded", money(report.refunds.grandTotalRefundedMinor)]],
-      footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
+      footStyles: A4_TABLE_STYLES.footStyles,
     });
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    y = lastTableEndY(doc, y) + 10;
   }
 
   // --- Category Wise Sale ----------------------------------------------
-  if (y > 250) {
-    doc.addPage();
-    y = 18;
-  }
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Category Wise Sale", margin, y);
+  y = ensureSectionRoom(doc, y);
+  drawA4SectionTitle(doc, "Category Wise Sale", y);
   y += 2;
 
   for (const group of report.categorySales.groups) {
@@ -128,14 +110,14 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
       margin: { left: margin, right: margin },
       head: [["Item", "Qty", "Revenue"]],
       body: group.items.map((line) => [line.itemName, formatQty(line.qtySold), money(line.revenueMinor)]),
-      styles: { fontSize: 8, cellPadding: 1.8 },
-      headStyles: { fillColor: [30, 41, 59] },
+      styles: A4_TABLE_STYLES.styles,
+      headStyles: A4_TABLE_STYLES.headStyles,
       columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
       theme: "grid",
       foot: [["Subtotal", "", money(group.subtotalMinor)]],
-      footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
+      footStyles: A4_TABLE_STYLES.footStyles,
     });
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 4;
+    y = lastTableEndY(doc, y) + 4;
   }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
@@ -145,13 +127,8 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
   y += 10;
 
   // --- Product Wise Sales ------------------------------------------------
-  if (y > 250) {
-    doc.addPage();
-    y = 18;
-  }
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("Product Wise Sales", margin, y);
+  y = ensureSectionRoom(doc, y);
+  drawA4SectionTitle(doc, "Product Wise Sales", y);
   y += 2;
   autoTable(doc, {
     startY: y,
@@ -164,34 +141,29 @@ export function buildFullReportPdf(report: FullReport, config: AppConfig): jsPDF
       formatQty(row.qtySold),
       money(row.revenueMinor),
     ]),
-    styles: { fontSize: 8, cellPadding: 1.8 },
-    headStyles: { fillColor: [30, 41, 59] },
+    styles: A4_TABLE_STYLES.styles,
+    headStyles: A4_TABLE_STYLES.headStyles,
     columnStyles: { 0: { cellWidth: 10 }, 3: { halign: "right" }, 4: { halign: "right" } },
     theme: "striped",
   });
-  y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+  y = lastTableEndY(doc, y) + 10;
 
   // --- Table Wise Sales (only when the `tables` module is enabled) ------
   if (report.tableSales) {
-    if (y > 250) {
-      doc.addPage();
-      y = 18;
-    }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text("Table Wise Sales", margin, y);
+    y = ensureSectionRoom(doc, y);
+    drawA4SectionTitle(doc, "Table Wise Sales", y);
     y += 2;
     autoTable(doc, {
       startY: y,
       margin: { left: margin, right: margin },
       head: [["Table / Counter", "Txns", "Amount"]],
       body: report.tableSales.rows.map((row) => [row.label, String(row.transactionCount), money(row.totalMinor)]),
-      styles: { fontSize: 8, cellPadding: 1.8 },
-      headStyles: { fillColor: [30, 41, 59] },
+      styles: A4_TABLE_STYLES.styles,
+      headStyles: A4_TABLE_STYLES.headStyles,
       columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
       theme: "grid",
       foot: [["Grand Total", "", money(report.tableSales.grandTotalMinor)]],
-      footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
+      footStyles: A4_TABLE_STYLES.footStyles,
     });
   }
 

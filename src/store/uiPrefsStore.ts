@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getUiPrefs, setSidebarCollapsed as persistSidebar, setTheme as persistTheme } from "../services/configService";
+import { devWarn, reportError } from "../services/logService";
 import type { Theme } from "../types";
 
 /**
@@ -45,28 +46,36 @@ export const useUiPrefsStore = create<UiPrefsState>((set, get) => ({
       applyThemeToDocument(prefs.theme);
       set({ theme: prefs.theme, sidebarCollapsed: prefs.sidebarCollapsed });
     } catch (error) {
-      console.warn("[uiPrefs] could not read persisted preferences, keeping defaults", error);
+      devWarn("[uiPrefs] could not read persisted preferences, keeping defaults", error);
     }
   },
 
   setTheme: async (theme) => {
+    // Optimistic, but a failed write rolls the toggle back so what the user
+    // sees always matches what was saved — the visible snap-back is how the
+    // failure surfaces, and the persistent log records why.
+    const previous = get().theme;
     applyThemeToDocument(theme);
     set({ theme });
     try {
       await persistTheme(theme);
     } catch (error) {
-      console.warn("[uiPrefs] could not persist theme", error);
+      applyThemeToDocument(previous);
+      set({ theme: previous });
+      reportError(`[uiPrefs] could not persist theme: ${(error as Error).message}`);
     }
   },
 
   toggleTheme: () => get().setTheme(get().theme === "dark" ? "light" : "dark"),
 
   setSidebarCollapsed: async (collapsed) => {
+    const previous = get().sidebarCollapsed;
     set({ sidebarCollapsed: collapsed });
     try {
       await persistSidebar(collapsed);
     } catch (error) {
-      console.warn("[uiPrefs] could not persist sidebar state", error);
+      set({ sidebarCollapsed: previous });
+      reportError(`[uiPrefs] could not persist sidebar state: ${(error as Error).message}`);
     }
   },
 

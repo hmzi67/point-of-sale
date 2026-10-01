@@ -3,7 +3,7 @@ import { BadgeCheck, RefreshCw, ShieldAlert } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { useLicenseStore } from "../../store";
 import { formatTimeUntil, formatUnixDateTime } from "../../utils/licenseFormat";
-import type { LicenseState } from "../../services/licenseService";
+import type { LicenseState } from "../../types";
 
 /**
  * Settings › Licence. Shows the current state as Rust computed it, lets

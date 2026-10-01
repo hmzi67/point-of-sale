@@ -32,7 +32,7 @@ interface UserTableProps {
  * row (an Admin viewing it sees a disabled Edit with an explanatory
  * tooltip). An Admin viewing a peer Admin's row sees both actions disabled
  * the same way. Every one of these is a courtesy, not the actual guard —
- * `commands::update_user`/`set_user_active` re-check the same hierarchy
+ * `commands::users_update`/`users_set_active` re-check the same hierarchy
  * server-side regardless of what this screen shows. */
 export function UserTable({
   users,

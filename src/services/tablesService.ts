@@ -11,11 +11,6 @@ export function addTable(name: string, seats: number): Promise<TableSummary> {
   return call<TableSummary>("tables_add_table", { name, seats });
 }
 
-/** Renames a physical table. Owner/admin only. */
-export function renameTable(tableId: number, name: string): Promise<TableSummary> {
-  return call<TableSummary>("tables_rename_table", { tableId, name });
-}
-
 /** Removes a physical table from the floor entirely. Owner/admin only.
  * Rejected server-side while the table has an order parked on it — clear
  * or bill it first. */

@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { addEmployee, updateEmployee } from "../../services/attendanceService";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import type { ManagedEmployee } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 /** A short list of common roles for a fast pick — the field stays free text
  * (a `<datalist>`, not a `<select>`) since a shop's actual staff titles
@@ -54,7 +55,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm rounded-2xl border border-line bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h3 className="text-sm font-semibold text-fg">
@@ -137,6 +138,6 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

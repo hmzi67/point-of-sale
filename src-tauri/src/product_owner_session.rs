@@ -3,7 +3,7 @@
 //!
 //! Deliberately not the same mechanism as `Session`:
 //!   - It never overlaps with or requires clearing whatever staff account
-//!     is currently signed in — `login`/`logout` on `Session` never touch
+//!     is currently signed in — `auth_login`/`auth_logout` on `Session` never touch
 //!     this, and vice versa.
 //!   - It auto-expires after a short idle window (see `TIMEOUT`) rather
 //!     than lasting for the rest of the process, so it never lingers in

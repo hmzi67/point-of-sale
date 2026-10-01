@@ -1,8 +1,9 @@
 import { ManagementSummary } from "../components/ui/ManagementSummary";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Plus, Users, UserCheck, UserMinus } from "lucide-react";
 import { UserFormModal } from "../components/users/UserFormModal";
 import { UserTable } from "../components/users/UserTable";
+import { useActivatableList } from "../hooks/useActivatableList";
 import { getAllUsers, setUserActive } from "../services/authService";
 import { useAuthStore } from "../store";
 import type { ManagedUser } from "../types";
@@ -14,35 +15,11 @@ import type { ManagedUser } from "../types";
  * cashier who somehow reached this URL still couldn't do anything from it. */
 export function UserManagementPage() {
   const currentUser = useAuthStore((state) => state.user);
-  const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const { items: users, isLoading, error, busyId, reload, toggleActive } = useActivatableList<ManagedUser>(
+    getAllUsers,
+    setUserActive,
+  );
   const [editingUser, setEditingUser] = useState<ManagedUser | null | "new">(null);
-
-  const reload = () => {
-    setIsLoading(true);
-    setError(null);
-    getAllUsers()
-      .then(setUsers)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(reload, []);
-
-  const toggleActive = async (user: ManagedUser) => {
-    setBusyId(user.id);
-    setError(null);
-    try {
-      await setUserActive(user.id, !user.isActive);
-      reload();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusyId(null);
-    }
-  };
 
   if (!currentUser) return null;
 

@@ -11,6 +11,8 @@ import {
 import { getCounters } from "../../services/countersService";
 import { formatMinor, formatQty } from "../../utils/format";
 import type { AdhocTokenLine, CounterPrintResult, Counter, PendingCounterGroup, TokenSummary } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 /** Where a "Print Token" dialog gets its pending items from — a dine-in
  * table's parked order (with real delta tracking and a reprintable
@@ -51,9 +53,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
   const [results, setResults] = useState<CounterPrintResult[] | null>(null);
 
   const load = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
+    await runAction(setIsLoading, setError, async () => {
       if (source.kind === "table") {
         const [pendingGroups, tokens, activeCounters] = await Promise.all([
           getPendingTokenItems(source.tableOrderId),
@@ -74,11 +74,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
         setCounters(activeCounters);
         setSelected(new Set(pendingGroups.map((g) => g.counterId)));
       }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
   useEffect(() => {
@@ -175,7 +171,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
   const title = source.kind === "table" ? `Print token — ${source.tableName}` : "Print token — Takeaway";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-md rounded-lg bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h3 className="text-base font-semibold text-fg">{title}</h3>
@@ -318,6 +314,6 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

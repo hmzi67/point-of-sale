@@ -1,13 +1,20 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
 import { downloadPdf } from "./pdfExport";
-import { drawFooter, drawHeader, drawTable, drawTotalsBlock, newReceiptDoc } from "./printLayout";
+import {
+  drawFooter,
+  drawHeader,
+  drawTable,
+  drawTotalsBlock,
+  estimateReceiptHeightMm,
+  newReceiptDoc,
+} from "./printLayout";
 import type { AppConfig, TableSalesSummary } from "../types";
 
 /** Builds the Table Wise Sales report PDF: one row per table (plus
  * "Counter / Takeaway"), grand total at the end. */
 export function buildTableSalesPdf(report: TableSalesSummary, config: AppConfig): jsPDF {
-  const estimatedHeightMm = 46 + report.rows.length * 6 + 20 + (config.receiptFooter.trim() ? 10 : 0);
+  const estimatedHeightMm = estimateReceiptHeightMm(report.rows.length * 6 + 20, config.receiptFooter);
   const doc = newReceiptDoc(estimatedHeightMm);
 
   let y = drawHeader(doc, config.businessName, ["Table Wise Sales", `${report.startDate} to ${report.endDate}`]);

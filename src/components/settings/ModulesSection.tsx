@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Lock } from "lucide-react";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { useModuleStore } from "../../store";
-import { PLATFORM, type ModuleKey } from "../../types";
+import { type ModuleKey } from "../../types";
+import { PLATFORM } from "../../services/platform";
 
 /**
  * The "onboard a new client" card: flip modules on or off for this

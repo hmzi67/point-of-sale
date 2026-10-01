@@ -9,6 +9,16 @@ const OPTIONS: { value: Theme; label: string; hint: string; Icon: typeof Sun }[]
 
 /** Theme picker. Also reachable as the sun/moon button in the top bar —
  * this is the discoverable, explained version; that is the quick flip. */
+/** Fixed colours for the two theme thumbnails. These can't be the live
+ * `--t-*` tokens: each thumbnail must show *its* theme while the page itself
+ * is rendered in the other one, and only the active theme's variables exist
+ * at any moment. Keep roughly in step with `styles.css`. */
+const PREVIEW = {
+  dark: { canvas: "#0b1210", panel: "#17221d", muted: "#82978c", faint: "#42574b", text: "#a5b7ad", card: "#203b2e" },
+  light: { canvas: "#f3f6f4", panel: "#ffffff", muted: "#c3cfc8", faint: "#d5ddd8", text: "#5b7265", card: "#d9eee2" },
+} as const;
+const PREVIEW_ACCENT = { fill: "#00d99a", line: "#00b881" } as const;
+
 export function AppearanceSection() {
   const theme = useUiPrefsStore((state) => state.theme);
   const setTheme = useUiPrefsStore((state) => state.setTheme);
@@ -38,15 +48,15 @@ export function AppearanceSection() {
               ].join(" ")}
             >
               <svg aria-hidden="true" viewBox="0 0 240 112" className="col-span-2 mb-1 w-full rounded-lg border border-line">
-                <rect width="240" height="112" fill={value === "dark" ? "#0b1210" : "#f3f6f4"} />
-                <rect width="48" height="112" fill={value === "dark" ? "#17221d" : "#ffffff"} />
-                <rect x="8" y="12" width="31" height="6" rx="3" fill={value === "dark" ? "#82978c" : "#c3cfc8"} />
-                <rect x="6" y="29" width="36" height="13" rx="4" fill="#00d99a" />
-                {[50, 65, 80].map((y) => <rect key={y} x="10" y={y} width="25" height="4" rx="2" fill={value === "dark" ? "#42574b" : "#d5ddd8"} />)}
-                <rect x="60" y="14" width="66" height="6" rx="3" fill={value === "dark" ? "#a5b7ad" : "#5b7265"} />
-                {[60, 117, 174].map((x) => <rect key={x} x={x} y="31" width="49" height="27" rx="5" fill={value === "dark" ? "#203b2e" : "#d9eee2"} />)}
-                <rect x="60" y="67" width="163" height="33" rx="5" fill={value === "dark" ? "#17221d" : "#ffffff"} />
-                <path d="M70 91 L96 85 L116 88 L141 77 L165 82 L187 73 L213 77" fill="none" stroke="#00b881" strokeWidth="2" />
+                <rect width="240" height="112" fill={PREVIEW[value].canvas} />
+                <rect width="48" height="112" fill={PREVIEW[value].panel} />
+                <rect x="8" y="12" width="31" height="6" rx="3" fill={PREVIEW[value].muted} />
+                <rect x="6" y="29" width="36" height="13" rx="4" fill={PREVIEW_ACCENT.fill} />
+                {[50, 65, 80].map((y) => <rect key={y} x="10" y={y} width="25" height="4" rx="2" fill={PREVIEW[value].faint} />)}
+                <rect x="60" y="14" width="66" height="6" rx="3" fill={PREVIEW[value].text} />
+                {[60, 117, 174].map((x) => <rect key={x} x={x} y="31" width="49" height="27" rx="5" fill={PREVIEW[value].card} />)}
+                <rect x="60" y="67" width="163" height="33" rx="5" fill={PREVIEW[value].panel} />
+                <path d="M70 91 L96 85 L116 88 L141 77 L165 82 L187 73 L213 77" fill="none" stroke={PREVIEW_ACCENT.line} strokeWidth="2" />
               </svg>
               <span
                 className={[

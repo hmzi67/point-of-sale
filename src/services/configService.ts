@@ -2,12 +2,12 @@ import type { AppConfig, Theme, UiPrefs } from "../types";
 import { call } from "./tauriClient";
 
 export function getAppConfig(): Promise<AppConfig> {
-  return call<AppConfig>("get_app_config");
+  return call<AppConfig>("config_get");
 }
 
 /** Partial update — omitted fields keep their stored value. */
 export function updateAppConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
-  return call<AppConfig>("update_app_config", { patch });
+  return call<AppConfig>("config_update", { patch });
 }
 
 /** Uploads a logo image, replacing whatever is currently set, and returns

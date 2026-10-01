@@ -1,7 +1,7 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
 import { downloadPdf } from "./pdfExport";
-import { drawFooter, drawHeader, drawTotalsBlock, newReceiptDoc, PAGE_WIDTH_MM } from "./printLayout";
+import { drawFooter, drawGrandTotalRow, drawHeader, drawKeyValueRows, drawTotalsBlock, newReceiptDoc } from "./printLayout";
 import type { AppConfig, ShiftSummary } from "../types";
 
 /** Builds the "Counter-N Sale Details" shift close-out receipt PDF — the
@@ -26,29 +26,15 @@ export function buildShiftSummaryPdf(summary: ShiftSummary, config: AppConfig): 
   ];
   y = drawTotalsBlock(doc, y, rows, "Total Sale", money(summary.totalSalesMinor));
 
-  doc.setFontSize(9);
-  doc.text("Expected Cash", 4, y);
-  doc.text(money(summary.expectedCashMinor), PAGE_WIDTH_MM - 4, y, { align: "right" });
-  y += 5;
-
+  const cashRows: Array<[string, string]> = [["Expected Cash", money(summary.expectedCashMinor)]];
   if (summary.declaredCashAmountMinor !== null) {
-    doc.text("Declared Amount", 4, y);
-    doc.text(money(summary.declaredCashAmountMinor), PAGE_WIDTH_MM - 4, y, { align: "right" });
-    y += 5;
+    cashRows.push(["Declared Amount", money(summary.declaredCashAmountMinor)]);
   }
+  y = drawKeyValueRows(doc, y, cashRows);
 
   if (summary.differenceMinor !== null) {
-    y += 2;
-    doc.setDrawColor(203, 213, 225);
-    doc.line(4, y, PAGE_WIDTH_MM - 4, y);
-    y += 5;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
     const label = summary.differenceMinor < 0 ? "Short" : "Over";
-    doc.text(label, 4, y);
-    doc.text(money(Math.abs(summary.differenceMinor)), PAGE_WIDTH_MM - 4, y, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    y += 6;
+    y = drawGrandTotalRow(doc, y + 2, label, money(Math.abs(summary.differenceMinor)));
   }
 
   drawFooter(doc, y, config.receiptFooter);

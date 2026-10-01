@@ -2,7 +2,8 @@ import { useId } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartNoAxesCombined } from "lucide-react";
 import { useChartColors } from "../../hooks/useChartColors";
-import { formatMinor, formatShortDate, minorToDecimal } from "../../utils/format";
+import { formatCompactTick, formatMinor, formatShortDate, minorToDecimal } from "../../utils/format";
+import { ChartTooltipCard } from "../ui/ChartTooltipCard";
 import type { DailySales } from "../../types";
 
 interface MonthlyTrendChartProps {
@@ -19,10 +20,10 @@ function ChartTooltip({ active, payload, currency }: {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
-    <div className="rounded-xl border border-line-strong bg-surface px-4 py-3 text-sm shadow-lg">
+    <ChartTooltipCard>
       <p className="text-xs text-fg-muted">{formatShortDate(point.date)}</p>
       <p className="mt-1 font-semibold text-accent-text">{formatMinor(point.totalMinor, currency)}</p>
-    </div>
+    </ChartTooltipCard>
   );
 }
 
@@ -78,7 +79,7 @@ export function MonthlyTrendChart({ series, currency, isLoading }: MonthlyTrendC
                 tickMargin={12} interval="preserveStartEnd" minTickGap={32} />
               <YAxis tick={{ fontSize: 11, fill: chartColors.tick }} axisLine={false} tickLine={false}
                 width={56} tickMargin={8}
-                tickFormatter={(value: number) => value >= 1000 ? `${Math.round(value / 1000)}k` : String(value)} />
+                tickFormatter={formatCompactTick} />
               <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: chartColors.series, strokeDasharray: "4 4", strokeOpacity: 0.4 }} />
               <Area type="monotone" dataKey="totalDecimal" stroke={chartColors.series} strokeWidth={2.5}
                 fill={`url(#${gradientId})`} dot={chartData.length === 1 ? { r: 4 } : false}
@@ -101,4 +102,3 @@ export function MonthlyTrendChart({ series, currency, isLoading }: MonthlyTrendC
   );
 }
 
-export default MonthlyTrendChart;

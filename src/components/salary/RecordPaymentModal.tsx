@@ -1,13 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { X } from "lucide-react";
 import { recordPayment } from "../../services/salaryService";
-import { decimalToMinor, formatMinor } from "../../utils/format";
+import { decimalToMinor, formatMinor, minorToDecimal } from "../../utils/format";
 import type { SalaryCalculation } from "../../types";
-
-function todayString(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
+import { todayString } from "../../utils/dateRanges";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface RecordPaymentModalProps {
   row: SalaryCalculation;
@@ -21,7 +18,7 @@ interface RecordPaymentModalProps {
  * partial instalments accumulate correctly (see `db::salary::record_payment`). */
 export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPaymentModalProps) {
   const remaining = Math.max(row.calculatedAmountMinor - row.paidAmountMinor, 0);
-  const [amount, setAmount] = useState(remaining > 0 ? (remaining / 100).toFixed(2) : "");
+  const [amount, setAmount] = useState(remaining > 0 ? minorToDecimal(remaining).toFixed(2) : "");
   const [date, setDate] = useState(todayString());
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +41,7 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm rounded-2xl border border-line bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <div>
@@ -114,6 +111,6 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

@@ -14,10 +14,9 @@ export interface CreateSaleInput {
   discountMinor: number;
   taxMinor: number;
   paymentMethod: PaymentMethod;
-  cashierId: number | null;
+  /** The cashier and their open shift are not sent: Rust derives both from
+   * the signed-in session (`billing_create_sale`). */
   tableId: number | null;
-  /** The cashier's currently-open shift, if any — see `types/shifts.ts`. */
-  shiftId: number | null;
 }
 
 export interface SaleLine {

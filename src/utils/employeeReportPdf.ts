@@ -1,7 +1,14 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
 import { downloadPdf } from "./pdfExport";
-import { drawFooter, drawHeader, drawTable, drawTotalsBlock, newReceiptDoc } from "./printLayout";
+import {
+  drawFooter,
+  drawHeader,
+  drawTable,
+  drawTotalsBlock,
+  estimateReceiptHeightMm,
+  newReceiptDoc,
+} from "./printLayout";
 import type { AppConfig, SalaryCalculation } from "../types";
 
 /** Builds the Employee Report PDF: one row per active employee for `month`
@@ -13,7 +20,7 @@ import type { AppConfig, SalaryCalculation } from "../types";
  * base salary, net pay, paid, status — in one row instead of splitting
  * paid/status onto a second line. */
 export function buildEmployeeReportPdf(rows: SalaryCalculation[], month: string, config: AppConfig): jsPDF {
-  const estimatedHeightMm = 46 + rows.length * 6 + 26 + (config.receiptFooter.trim() ? 10 : 0);
+  const estimatedHeightMm = estimateReceiptHeightMm(rows.length * 6 + 26, config.receiptFooter);
   const doc = newReceiptDoc(estimatedHeightMm);
   const money = (minor: number) => formatMinor(minor, config.currency);
 

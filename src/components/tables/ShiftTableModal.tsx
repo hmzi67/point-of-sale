@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ArrowRightLeft, X } from "lucide-react";
 import type { TableSummary } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface ShiftTableModalProps {
   fromTable: TableSummary;
@@ -34,7 +35,7 @@ export function ShiftTableModal({ fromTable, freeTables, onClose, onConfirm }: S
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
@@ -105,6 +106,6 @@ export function ShiftTableModal({ fromTable, freeTables, onClose, onConfirm }: S
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

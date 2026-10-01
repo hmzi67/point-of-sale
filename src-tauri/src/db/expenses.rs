@@ -10,9 +10,9 @@
 //! nothing to insert ahead of time. `get_categories` lists whatever labels
 //! are already in use so the dropdown has something to offer.
 
-use chrono::NaiveDate;
 use rusqlite::{params, Connection};
 use serde::Serialize;
+use crate::db::dates;
 
 #[derive(Debug)]
 pub enum ExpenseError {
@@ -61,22 +61,11 @@ pub struct CategoryTotal {
 }
 
 fn validate_date(date: &str) -> Result<(), ExpenseError> {
-    NaiveDate::parse_from_str(date, "%Y-%m-%d")
-        .map(|_| ())
-        .map_err(|_| ExpenseError::InvalidDate(format!("Invalid date: {}", date)))
+    dates::parse_date(date).map(|_| ()).map_err(ExpenseError::InvalidDate)
 }
 
 fn validate_date_range(start_date: &str, end_date: &str) -> Result<(), ExpenseError> {
-    let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
-        .map_err(|_| ExpenseError::InvalidDateRange(format!("Invalid start date: {}", start_date)))?;
-    let end = NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
-        .map_err(|_| ExpenseError::InvalidDateRange(format!("Invalid end date: {}", end_date)))?;
-    if start > end {
-        return Err(ExpenseError::InvalidDateRange(
-            "Start date must not be after the end date".into(),
-        ));
-    }
-    Ok(())
+    dates::parse_date_range(start_date, end_date).map(|_| ()).map_err(ExpenseError::InvalidDateRange)
 }
 
 fn row_to_expense(row: &rusqlite::Row) -> rusqlite::Result<Expense> {
@@ -205,13 +194,17 @@ mod tests {
     #[test]
     fn get_expenses_filters_by_date_range_and_category() {
         let conn = test_conn();
-        // Seed data already has 6 expenses spread over the last 12 days.
+        // Counted from the table rather than hard-coded, so a change to the
+        // seed data doesn't break this test.
+        add_expense(&conn, "2026-01-05", "Supplies", 1000, None).unwrap();
+        let count = |sql: &str| -> usize { conn.query_row(sql, [], |row| row.get::<_, i64>(0)).unwrap() as usize };
+
         let all = get_expenses(&conn, "2000-01-01", "2100-01-01", None).unwrap();
-        assert_eq!(all.len(), 6);
+        assert_eq!(all.len(), count("SELECT COUNT(*) FROM expenses"));
 
         let supplies_only = get_expenses(&conn, "2000-01-01", "2100-01-01", Some("Supplies")).unwrap();
         assert!(supplies_only.iter().all(|e| e.category == "Supplies"));
-        assert_eq!(supplies_only.len(), 2);
+        assert_eq!(supplies_only.len(), count("SELECT COUNT(*) FROM expenses WHERE category = 'Supplies'"));
     }
 
     #[test]
@@ -238,13 +231,21 @@ mod tests {
         let conn = test_conn();
         let totals = get_totals_by_category(&conn, "2000-01-01", "2100-01-01").unwrap();
 
-        // Seed data: Supplies = 2150 + 950 rupees, in minor units.
-        let supplies = totals.iter().find(|t| t.category == "Supplies").unwrap();
-        assert_eq!(supplies.count, 2);
-        assert_eq!(supplies.total_minor, (2150 + 950) * 100);
+        // Each category's count/sum matches the raw rows, whatever the seed.
+        for total in &totals {
+            let (count, sum): (i64, i64) = conn
+                .query_row(
+                    "SELECT COUNT(*), SUM(amount_minor) FROM expenses WHERE category = ?1",
+                    params![total.category],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(total.count, count, "{}", total.category);
+            assert_eq!(total.total_minor, sum, "{}", total.category);
+        }
 
-        // Highest total first: Rent (35,000) leads the seeded categories.
-        assert_eq!(totals[0].category, "Rent");
+        // Highest total first.
+        assert!(totals.windows(2).all(|pair| pair[0].total_minor >= pair[1].total_minor));
     }
 
     #[test]

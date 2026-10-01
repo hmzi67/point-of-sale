@@ -13,6 +13,7 @@ import {
 } from "../../services/reportsService";
 import { downloadReportCsv } from "../../utils/reportCsv";
 import type { AppConfig, DailySales, SalesSummary, TopItem, TopItemSort } from "../../types";
+import { runAction } from "../../utils/runAction";
 
 type View = "overview" | "products" | "tables" | "refunds";
 
@@ -132,105 +133,71 @@ export function ExportButtons({
   const [error, setError] = useState<string | null>(null);
   const disabled = !summary;
 
-  // --- The active tab's own Download (+ Print, where one exists) --------
-  const downloadCurrentView = async () => {
-    setIsDownloadingCurrent(true);
-    setError(null);
-    try {
-      if (view === "overview") {
-        if (!summary) return;
-        await downloadReportCsv({ summary, topItems, series, config });
-      } else if (view === "products") {
-        const report = await getProductSalesSummary(startDate, endDate, productCategoryId, productSort);
-        const { downloadProductSalesPdf } = await import("../../utils/productSalesPdf");
-        await downloadProductSalesPdf(report, config);
-      } else if (view === "tables") {
-        const report = await getTableSalesSummary(startDate, endDate);
-        const { downloadTableSalesPdf } = await import("../../utils/tableSalesPdf");
-        await downloadTableSalesPdf(report, config);
-      } else {
-        const report = await getRefundsSummary(startDate, endDate);
-        const { downloadRefundsSummaryPdf } = await import("../../utils/refundsSummaryPdf");
-        await downloadRefundsSummaryPdf(report, config);
-      }
-    } catch (e) {
-      setError(`Could not prepare the download: ${(e as Error).message}`);
-    } finally {
-      setIsDownloadingCurrent(false);
-    }
-  };
+  /** One export action with its own busy flag, reporting into the shared
+   * error line. `errorPrefix` labels downloads; thermal prints already
+   * return a user-facing message. */
+  const runExport = (setBusy: (busy: boolean) => void, action: () => Promise<void>, errorPrefix?: string) =>
+    runAction(setBusy, setError, action, errorPrefix);
 
-  const printCurrentView = async () => {
-    setIsPrintingCurrentView(true);
-    setError(null);
-    try {
-      if (view === "refunds") {
-        await printRefundsSummaryThermal(startDate, endDate);
-      } else {
-        await printTableSalesThermal(startDate, endDate);
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsPrintingCurrentView(false);
-    }
-  };
+  // --- The active tab's own Download (+ Print, where one exists) --------
+  const downloadCurrentView = () =>
+    runExport(
+      setIsDownloadingCurrent,
+      async () => {
+        if (view === "overview") {
+          if (!summary) return;
+          await downloadReportCsv({ summary, topItems, series, config });
+        } else if (view === "products") {
+          const report = await getProductSalesSummary(startDate, endDate, productCategoryId, productSort);
+          const { downloadProductSalesPdf } = await import("../../utils/productSalesPdf");
+          await downloadProductSalesPdf(report, config);
+        } else if (view === "tables") {
+          const report = await getTableSalesSummary(startDate, endDate);
+          const { downloadTableSalesPdf } = await import("../../utils/tableSalesPdf");
+          await downloadTableSalesPdf(report, config);
+        } else {
+          const report = await getRefundsSummary(startDate, endDate);
+          const { downloadRefundsSummaryPdf } = await import("../../utils/refundsSummaryPdf");
+          await downloadRefundsSummaryPdf(report, config);
+        }
+      },
+      "Could not prepare the download",
+    );
+
+  const printCurrentView = () =>
+    runExport(setIsPrintingCurrentView, () =>
+      view === "refunds" ? printRefundsSummaryThermal(startDate, endDate) : printTableSalesThermal(startDate, endDate),
+    );
 
   // --- Category Wise Sale — no dedicated on-screen tab, so it's always
   // offered as its own card rather than folded into the tab-aware one. ---
-  const downloadCategorySales = async () => {
-    setIsDownloadingCategory(true);
-    setError(null);
-    try {
-      const report = await getCategorySales(startDate, endDate);
-      const { downloadCategorySalesPdf } = await import("../../utils/categorySalesPdf");
-      await downloadCategorySalesPdf(report, config);
-    } catch (e) {
-      setError(`Could not prepare the Category Wise Sale download: ${(e as Error).message}`);
-    } finally {
-      setIsDownloadingCategory(false);
-    }
-  };
+  const downloadCategorySales = () =>
+    runExport(
+      setIsDownloadingCategory,
+      async () => {
+        const report = await getCategorySales(startDate, endDate);
+        const { downloadCategorySalesPdf } = await import("../../utils/categorySalesPdf");
+        await downloadCategorySalesPdf(report, config);
+      },
+      "Could not prepare the Category Wise Sale download",
+    );
 
-  const printCategorySales = async () => {
-    setIsPrintingCategory(true);
-    setError(null);
-    try {
-      await printCategorySalesThermal(startDate, endDate);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsPrintingCategory(false);
-    }
-  };
+  const printCategorySales = () => runExport(setIsPrintingCategory, () => printCategorySalesThermal(startDate, endDate));
 
   // --- Generate Full Report — one consolidated document, distinct from
   // every per-report action above. ---------------------------------------
-  const downloadFullReport = async () => {
-    setIsDownloadingFull(true);
-    setError(null);
-    try {
-      const report = await getFullReport(startDate, endDate);
-      const { downloadFullReportPdf } = await import("../../utils/fullReportPdf");
-      await downloadFullReportPdf(report, config);
-    } catch (e) {
-      setError(`Could not prepare the Full Report: ${(e as Error).message}`);
-    } finally {
-      setIsDownloadingFull(false);
-    }
-  };
+  const downloadFullReport = () =>
+    runExport(
+      setIsDownloadingFull,
+      async () => {
+        const report = await getFullReport(startDate, endDate);
+        const { downloadFullReportPdf } = await import("../../utils/fullReportPdf");
+        await downloadFullReportPdf(report, config);
+      },
+      "Could not prepare the Full Report",
+    );
 
-  const printFullReport = async () => {
-    setIsPrintingFull(true);
-    setError(null);
-    try {
-      await printFullReportThermal(startDate, endDate);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsPrintingFull(false);
-    }
-  };
+  const printFullReport = () => runExport(setIsPrintingFull, () => printFullReportThermal(startDate, endDate));
 
   const currentViewTitle =
     view === "overview"

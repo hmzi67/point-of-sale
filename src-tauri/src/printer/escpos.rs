@@ -368,6 +368,31 @@ fn three_col_border() -> String {
     bordered_line(&THREE_COL_TABLE)
 }
 
+/// The skeleton every standalone report print shares: wake + init, the
+/// business-name header with `subtitle_lines`, `body`, then footer and cut.
+fn report_document(config: &AppConfig, subtitle_lines: &[String], body: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(wake_padding());
+    out.extend(init());
+    header_block(&mut out, &config.business_name, subtitle_lines);
+    body(&mut out);
+    close_out(&mut out, &config.receipt_footer);
+    out
+}
+
+/// A bordered three-column table's top border, bold header row and the
+/// border under it.
+fn three_col_header(out: &mut Vec<u8>, left: &str, middle: &str, right: &str) {
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(three_col_row(left, middle, right).as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(three_col_border().as_bytes());
+    out.push(b'\n');
+}
+
 /// Every template's closer: footer text (if any), then two blank lines of
 /// margin *on top of* the cut command's own built-in feed
 /// ([`CUT_FEED_LINES`]) — belt-and-suspenders so even a printer with a
@@ -756,8 +781,7 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
 /// just the byte-building + transport call, same division of
 /// responsibility as `print_receipt`.
 pub fn print_token(token: &TokenSummary, config: &AppConfig, is_reprint: bool) -> Result<(), PrinterError> {
-    let bytes = build_token_bytes(token, is_reprint);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_token_bytes(token, is_reprint), config)
 }
 
 /// The "Counter-N Sale Details" shift close-out receipt: opening balance,
@@ -827,19 +851,8 @@ pub fn build_shift_summary_bytes(summary: &ShiftSummary, config: &AppConfig) -> 
 /// The "Category Wise Sale" report: one section per category (bold header,
 /// item rows, subtotal), grand total at the end.
 pub fn build_category_sales_bytes(report: &CategorySalesReport, config: &AppConfig) -> Vec<u8> {
-    let mut out = Vec::new();
-
-    out.extend(wake_padding());
-    out.extend(init());
-
-    let subtitle =
-        vec!["Category Wise Sale".to_string(), format!("{} to {}", report.start_date, report.end_date)];
-    header_block(&mut out, &config.business_name, &subtitle);
-
-    write_category_sales_section(&mut out, report, &config.currency);
-
-    close_out(&mut out, &config.receipt_footer);
-    out
+    let subtitle = ["Category Wise Sale".to_string(), format!("{} to {}", report.start_date, report.end_date)];
+    report_document(config, &subtitle, |out| write_category_sales_section(out, report, &config.currency))
 }
 
 /// One category-per-group bordered breakdown (bold category name, a
@@ -854,14 +867,7 @@ fn write_category_sales_section(out: &mut Vec<u8>, report: &CategorySalesReport,
         out.push(b'\n');
         out.extend(bold(false));
 
-        out.extend(three_col_border().as_bytes());
-        out.push(b'\n');
-        out.extend(bold(true));
-        out.extend(three_col_row("Item", "Qty", "Revenue").as_bytes());
-        out.push(b'\n');
-        out.extend(bold(false));
-        out.extend(three_col_border().as_bytes());
-        out.push(b'\n');
+        three_col_header(out, "Item", "Qty", "Revenue");
         for item in &group.items {
             out.extend(
                 three_col_row(&item.item_name, &format_qty(item.qty_sold), &format_minor(item.revenue_minor))
@@ -892,33 +898,15 @@ fn write_category_sales_section(out: &mut Vec<u8>, report: &CategorySalesReport,
 /// shape as the reference receipt, built from `TableSalesSummary` (see
 /// `db::reports::get_table_sales_summary`).
 pub fn build_table_sales_bytes(report: &TableSalesSummary, config: &AppConfig) -> Vec<u8> {
-    let mut out = Vec::new();
-
-    out.extend(wake_padding());
-    out.extend(init());
-
-    let subtitle =
-        vec!["Table Wise Sales".to_string(), format!("{} to {}", report.start_date, report.end_date)];
-    header_block(&mut out, &config.business_name, &subtitle);
-
-    write_table_sales_section(&mut out, report, &config.currency);
-
-    close_out(&mut out, &config.receipt_footer);
-    out
+    let subtitle = ["Table Wise Sales".to_string(), format!("{} to {}", report.start_date, report.end_date)];
+    report_document(config, &subtitle, |out| write_table_sales_section(out, report, &config.currency))
 }
 
 /// The bordered Table/Txns/Amount grid plus grand-total rule — reused by
 /// both [`build_table_sales_bytes`] and [`build_full_report_bytes`], same
 /// reasoning as [`write_category_sales_section`].
 fn write_table_sales_section(out: &mut Vec<u8>, report: &TableSalesSummary, currency: &str) {
-    out.extend(three_col_border().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(three_col_row("Table / Counter", "Txns", "Amount").as_bytes());
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(three_col_border().as_bytes());
-    out.push(b'\n');
+    three_col_header(out, "Table / Counter", "Txns", "Amount");
     for line in &report.rows {
         out.extend(
             three_col_row(&line.label, &line.transaction_count.to_string(), &format_minor(line.total_minor))
@@ -950,18 +938,8 @@ fn write_table_sales_section(out: &mut Vec<u8>, report: &TableSalesSummary, curr
 /// section` makes with its per-category Subtotal line sitting outside the
 /// item box.
 pub fn build_employee_report_bytes(rows: &[SalaryCalculation], month: &str, config: &AppConfig) -> Vec<u8> {
-    let mut out = Vec::new();
-
-    out.extend(wake_padding());
-    out.extend(init());
-
-    let subtitle = vec!["Employee Report".to_string(), format!("Month: {}", month)];
-    header_block(&mut out, &config.business_name, &subtitle);
-
-    write_employee_report_section(&mut out, rows, &config.currency);
-
-    close_out(&mut out, &config.receipt_footer);
-    out
+    let subtitle = ["Employee Report".to_string(), format!("Month: {}", month)];
+    report_document(config, &subtitle, |out| write_employee_report_section(out, rows, &config.currency))
 }
 
 fn write_employee_report_section(out: &mut Vec<u8>, rows: &[SalaryCalculation], currency: &str) {
@@ -970,14 +948,7 @@ fn write_employee_report_section(out: &mut Vec<u8>, rows: &[SalaryCalculation], 
         return;
     }
 
-    out.extend(three_col_border().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(three_col_row("Employee", "Present", "Net Pay").as_bytes());
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(three_col_border().as_bytes());
-    out.push(b'\n');
+    three_col_header(out, "Employee", "Present", "Net Pay");
 
     let mut total_net_minor: i64 = 0;
     let mut total_paid_minor: i64 = 0;
@@ -1018,8 +989,7 @@ fn write_employee_report_section(out: &mut Vec<u8>, rows: &[SalaryCalculation], 
 /// Builds and sends the Employee Report to this installation's configured
 /// printer — same division of responsibility as `print_table_sales`.
 pub fn print_employee_report(rows: &[SalaryCalculation], month: &str, config: &AppConfig) -> Result<(), PrinterError> {
-    let bytes = build_employee_report_bytes(rows, month, config);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_employee_report_bytes(rows, month, config), config)
 }
 
 /// The Refunds report: one block per refund — Vno (original sale id),
@@ -1054,14 +1024,7 @@ fn write_refunds_section(out: &mut Vec<u8>, report: &RefundsSummary, currency: &
             out.push(b'\n');
         }
 
-        out.extend(three_col_border().as_bytes());
-        out.push(b'\n');
-        out.extend(bold(true));
-        out.extend(three_col_row("Item", "Qty", "Amount").as_bytes());
-        out.push(b'\n');
-        out.extend(bold(false));
-        out.extend(three_col_border().as_bytes());
-        out.push(b'\n');
+        three_col_header(out, "Item", "Qty", "Amount");
         for item in &refund.items {
             out.extend(
                 three_col_row(&item.item_name, &format_qty(item.qty_refunded), &format_minor(item.amount_refunded_minor))
@@ -1099,18 +1062,8 @@ fn write_refunds_section(out: &mut Vec<u8>, report: &RefundsSummary, currency: &
 /// The standalone "Refunds Report" thermal print/PDF — every refund in the
 /// range via [`write_refunds_section`], with its own header/footer.
 pub fn build_refunds_summary_bytes(report: &RefundsSummary, config: &AppConfig) -> Vec<u8> {
-    let mut out = Vec::new();
-
-    out.extend(wake_padding());
-    out.extend(init());
-
-    let subtitle = vec!["Refunds Report".to_string(), format!("{} to {}", report.start_date, report.end_date)];
-    header_block(&mut out, &config.business_name, &subtitle);
-
-    write_refunds_section(&mut out, report, &config.currency);
-
-    close_out(&mut out, &config.receipt_footer);
-    out
+    let subtitle = ["Refunds Report".to_string(), format!("{} to {}", report.start_date, report.end_date)];
+    report_document(config, &subtitle, |out| write_refunds_section(out, report, &config.currency))
 }
 
 /// The Product Wise Sales bordered grid — rank-prefixed item name / qty /
@@ -1119,14 +1072,7 @@ pub fn build_refunds_summary_bytes(report: &RefundsSummary, config: &AppConfig) 
 /// standalone thermal-print button of its own (PDF/CSV only), same as it
 /// is on-screen.
 fn write_product_sales_section(out: &mut Vec<u8>, report: &ProductSalesSummaryReport) {
-    out.extend(three_col_border().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(three_col_row("Item", "Qty", "Revenue").as_bytes());
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(three_col_border().as_bytes());
-    out.push(b'\n');
+    three_col_header(out, "Item", "Qty", "Revenue");
     for item in &report.rows {
         let label = format!("{}. {}", item.rank, item.item_name);
         out.extend(three_col_row(&label, &format_qty(item.qty_sold), &format_minor(item.revenue_minor)).as_bytes());
@@ -1441,44 +1387,37 @@ pub fn print_receipt(
     logo: Option<&LogoRaster>,
     tables_module_enabled: bool,
 ) -> Result<(), PrinterError> {
-    let bytes = build_receipt_bytes(sale, config, logo, tables_module_enabled);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_receipt_bytes(sale, config, logo, tables_module_enabled), config)
 }
 
 /// Builds and prints the "Refund Details" receipt for a just-created refund.
 pub fn print_refund(refund: &Refund, config: &AppConfig) -> Result<(), PrinterError> {
-    let bytes = build_refund_bytes(refund, config);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_refund_bytes(refund, config), config)
 }
 
 /// Builds and prints a shift's close-out reconciliation receipt.
 pub fn print_shift_summary(summary: &ShiftSummary, config: &AppConfig) -> Result<(), PrinterError> {
-    let bytes = build_shift_summary_bytes(summary, config);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_shift_summary_bytes(summary, config), config)
 }
 
 /// Builds and prints the Category Wise Sale report.
 pub fn print_category_sales(report: &CategorySalesReport, config: &AppConfig) -> Result<(), PrinterError> {
-    let bytes = build_category_sales_bytes(report, config);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_category_sales_bytes(report, config), config)
 }
 
 /// Builds and prints the Table Wise Sales report.
 pub fn print_table_sales(report: &TableSalesSummary, config: &AppConfig) -> Result<(), PrinterError> {
-    let bytes = build_table_sales_bytes(report, config);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_table_sales_bytes(report, config), config)
 }
 
 /// Builds and prints the Refunds report.
 pub fn print_refunds_summary(report: &RefundsSummary, config: &AppConfig) -> Result<(), PrinterError> {
-    let bytes = build_refunds_summary_bytes(report, config);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_refunds_summary_bytes(report, config), config)
 }
 
 /// Builds and prints the consolidated Full Report.
 pub fn print_full_report(report: &FullReport, config: &AppConfig) -> Result<(), PrinterError> {
-    let bytes = build_full_report_bytes(report, config);
-    send_to_printer(&bytes, config)
+    send_to_printer(&build_full_report_bytes(report, config), config)
 }
 
 /// Candidate line widths the diagnostic print checks — spans comfortably

@@ -41,6 +41,9 @@ pub struct CreateSaleInput {
     pub discount_minor: i64,
     pub tax_minor: i64,
     pub payment_method: String,
+    /// Always overwritten by `billing_create_sale` with the signed-in
+    /// caller — never trusted from the client (see `session.rs`).
+    #[serde(default)]
     pub cashier_id: Option<i64>,
     /// Dine-in table this sale belongs to, if any. Only meaningful when the
     /// `tables` module is enabled — the frontend never sends it otherwise.
@@ -51,6 +54,9 @@ pub struct CreateSaleInput {
     /// (rather than back-filling it after the fact) is what lets
     /// `shifts::get_shift_summary` scope "sales during this shift" with a
     /// plain `WHERE shift_id = ?` instead of a time-window join.
+    /// Like `cashier_id`, `billing_create_sale` derives this from the
+    /// session (the caller's own open shift) rather than the client.
+    #[serde(default)]
     pub shift_id: Option<i64>,
 }
 
@@ -157,7 +163,7 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
     // keeps exactly one sale_items row per item per sale.
     let mut merged: Vec<CartLine> = Vec::with_capacity(input.items.len());
     for line in &input.items {
-        if line.qty <= 0.0 {
+        if !line.qty.is_finite() || line.qty <= 0.0 {
             return Err(SaleError::InvalidQuantity);
         }
         match merged.iter_mut().find(|l: &&mut CartLine| l.item_id == line.item_id) {
@@ -371,22 +377,11 @@ pub fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<SaleListItem>, r
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::{item_id, stock};
     use crate::db::items::{self, ItemInput};
     use crate::db::schema::test_conn;
 
-    fn item_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM items WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
-    }
 
-    fn stock(conn: &Connection, name: &str) -> f64 {
-        conn.query_row(
-            "SELECT stock_qty FROM items WHERE name = ?1",
-            params![name],
-            |row| row.get(0),
-        )
-        .unwrap()
-    }
 
     fn basic_input(conn: &Connection) -> CreateSaleInput {
         CreateSaleInput {
@@ -628,15 +623,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_non_positive_quantity() {
+    fn rejects_a_non_positive_or_non_finite_quantity() {
         let mut conn = test_conn();
         let tx = conn.transaction().unwrap();
         let cola = item_id(&tx, "Cola 500ml");
-        let input = CreateSaleInput {
-            items: vec![CartLine { item_id: cola, qty: 0.0, notes: None }],
-            ..basic_input(&tx)
-        };
-        assert!(matches!(create_sale(&tx, input), Err(SaleError::InvalidQuantity)));
+        for qty in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let input = CreateSaleInput {
+                items: vec![CartLine { item_id: cola, qty, notes: None }],
+                ..basic_input(&tx)
+            };
+            assert!(matches!(create_sale(&tx, input), Err(SaleError::InvalidQuantity)), "qty {qty} should be rejected");
+        }
     }
 
     #[test]

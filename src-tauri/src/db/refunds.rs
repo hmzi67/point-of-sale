@@ -216,9 +216,13 @@ pub fn create_refund(tx: &Transaction, input: CreateRefundInput) -> Result<Refun
     // (sale_item_id, item_id, item_name, qty_refunded, amount_refunded_minor)
     let mut resolved: Vec<(i64, i64, String, f64, i64)> = Vec::with_capacity(input.items.len());
     let mut total_refund_amount_minor: i64 = 0;
+    // Qty already claimed by earlier lines of *this* request, per sale line.
+    // `already_refunded` only sees committed rows, so without this the same
+    // `sale_item_id` sent twice would pass the refundable check twice.
+    let mut requested_so_far: std::collections::HashMap<i64, f64> = std::collections::HashMap::new();
 
     for line in &input.items {
-        if line.qty <= 0.0 {
+        if !line.qty.is_finite() || line.qty <= 0.0 {
             return Err(RefundError::InvalidQuantity);
         }
 
@@ -242,7 +246,8 @@ pub fn create_refund(tx: &Transaction, input: CreateRefundInput) -> Result<Refun
             });
         }
 
-        let already = already_refunded(tx, line.sale_item_id)?;
+        let earlier_in_request = requested_so_far.entry(line.sale_item_id).or_insert(0.0);
+        let already = already_refunded(tx, line.sale_item_id)? + *earlier_in_request;
         let refundable = qty - already;
         if line.qty > refundable {
             return Err(RefundError::OverRefund {
@@ -263,6 +268,7 @@ pub fn create_refund(tx: &Transaction, input: CreateRefundInput) -> Result<Refun
             });
         }
 
+        *earlier_in_request += line.qty;
         total_refund_amount_minor += line.amount_minor;
         resolved.push((line.sale_item_id, item_id, item_name, line.qty, line.amount_minor));
     }
@@ -313,6 +319,26 @@ pub fn create_refund(tx: &Transaction, input: CreateRefundInput) -> Result<Refun
     })
 }
 
+/// One refund's lines with each item's name, in the order they were
+/// entered — shared by `get_refund` and the refunds report.
+pub(crate) const REFUND_LINES_SQL: &str =
+    "SELECT ri.sale_item_id, si.item_id, i.name, ri.qty_refunded, ri.amount_refunded_minor
+       FROM refund_items ri
+       JOIN sale_items si ON si.id = ri.sale_item_id
+       JOIN items i ON i.id = si.item_id
+      WHERE ri.refund_id = ?1
+      ORDER BY ri.id";
+
+pub(crate) fn refund_line_from_row(row: &rusqlite::Row) -> rusqlite::Result<RefundLine> {
+    Ok(RefundLine {
+        sale_item_id: row.get(0)?,
+        item_id: row.get(1)?,
+        item_name: row.get(2)?,
+        qty_refunded: row.get(3)?,
+        amount_refunded_minor: row.get(4)?,
+    })
+}
+
 /// Re-fetches a previously created refund (by id) — used for reprinting a
 /// refund receipt, the same "take an id, reload from the database" shape
 /// `sales::get_sale` uses for the customer receipt.
@@ -331,24 +357,9 @@ pub fn get_refund(conn: &Connection, refund_id: i64) -> Result<Refund, RefundErr
     let (original_sale_id, refunded_by, refunded_by_name, reason, total_refund_amount_minor, created_at) =
         row.ok_or(RefundError::SaleNotFound(refund_id))?;
 
-    let mut stmt = conn.prepare(
-        "SELECT ri.sale_item_id, si.item_id, i.name, ri.qty_refunded, ri.amount_refunded_minor
-           FROM refund_items ri
-           JOIN sale_items si ON si.id = ri.sale_item_id
-           JOIN items i ON i.id = si.item_id
-          WHERE ri.refund_id = ?1
-          ORDER BY ri.id",
-    )?;
+    let mut stmt = conn.prepare(REFUND_LINES_SQL)?;
     let items = stmt
-        .query_map(params![refund_id], |row| {
-            Ok(RefundLine {
-                sale_item_id: row.get(0)?,
-                item_id: row.get(1)?,
-                item_name: row.get(2)?,
-                qty_refunded: row.get(3)?,
-                amount_refunded_minor: row.get(4)?,
-            })
-        })?
+        .query_map(params![refund_id], refund_line_from_row)?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Refund { id: refund_id, original_sale_id, refunded_by, refunded_by_name, reason, total_refund_amount_minor, created_at, items })
@@ -357,40 +368,11 @@ pub fn get_refund(conn: &Connection, refund_id: i64) -> Result<Refund, RefundErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
+    use crate::db::test_support::{ring_up, stock};
     use crate::db::schema::test_conn;
 
-    fn item_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM items WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
-    }
 
-    fn stock(conn: &Connection, name: &str) -> f64 {
-        conn.query_row("SELECT stock_qty FROM items WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
-    }
 
-    /// Rings up a fresh Cola x4 sale and returns its id — a clean, known
-    /// starting point every test below builds a refund against.
-    fn seed_sale(conn: &mut Connection) -> i64 {
-        let tx = conn.transaction().unwrap();
-        let cola = item_id(&tx, "Cola 500ml");
-        let sale = create_sale(
-            &tx,
-            CreateSaleInput {
-                items: vec![CartLine { item_id: cola, qty: 4.0, notes: None }],
-                discount_minor: 0,
-                tax_minor: 0,
-                payment_method: "cash".into(),
-                cashier_id: None,
-                table_id: None,
-                shift_id: None,
-            },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-        sale.id
-    }
 
     fn sale_item_id(conn: &Connection, sale_id: i64) -> i64 {
         conn.query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale_id], |row| row.get(0))
@@ -401,7 +383,7 @@ mod tests {
     fn a_partial_refund_restores_exactly_the_refunded_stock() {
         let mut conn = test_conn();
         let cola_before_sale = stock(&conn, "Cola 500ml");
-        let sale_id = seed_sale(&mut conn);
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
         assert_eq!(stock(&conn, "Cola 500ml"), cola_before_sale - 4.0);
 
         let si = sale_item_id(&conn, sale_id);
@@ -425,7 +407,7 @@ mod tests {
     #[test]
     fn get_sale_for_refund_accounts_for_a_prior_partial_refund() {
         let mut conn = test_conn();
-        let sale_id = seed_sale(&mut conn);
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
         let si = sale_item_id(&conn, sale_id);
 
         {
@@ -453,7 +435,7 @@ mod tests {
     #[test]
     fn refunding_more_than_remains_is_rejected_and_rolls_back() {
         let mut conn = test_conn();
-        let sale_id = seed_sale(&mut conn);
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
         let si = sale_item_id(&conn, sale_id);
         let stock_before = stock(&conn, "Cola 500ml");
 
@@ -477,7 +459,7 @@ mod tests {
     #[test]
     fn two_partial_refunds_cannot_together_exceed_the_original_quantity() {
         let mut conn = test_conn();
-        let sale_id = seed_sale(&mut conn);
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
         let si = sale_item_id(&conn, sale_id);
 
         {
@@ -513,7 +495,7 @@ mod tests {
     #[test]
     fn refund_amount_cannot_exceed_the_line_s_original_value() {
         let mut conn = test_conn();
-        let sale_id = seed_sale(&mut conn);
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
         let si = sale_item_id(&conn, sale_id);
 
         let tx = conn.transaction().unwrap();
@@ -535,8 +517,8 @@ mod tests {
     #[test]
     fn a_sale_item_from_a_different_sale_is_rejected() {
         let mut conn = test_conn();
-        let sale_a = seed_sale(&mut conn);
-        let sale_b = seed_sale(&mut conn);
+        let sale_a = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
+        let sale_b = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
         let si_from_b = sale_item_id(&conn, sale_b);
 
         let tx = conn.transaction().unwrap();
@@ -558,7 +540,7 @@ mod tests {
     #[test]
     fn rejects_an_empty_refund() {
         let mut conn = test_conn();
-        let sale_id = seed_sale(&mut conn);
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
         let tx = conn.transaction().unwrap();
         let err = create_refund(
             &tx,
@@ -577,7 +559,7 @@ mod tests {
     #[test]
     fn a_created_refund_can_be_reloaded_by_id_for_reprint() {
         let mut conn = test_conn();
-        let sale_id = seed_sale(&mut conn);
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
         let si = sale_item_id(&conn, sale_id);
 
         let created = {
@@ -602,5 +584,76 @@ mod tests {
         assert_eq!(reloaded.reason.as_deref(), Some("Wrong item"));
         assert_eq!(reloaded.items.len(), 1);
         assert_eq!(reloaded.items[0].item_name, "Cola 500ml");
+    }
+
+    fn refund_lines(conn: &mut Connection, sale_id: i64, lines: Vec<RefundLineInput>) -> Result<Refund, RefundError> {
+        let tx = conn.transaction().unwrap();
+        let result = create_refund(&tx, CreateRefundInput { sale_id, items: lines, reason: None, refunded_by: None });
+        if result.is_ok() {
+            tx.commit().unwrap();
+        }
+        result
+    }
+
+    #[test]
+    fn the_same_sale_line_twice_in_one_request_cannot_over_refund() {
+        let mut conn = test_conn();
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
+        let si = sale_item_id(&conn, sale_id);
+        let stock_after_sale = stock(&conn, "Cola 500ml");
+
+        let err = refund_lines(
+            &mut conn,
+            sale_id,
+            vec![
+                RefundLineInput { sale_item_id: si, qty: 4.0, amount_minor: 4 * 8000 },
+                RefundLineInput { sale_item_id: si, qty: 4.0, amount_minor: 4 * 8000 },
+            ],
+        )
+        .unwrap_err();
+        assert!(matches!(err, RefundError::OverRefund { refundable, requested, .. } if refundable == 0.0 && requested == 4.0));
+        assert_eq!(stock(&conn, "Cola 500ml"), stock_after_sale);
+    }
+
+    #[test]
+    fn the_same_sale_line_split_across_lines_is_fine_within_the_original_qty() {
+        let mut conn = test_conn();
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
+        let si = sale_item_id(&conn, sale_id);
+
+        let refund = refund_lines(
+            &mut conn,
+            sale_id,
+            vec![
+                RefundLineInput { sale_item_id: si, qty: 1.0, amount_minor: 8000 },
+                RefundLineInput { sale_item_id: si, qty: 3.0, amount_minor: 3 * 8000 },
+            ],
+        )
+        .unwrap();
+        assert_eq!(refund.total_refund_amount_minor, 4 * 8000);
+    }
+
+    #[test]
+    fn rejects_zero_negative_and_non_finite_quantities() {
+        let mut conn = test_conn();
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
+        let si = sale_item_id(&conn, sale_id);
+
+        for qty in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let err = refund_lines(&mut conn, sale_id, vec![RefundLineInput { sale_item_id: si, qty, amount_minor: 0 }])
+                .unwrap_err();
+            assert!(matches!(err, RefundError::InvalidQuantity), "qty {qty} should be rejected");
+        }
+    }
+
+    #[test]
+    fn rejects_a_negative_refund_amount() {
+        let mut conn = test_conn();
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 4.0, "cash", None);
+        let si = sale_item_id(&conn, sale_id);
+
+        let err = refund_lines(&mut conn, sale_id, vec![RefundLineInput { sale_item_id: si, qty: 1.0, amount_minor: -1 }])
+            .unwrap_err();
+        assert!(matches!(err, RefundError::InvalidAmount { requested_minor: -1, .. }));
     }
 }

@@ -17,23 +17,21 @@ import { ShortcutsHelpOverlay } from "../components/billing/ShortcutsHelpOverlay
 import { TableQuickSelectModal } from "../components/billing/TableQuickSelectModal";
 import { useBestSellerIds } from "../hooks/useBestSellerIds";
 import { useFastBillingHotkeys } from "../hooks/useFastBillingHotkeys";
-import { useModules } from "../hooks/useModules";
+import { useModuleEnabled } from "../hooks/useModules";
 import { createSale } from "../services/billingService";
 import { getCategories, getItems } from "../services/inventoryService";
 import { useAppConfig } from "../hooks/useAppConfig";
-import { useAuthStore, useBillingStore, useShiftStore } from "../store";
-import { IS_ANDROID } from "../types";
+import { useBillingStore, useShiftStore } from "../store";
+import { IS_ANDROID } from "../services/platform";
 import { computeCartTotals } from "../utils/billingTotals";
 import { formatMinor } from "../utils/format";
 import type { Category, Item, Sale } from "../types";
+import { runAction } from "../utils/runAction";
 
 export function BillingPage() {
   const { config } = useAppConfig();
-  const cashierId = useAuthStore((state) => state.user?.id ?? null);
-  const { modules } = useModules();
-  const tablesEnabled = modules.some((m) => m.key === "tables" && m.enabled);
-  const shiftsEnabled = modules.some((m) => m.key === "shifts" && m.enabled);
-  const openShiftId = useShiftStore((state) => state.openShift?.id ?? null);
+  const tablesEnabled = useModuleEnabled("tables");
+  const shiftsEnabled = useModuleEnabled("shifts");
   const loadShift = useShiftStore((state) => state.load);
 
   useEffect(() => {
@@ -144,28 +142,20 @@ export function BillingPage() {
 
   const completeSale = async () => {
     if (cartOrder.length === 0) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
+    await runAction(setIsSubmitting, setError, async () => {
       const sale = await createSale({
         items: cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty, notes: cart[id].notes || undefined })),
         discountMinor: totals.discountMinor,
         taxMinor: totals.taxMinor,
         paymentMethod,
-        cashierId,
         tableId,
-        shiftId: shiftsEnabled ? openShiftId : null,
       });
       setCompletedSale(sale);
       clearCart();
       setIsCartOpen(false);
       loadCatalog(); // stock just changed — the grid should reflect it
       reloadBestSellers(); // this sale may have moved the best-sellers ranking
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   return (
@@ -310,7 +300,7 @@ export function BillingPage() {
         <button
           type="button"
           onClick={() => setIsCartOpen(true)}
-          className="fixed bottom-20 right-4 z-30 flex items-center gap-2 rounded-full bg-accent px-4 py-3.5 text-accent-ink ring-1 ring-black/10"
+          className="fixed bottom-20 right-4 z-30 flex items-center gap-2 rounded-full bg-accent px-4 py-3.5 text-accent-ink shadow-soft-lg"
         >
           <span className="relative flex items-center">
             <ShoppingBag className="h-5 w-5" />
@@ -360,7 +350,7 @@ export function BillingPage() {
       {/* Keyboard fast billing UI — see `useFastBillingHotkeys`. */}
       {fastBilling.buffer && (
         <div
-          className="pointer-events-none fixed bottom-5 right-5 z-40 rounded-xl bg-black/80 px-3 py-1.5 font-mono text-sm text-white shadow-soft-lg"
+          className="pointer-events-none fixed bottom-5 right-5 z-40 rounded-xl bg-overlay px-3 py-1.5 font-mono text-sm text-overlay-ink shadow-soft-lg"
           aria-live="polite"
         >
           {fastBilling.buffer}

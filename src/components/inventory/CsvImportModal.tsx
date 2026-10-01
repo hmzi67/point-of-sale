@@ -3,6 +3,7 @@ import { Download, Upload, X } from "lucide-react";
 import { getCsvTemplate, importItemsCsv } from "../../services/inventoryService";
 import { downloadTextFile } from "../../utils/csv";
 import type { ImportSummary } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface CsvImportModalProps {
   onClose: () => void;
@@ -48,7 +49,7 @@ export function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-md rounded-lg bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h3 className="text-sm font-semibold text-fg">Import items from CSV</h3>
@@ -136,6 +137,6 @@ export function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
           </div>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

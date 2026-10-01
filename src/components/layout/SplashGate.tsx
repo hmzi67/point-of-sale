@@ -70,14 +70,13 @@ export function SplashGate({ children }: SplashGateProps) {
     <div className="h-full">
       {children}
       <div
-        className={[
-          "fixed inset-0 z-[9999] flex items-center justify-center transition-opacity duration-[250ms] ease-out",
-          fadingOut ? "opacity-0" : "opacity-100",
-        ].join(" ")}
         // Fixed brand color, not bg-canvas: matches brand-logo.png's own
         // dark background (see splashscreen.html's matching comment) rather
         // than tracking the app's own light theme.
-        style={{ backgroundColor: "#123326" }}
+        className={[
+          "fixed inset-0 z-[9999] flex items-center justify-center bg-brand-splash transition-opacity duration-[250ms] ease-out",
+          fadingOut ? "opacity-0" : "opacity-100",
+        ].join(" ")}
         aria-hidden="true"
       >
         <img

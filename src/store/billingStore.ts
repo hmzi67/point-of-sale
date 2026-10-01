@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Item, ParkedCartLine, PaymentMethod } from "../types";
+import { minorToDecimal } from "../utils/format";
 
 export interface CartEntry {
   itemId: number;
@@ -217,7 +218,7 @@ export const useBillingStore = create<BillingState>((set) => ({
     set((state) => {
       const existing = state.cart[item.id];
       if (existing) {
-        // SET, not add — typing 50 always means "this line is worth PKR 50
+        // SET, not add — typing 50 always means "this line is worth 50
         // now", regardless of whatever qty (0, or a previously-set amount)
         // was there before.
         return { cart: { ...state.cart, [item.id]: { ...existing, qty } } };
@@ -363,7 +364,7 @@ export const useBillingStore = create<BillingState>((set) => ({
       cartOrder,
       activeLineItemId: null,
       discountMode: "flat",
-      discountValue: discountMinor / 100,
+      discountValue: minorToDecimal(discountMinor),
     });
   },
 

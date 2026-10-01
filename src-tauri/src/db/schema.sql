@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS app_config (
     -- A device-level display preference, not a business setting, so it is
     -- read/written through its own `config_get_theme`/`config_set_theme`
     -- commands (any signed-in user) rather than the Owner/Admin-gated
-    -- `update_app_config` patch — see `db::config::{get_theme, set_theme}`.
+    -- `config_update` patch — see `db::config::{get_theme, set_theme}`.
     theme           TEXT    NOT NULL DEFAULT 'dark' CHECK (theme IN ('dark', 'light')),
     -- Desktop sidebar collapsed to icon-only. Same class of preference as
     -- `theme` (device-level, any signed-in user) and read/written through
@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS enabled_modules (
     desktop_enabled INTEGER NOT NULL DEFAULT 1 CHECK (desktop_enabled IN (0, 1)),
     android_enabled INTEGER NOT NULL DEFAULT 0 CHECK (android_enabled IN (0, 1)),
     -- Set only by the product-owner override path (`db::product_owner`),
-    -- never by the client-facing `toggle_module` command. When true for a
+    -- never by the client-facing `config_toggle_module` command. When true for a
     -- platform, the client's own Owner/Admin cannot change that platform's
     -- `*_enabled` value at all — `modules::set_enabled` checks this first
     -- and refuses with a clear error rather than silently no-op'ing. Two

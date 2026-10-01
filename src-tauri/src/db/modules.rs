@@ -427,4 +427,38 @@ mod tests {
         let conn = test_conn();
         assert!(!is_enabled(&conn, "loyalty", Platform::Desktop).unwrap());
     }
+
+    #[test]
+    fn require_enabled_passes_when_any_one_of_several_keys_is_enabled() {
+        let conn = test_conn();
+        set_enabled(&conn, "reports", Platform::Desktop, false).unwrap();
+        assert!(require_enabled(&conn, &["reports", "inventory"], Platform::Desktop).is_ok());
+        assert!(require_enabled(&conn, &["inventory", "reports"], Platform::Desktop).is_ok());
+    }
+
+    #[test]
+    fn require_enabled_fails_naming_every_key_when_none_is_enabled() {
+        let conn = test_conn();
+        set_enabled(&conn, "reports", Platform::Desktop, false).unwrap();
+        set_enabled(&conn, "inventory", Platform::Desktop, false).unwrap();
+        assert_eq!(
+            require_enabled(&conn, &["reports", "inventory"], Platform::Desktop).unwrap_err(),
+            "reports / inventory is disabled on this device"
+        );
+    }
+
+    #[test]
+    fn require_enabled_checks_only_the_given_platform() {
+        let conn = test_conn();
+        set_enabled(&conn, "reports", Platform::Desktop, false).unwrap();
+        assert!(require_enabled(&conn, &["reports"], Platform::Desktop).is_err());
+        assert!(require_enabled(&conn, &["reports"], Platform::Android).is_ok());
+    }
+
+    #[test]
+    fn require_enabled_treats_a_vendor_disabled_core_module_as_disabled() {
+        let conn = test_conn();
+        set_by_product_owner(&conn, "billing", Platform::Desktop, Some(false), Some(true)).unwrap();
+        assert!(require_enabled(&conn, &["billing"], Platform::Desktop).is_err());
+    }
 }

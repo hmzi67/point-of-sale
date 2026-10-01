@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import type { TableSummary } from "../../types";
 
 import { SeatCountField } from "./SeatCountField";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface EditTableModalProps {
   table: TableSummary;
@@ -34,7 +35,7 @@ export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <form
         onSubmit={(e) => void submit(e)}
         className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl"
@@ -86,6 +87,6 @@ export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) 
           </button>
         </div>
       </form>
-    </div>
+    </ModalOverlay>
   );
 }

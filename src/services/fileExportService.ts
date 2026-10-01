@@ -60,7 +60,9 @@ export async function saveBinaryFile(
  * inside the actual desktop/Android app, where `saveTextFile`/
  * `saveBinaryFile` above always take the native path instead. */
 function downloadViaBlobLink(content: string | Uint8Array, filename: string): void {
-  const blob = new Blob([content]);
+  // A copy, because `Blob` only takes an ArrayBuffer-backed view and a
+  // `Uint8Array`'s buffer may in principle be a SharedArrayBuffer.
+  const blob = new Blob([typeof content === "string" ? content : new Uint8Array(content)]);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

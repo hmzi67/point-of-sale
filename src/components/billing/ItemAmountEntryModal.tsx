@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { Banknote, X } from "lucide-react";
+import { useAppConfig } from "../../hooks/useAppConfig";
 import { useBillingStore } from "../../store";
 import { decimalToMinor, formatMinor, formatQty } from "../../utils/format";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 /**
  * Amount entry for a `soldByAmount` cart line — opened by selecting the
@@ -16,6 +18,7 @@ import { decimalToMinor, formatMinor, formatQty } from "../../utils/format";
  * rather than local state in the hook that opened it.
  */
 export function ItemAmountEntryModal() {
+  const { config } = useAppConfig();
   const item = useBillingStore((state) => state.amountEntryItem);
   const cancelAmountEntry = useBillingStore((state) => state.cancelAmountEntry);
   const addItemByAmount = useBillingStore((state) => state.addItemByAmount);
@@ -44,7 +47,7 @@ export function ItemAmountEntryModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-surface shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
@@ -58,11 +61,11 @@ export function ItemAmountEntryModal() {
 
         <div className="space-y-3 px-5 pt-4">
           <p className="text-xs text-fg-muted">
-            {formatMinor(item.priceMinor)} per {item.unit ?? "unit"}
+            {formatMinor(item.priceMinor, config.currency)} per {item.unit ?? "unit"}
           </p>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-fg-muted">Amount (PKR)</span>
+            <span className="mb-1 block text-xs font-medium text-fg-muted">Amount ({config.currency})</span>
             <input
               type="number"
               min="0"
@@ -125,6 +128,6 @@ export function ItemAmountEntryModal() {
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

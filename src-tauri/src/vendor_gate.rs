@@ -16,7 +16,7 @@
 //! Verification lives here, in Rust, and never in the frontend: the app
 //! runs with `withGlobalTauri: true`, so anything the JS bundle can decide
 //! on its own can be re-decided from a devtools console. The gate's real
-//! teeth are in `commands::update_app_config`, which refuses to flip
+//! teeth are in `commands::config_update`, which refuses to flip
 //! `onboarding_completed` to true without a grant recorded here — a route
 //! guard alone would be bypassable by invoking the command directly.
 //!
@@ -158,7 +158,7 @@ impl Default for VendorGate {
 }
 
 /// The gate's entire policy, as one pure function so it can be tested
-/// directly — `commands::update_app_config` is the only caller, and a
+/// directly — `commands::config_update` is the only caller, and a
 /// `#[tauri::command]` taking `State` can't be unit-tested without an app
 /// handle, which would leave the one security-critical decision in this
 /// feature untested.

@@ -461,18 +461,11 @@ pub fn list_tokens_for_order(conn: &Connection, table_order_id: i64) -> Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::{item_id, table_id};
     use crate::db::counters;
     use crate::db::items::{self, ItemInput};
     use crate::db::schema::test_conn;
     use crate::db::tables::{attach_cart_to_table, start_table_order, ParkedCartLine};
-
-    fn item_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM items WHERE name = ?1", params![name], |row| row.get(0)).unwrap()
-    }
-
-    fn table_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM tables WHERE name = ?1", params![name], |row| row.get(0)).unwrap()
-    }
 
     fn order_id_for_table(conn: &Connection, table_id: i64) -> i64 {
         conn.query_row(
@@ -691,5 +684,76 @@ mod tests {
         let reloaded = get_token(&conn, token.id).unwrap();
         assert_eq!(reloaded.id, token.id);
         assert_eq!(reloaded.items[0].qty, 3.0);
+    }
+
+    /// Records a token for everything currently pending on `counter_id`,
+    /// as `commands::tokens_print` would after a successful print.
+    fn print_pending(conn: &mut Connection, order_id: i64, counter_id: i64) {
+        let pending = pending_items_for_counter(conn, order_id, counter_id).unwrap();
+        let number = next_token_number_for_today(conn).unwrap();
+        let tx = conn.transaction().unwrap();
+        insert_token(&tx, Some(order_id), counter_id, number, None, &pending).unwrap();
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn lowering_a_printed_items_qty_leaves_nothing_pending_not_a_negative_line() {
+        let mut conn = test_conn();
+        let (channa_counter, _drinks, channa, _roti) = seed_counters_and_items(&conn);
+        let t1 = table_id(&conn, "Table 1");
+        start_table_order(&conn, t1).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 5.0 }], 0).unwrap();
+        let order_id = order_id_for_table(&conn, t1);
+        print_pending(&mut conn, order_id, channa_counter);
+
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 3.0 }], 0).unwrap();
+        assert!(get_pending_token_items(&conn, order_id).unwrap().is_empty());
+
+        // Raising it again only owes the kitchen what goes past the 5 already sent.
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 6.0 }], 0).unwrap();
+        let pending = pending_items_for_counter(&conn, order_id, channa_counter).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].qty, 1.0);
+    }
+
+    #[test]
+    fn removing_a_printed_item_from_the_cart_leaves_nothing_pending() {
+        let mut conn = test_conn();
+        let (channa_counter, _drinks, channa, roti) = seed_counters_and_items(&conn);
+        let t1 = table_id(&conn, "Table 1");
+        start_table_order(&conn, t1).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: channa, qty: 2.0 }], 0).unwrap();
+        let order_id = order_id_for_table(&conn, t1);
+        print_pending(&mut conn, order_id, channa_counter);
+
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: roti, qty: 1.0 }], 0).unwrap();
+        assert!(get_pending_token_items(&conn, order_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_fractional_sold_by_amount_item_owes_only_the_fractional_delta() {
+        let mut conn = test_conn();
+        let (channa_counter, _drinks, _channa, _roti) = seed_counters_and_items(&conn);
+        let mut input = basic_item_input("Loose Tea");
+        input.sold_by_amount = true;
+        input.unit = Some("kg".into());
+        input.counter_id = Some(channa_counter);
+        let tea = items::add_item(&conn, input).unwrap();
+
+        let t1 = table_id(&conn, "Table 1");
+        start_table_order(&conn, t1).unwrap();
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: tea.id, qty: 0.5 }], 0).unwrap();
+        let order_id = order_id_for_table(&conn, t1);
+        print_pending(&mut conn, order_id, channa_counter);
+
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: tea.id, qty: 0.75 }], 0).unwrap();
+        let pending = pending_items_for_counter(&conn, order_id, channa_counter).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert!((pending[0].qty - 0.25).abs() < 1e-9, "got {}", pending[0].qty);
+        assert_eq!(pending[0].amount_minor, 2500, "0.25 × 10000, rounded to whole minor units");
+
+        // The exact amount already sent leaves nothing behind, despite float error.
+        attach_cart_to_table(&conn, t1, &[ParkedCartLine { item_id: tea.id, qty: 0.5 }], 0).unwrap();
+        assert!(get_pending_token_items(&conn, order_id).unwrap().is_empty());
     }
 }

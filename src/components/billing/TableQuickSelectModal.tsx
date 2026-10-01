@@ -8,7 +8,7 @@ interface TableQuickSelectModalProps {
 
 /** Pulls the table number out of a table's display name — "Table 30" → 30,
  * as does a bare "30" or a custom name like "VIP 7" → 7 (its last run of
- * digits). Tables are free-named (see `tablesService.addTable`/`renameTable`,
+ * digits). Tables are free-named (see `tablesService.addTable`/`updateTable`,
  * Owner/Admin can call a table anything), so this can't assume the seeded
  * "Table N" convention holds forever — matching on the trailing digits is
  * the same trade-off Phase 6's real table-number field is expected to

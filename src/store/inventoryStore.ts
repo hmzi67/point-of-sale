@@ -20,6 +20,11 @@ interface InventoryState {
   counters: Counter[];
   isLoaded: boolean;
   isLoading: boolean;
+  /** The last *load* failure only — shown as the Inventory page banner.
+   * Writes (`addItem`, `updateItem`, `deleteItem`, `addCategory`) leave it
+   * alone and rethrow instead, because the form/dialog that made the call
+   * shows the error next to the input; mirroring it here as well would
+   * print the same failure twice. */
   error: string | null;
 
   search: string;

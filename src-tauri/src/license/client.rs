@@ -19,6 +19,38 @@ use serde::Deserialize;
 /// reason to offer the knob.)
 const DEFAULT_API_BASE: &str = "https://diwan.codehunts.co.uk/api";
 
+/// The build-time override, if any.
+const BUILD_API_BASE: Option<&str> = option_env!("DIWAN_LICENSE_API_BASE");
+
+#[cfg_attr(debug_assertions, allow(dead_code))] // only the release-build check below uses it
+const fn is_https(url: &str) -> bool {
+    let bytes = url.as_bytes();
+    let prefix = b"https://";
+    if bytes.len() < prefix.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < prefix.len() {
+        if bytes[i] != prefix[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+// A release build must never ship pointing licence checks at plaintext
+// HTTP (signatures would still verify, but key and fingerprint would travel
+// in the clear). Debug builds may — that's how a local `php -S` is tested.
+#[cfg(not(debug_assertions))]
+const _: () = match BUILD_API_BASE {
+    Some(base) => assert!(
+        base.is_empty() || is_https(base),
+        "DIWAN_LICENSE_API_BASE must be an https:// URL in a release build"
+    ),
+    None => {}
+};
+
 pub fn api_base() -> String {
     #[cfg(debug_assertions)]
     if let Ok(runtime) = std::env::var("DIWAN_LICENSE_API_BASE") {
@@ -26,7 +58,7 @@ pub fn api_base() -> String {
             return runtime.trim().trim_end_matches('/').to_string();
         }
     }
-    option_env!("DIWAN_LICENSE_API_BASE")
+    BUILD_API_BASE
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(DEFAULT_API_BASE)
         .trim_end_matches('/')
@@ -140,12 +172,25 @@ async fn send<T: serde::de::DeserializeOwned>(request: reqwest::RequestBuilder) 
         return serde_json::from_str(&text).map_err(|e| ClientError::Server(format!("bad JSON: {e}")));
     }
     if status.is_client_error() {
+        // Shown to the user verbatim, so keep it to one short line of
+        // printable text whatever the server (or a proxy) sent.
         let message = serde_json::from_str::<ErrorBody>(&text)
-            .map(|b| b.error)
-            .unwrap_or_else(|_| format!("HTTP {}", status.as_u16()));
+            .map(|b| sanitize_server_message(&b.error))
+            .ok()
+            .filter(|m| !m.is_empty())
+            .unwrap_or_else(|| format!("HTTP {}", status.as_u16()));
         return Err(ClientError::Refused { status: status.as_u16(), message });
     }
     Err(ClientError::Server(format!("HTTP {}", status.as_u16())))
+}
+
+/// One line of printable text, clipped like any other external text.
+fn sanitize_server_message(message: &str) -> String {
+    let flattened: String = message
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    crate::startup_log::clip(flattened.split_whitespace().collect::<Vec<_>>().join(" ").as_str())
 }
 
 /// `POST activate-license.php`. Success means the key is now bound to this
@@ -241,6 +286,21 @@ mod tests {
         let base = api_base();
         assert!(base.starts_with("https://"), "{base}");
         assert!(!base.ends_with('/'));
+    }
+
+    #[test]
+    fn is_https_accepts_only_the_https_scheme() {
+        assert!(is_https("https://example.com/api"));
+        assert!(!is_https("http://example.com/api"));
+        assert!(!is_https("https:/"));
+        assert!(!is_https(""));
+    }
+
+    #[test]
+    fn server_messages_are_flattened_to_one_clipped_line() {
+        assert_eq!(sanitize_server_message("  Key\r\n revoked\t now "), "Key revoked now");
+        let long = "x".repeat(5_000);
+        assert!(sanitize_server_message(&long).chars().count() < 1_000);
     }
 
     /// Live round-trip against a running server — `cargo test -- --ignored

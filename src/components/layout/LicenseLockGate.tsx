@@ -4,7 +4,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore, useLicenseStore } from "../../store";
 import { roleCanAccessSettings } from "../../utils/permissions";
 import { formatUnixDateTime } from "../../utils/licenseFormat";
-import type { LicenseState } from "../../services/licenseService";
+import type { LicenseState } from "../../types";
 
 /**
  * The licence lockout. Sits inside `AppLayout` around the module outlet:

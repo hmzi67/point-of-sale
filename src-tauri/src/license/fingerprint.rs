@@ -91,7 +91,10 @@ fn machine_id(app_data_dir: &Path) -> Result<String, FingerprintError> {
     // licence activated before the Keychain was reachable stays bound.
     let id = install_id_file(app_data_dir)?;
     if let Err(e) = set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, id.trim().as_bytes()) {
-        crate::startup_log::log(&format!("fingerprint: Keychain unavailable, using the install id file ({e})"));
+        crate::startup_log::warn(&format!(
+            "fingerprint: Keychain unavailable, using the install id file ({})",
+            crate::startup_log::clip(&e.to_string())
+        ));
     }
     Ok(id)
 }

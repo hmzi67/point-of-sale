@@ -7,7 +7,7 @@
 //! frontend's Zustand store. If a command trusted a `role` string the caller
 //! sent in, any stray IPC call — a compromised renderer, a script poking
 //! `invoke()` directly, or just a bug — could claim to be an owner. Instead
-//! `login` is the only way to populate this state, `logout` the only way to
+//! `auth_login` is the only way to populate this state, `auth_logout` the only way to
 //! clear it, and every sensitive command calls `require_role` against
 //! whatever this managed state actually holds.
 
@@ -44,7 +44,7 @@ impl Default for Session {
 }
 
 /// Fails a command unless someone is signed in *and* holds one of `allowed`'s
-/// roles — checked against the session Rust itself set during `login`, never
+/// roles — checked against the session Rust itself set during `auth_login`, never
 /// against a value the JS side passed in. Returns the caller so a command
 /// that needs to know who's acting (e.g. "only an Owner may create another
 /// Owner") doesn't have to look the session up a second time.
@@ -55,6 +55,11 @@ pub fn require_role(session: &Session, allowed: &[Role]) -> Result<User, String>
     } else {
         Err("You don't have permission to do this".to_string())
     }
+}
+
+/// Fails a command unless someone — any role — is signed in.
+pub fn require_signed_in(session: &Session) -> Result<User, String> {
+    session.current().ok_or_else(|| "Not signed in".to_string())
 }
 
 #[cfg(test)]

@@ -20,13 +20,13 @@ const BUSINESS_TYPES: { value: BusinessType; label: string; hint: string }[] = [
  * via the redirect below.
  *
  * Deliberately calls the two commands that already existed
- * (`update_app_config`, `toggle_module`) rather than adding a new one —
+ * (`config_update`, `config_toggle_module`) rather than adding a new one —
  * this is one-time, low-stakes config, not a business write that needs its
  * own atomic transaction the way a sale or a salary payment does.
  *
  * The licence step is the exception to "low-stakes": setup cannot finish
  * without a licence that verifies for this device, and that rule is
- * enforced in Rust (`commands::update_app_config` → `require_license`),
+ * enforced in Rust (`commands::config_update` → `require_license`),
  * not by the disabled button below — same arrangement as the vendor gate.
  * Activation needs the internet once; everything after that works offline.
  */

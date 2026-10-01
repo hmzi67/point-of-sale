@@ -9,7 +9,7 @@ import { ModulesSection } from "../components/settings/ModulesSection";
 import { PrinterSettingsSection } from "../components/settings/PrinterSettingsSection";
 import { SettingsTabs, type SettingsTab } from "../components/settings/SettingsTabs";
 import { StoreIdentitySection } from "../components/settings/StoreIdentitySection";
-import { useModuleStore } from "../store";
+import { useModuleEnabled } from "../hooks/useModules";
 import { useAppConfig } from "../hooks/useAppConfig";
 
 type TabKey = "general" | "printer" | "license" | "security" | "modules";
@@ -47,9 +47,7 @@ export function SettingsPage() {
   const { hash } = useLocation();
   const navigate = useNavigate();
   const { config } = useAppConfig();
-  const tablesEnabled = useModuleStore((state) =>
-    state.modules.some((module) => module.key === "tables" && module.enabled),
-  );
+  const tablesEnabled = useModuleEnabled("tables");
 
   const active = tabFromHash(hash);
   const selectTab = (key: TabKey) => navigate(`#${key}`, { replace: true });

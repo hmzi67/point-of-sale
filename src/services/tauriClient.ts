@@ -43,24 +43,6 @@ export async function call<TResult>(
   }
 }
 
-/**
- * Same as `call`, but returns `fallback` instead of throwing. Use for
- * non-critical reads (e.g. a dashboard widget) — never for a sale write, where
- * the cashier must see the failure.
- */
-export async function callSafe<TResult>(
-  command: string,
-  fallback: TResult,
-  args?: Record<string, unknown>,
-): Promise<TResult> {
-  try {
-    return await call<TResult>(command, args);
-  } catch (error) {
-    console.error("[tauriClient] command failed:", error);
-    return fallback;
-  }
-}
-
 /** Health check wired to the Rust `app_ping` command — proves the IPC bridge works. */
 export function ping(): Promise<string> {
   return call<string>("app_ping");

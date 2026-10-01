@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import { ModalOverlay } from "./ModalOverlay";
 
 interface ConfirmDialogProps {
   title: string;
@@ -20,7 +21,7 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
         <div className="flex items-start gap-3">
           {isDangerous && (
@@ -58,6 +59,6 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

@@ -3,6 +3,7 @@ import { CheckCircle2, Download, Printer, X } from "lucide-react";
 import { printReceiptThermal } from "../../services/billingService";
 import { formatMinor, formatQty } from "../../utils/format";
 import type { AppConfig, Sale } from "../../types";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface ReceiptModalProps {
   sale: Sale;
@@ -84,7 +85,7 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+    <ModalOverlay>
       <div className="w-full max-w-sm rounded-3xl bg-surface shadow-soft-lg">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <span className="flex items-center gap-2 text-base font-semibold text-success-text">
@@ -176,6 +177,6 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

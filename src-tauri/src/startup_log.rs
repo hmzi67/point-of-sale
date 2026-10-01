@@ -11,14 +11,20 @@
 //!
 //! A release build has no attached console, so without this, "the app
 //! opens and closes" was completely silent — this is the paper trail for
-//! exactly that class of failure. Two locations, tried in order every call
-//! rather than picked once: `std::env::temp_dir()` (always writable, no
-//! `AppHandle` needed, so this works from the very first line of `run()`,
-//! before an app instance — and therefore `app_data_dir()` — exists at
-//! all) and, once [`set_log_dir`] has been called, the real
-//! `app_data_dir` — the location a client/support call would actually be
-//! told to go check. Both are written to once the real directory is
-//! known, so the full timeline is never split across two files.
+//! exactly that class of failure. Until [`set_log_dir`] is called the log
+//! goes to `std::env::temp_dir()` (always writable, no `AppHandle` needed,
+//! so this works from the very first line of `run()`, before an app
+//! instance — and therefore `app_data_dir()` — exists at all); from then on
+//! it goes only to the real `app_data_dir`, the location a client/support
+//! call would actually be told to go check. Licence and IAP events land
+//! here for the whole session, so they stay out of the shared temp dir.
+//!
+//! Each file is rotated to `pos-startup.log.1` once it passes
+//! [`MAX_LOG_BYTES`], so a long-running till never grows it without bound.
+//! Every line carries a level ([`log`] = INFO, [`warn`], [`error`]);
+//! [`debug`] lines are written by debug builds only. Text that came from
+//! outside the app (a server's refusal message, a transport error) goes
+//! through [`clip`] first so one oversized response can't flood the file.
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -26,6 +32,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const LOG_FILE_NAME: &str = "pos-startup.log";
+const ROTATED_FILE_NAME: &str = "pos-startup.log.1";
+/// Size at which the log is rotated to [`ROTATED_FILE_NAME`].
+const MAX_LOG_BYTES: u64 = 1024 * 1024;
+/// Longest piece of externally-supplied text [`clip`] lets through.
+const MAX_EXTERNAL_TEXT_CHARS: usize = 200;
 
 static LOG_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -33,18 +44,22 @@ fn temp_log_path() -> PathBuf {
     std::env::temp_dir().join(LOG_FILE_NAME)
 }
 
-/// Call once `app_data_dir` is resolved — every `log()` after this also
-/// (still) writes to the temp-dir copy, so the timeline never has a gap at
-/// the exact moment of the switch.
+/// Call once `app_data_dir` is resolved — every line after this goes to
+/// the app-data copy instead of the temp-dir one. The first line written
+/// there points back at the temp file, which holds everything before it.
 pub fn set_log_dir(dir: &Path) {
     if let Ok(mut guard) = LOG_DIR.lock() {
         *guard = Some(dir.to_path_buf());
     }
+    debug(&format!("log continues from {}", temp_log_path().display()));
 }
 
 fn append(path: &Path, line: &str) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
+    }
+    if std::fs::metadata(path).is_ok_and(|m| m.len() >= MAX_LOG_BYTES) {
+        let _ = std::fs::rename(path, path.with_file_name(ROTATED_FILE_NAME));
     }
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{line}");
@@ -68,12 +83,52 @@ pub fn active_log_path() -> PathBuf {
 /// Appends one timestamped line, best-effort — a failure to write the log
 /// itself must never be a reason to fail startup, so every I/O error here
 /// is silently swallowed.
-pub fn log(message: &str) {
+fn write(level: &str, message: &str) {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    let line = format!("[{now}] {message}");
+    let line = format!("[{now}] {level:<5} {message}");
+    append(&active_log_path(), &line);
+}
 
-    append(&temp_log_path(), &line);
-    if let Some(dir) = LOG_DIR.lock().ok().and_then(|guard| guard.clone()) {
-        append(&dir.join(LOG_FILE_NAME), &line);
+/// A routine startup/progress line.
+pub fn log(message: &str) {
+    write("INFO", message);
+}
+
+/// Something went wrong but the app carries on (a skipped refresh, a fallback).
+pub fn warn(message: &str) {
+    write("WARN", message);
+}
+
+/// A failure the app could not recover from, or a panic.
+pub fn error(message: &str) {
+    write("ERROR", message);
+}
+
+/// Detail only worth having while developing — full filesystem paths and
+/// the like. Compiled to a no-op in release builds.
+pub fn debug(message: &str) {
+    if cfg!(debug_assertions) {
+        write("DEBUG", message);
+    }
+}
+
+/// Shortens text that came from outside the app before it is logged.
+pub fn clip(text: &str) -> String {
+    let mut chars = text.chars();
+    let clipped: String = chars.by_ref().take(MAX_EXTERNAL_TEXT_CHARS).collect();
+    if chars.next().is_some() { format!("{clipped}…") } else { clipped }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clip_leaves_short_text_alone_and_cuts_long_text() {
+        assert_eq!(clip("refused"), "refused");
+        let long = "x".repeat(MAX_EXTERNAL_TEXT_CHARS + 50);
+        let clipped = clip(&long);
+        assert_eq!(clipped.chars().count(), MAX_EXTERNAL_TEXT_CHARS + 1);
+        assert!(clipped.ends_with('…'));
     }
 }

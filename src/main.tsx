@@ -4,7 +4,7 @@ import { App } from "./App";
 import { RootErrorBoundary } from "./components/layout/RootErrorBoundary";
 import { SplashGate } from "./components/layout/SplashGate";
 import { ping } from "./services/tauriClient";
-import { IS_ANDROID } from "./types";
+import { IS_ANDROID } from "./services/platform";
 import "./styles.css";
 
 // Fire-and-forget, on every platform, before anything else in this file

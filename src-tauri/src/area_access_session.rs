@@ -43,7 +43,7 @@ impl AreaAccessSession {
     }
 
     /// Ends the grant immediately. Called by `commands::security_revoke_area_access`
-    /// (the frontend's `AreaPinGate` calls this on unmount) and by `logout`.
+    /// (the frontend's `AreaPinGate` calls this on unmount) and by `auth_logout`.
     pub fn revoke(&self) {
         *self.granted_at.lock().expect("area access session lock poisoned") = None;
     }
@@ -93,5 +93,22 @@ mod tests {
         session.grant();
         session.revoke();
         assert!(!session.is_valid());
+    }
+
+    #[test]
+    fn a_grant_older_than_the_timeout_is_no_longer_valid_and_is_cleared() {
+        let session = AreaAccessSession::new();
+        let stale = Instant::now().checked_sub(TIMEOUT).expect("clock far enough past boot");
+        *session.granted_at.lock().unwrap() = Some(stale);
+        assert!(!session.is_valid());
+        assert!(session.granted_at.lock().unwrap().is_none(), "an expired grant is cleared on read");
+    }
+
+    #[test]
+    fn a_grant_just_inside_the_timeout_is_still_valid() {
+        let session = AreaAccessSession::new();
+        let recent = Instant::now().checked_sub(TIMEOUT - Duration::from_secs(5)).expect("clock far enough past boot");
+        *session.granted_at.lock().unwrap() = Some(recent);
+        assert!(session.is_valid());
     }
 }

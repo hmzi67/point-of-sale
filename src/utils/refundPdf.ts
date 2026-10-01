@@ -1,14 +1,23 @@
 import type { jsPDF } from "jspdf";
 import { formatMinor } from "./format";
 import { downloadPdf } from "./pdfExport";
-import { drawFooter, drawHeader, drawTable, drawTotalsBlock, newReceiptDoc } from "./printLayout";
+import {
+  drawFooter,
+  drawHeader,
+  drawTable,
+  drawTotalsBlock,
+  estimateReceiptHeightMm,
+  MARGIN_MM,
+  newReceiptDoc,
+  PAGE_WIDTH_MM,
+} from "./printLayout";
 import type { AppConfig, Refund } from "../types";
 
 /** Builds the "Refund Details" receipt PDF: Vno/item/amount lines, Total
  * Refund at the bottom — the PDF-fallback twin of `printer::escpos::
  * build_refund_bytes`. */
 export function buildRefundPdf(refund: Refund, config: AppConfig): jsPDF {
-  const estimatedHeightMm = 46 + refund.items.length * 6 + 28 + (config.receiptFooter.trim() ? 10 : 0);
+  const estimatedHeightMm = estimateReceiptHeightMm(refund.items.length * 6 + 28, config.receiptFooter);
   const doc = newReceiptDoc(estimatedHeightMm);
 
   const subtitle = ["REFUND", `Refund #${refund.id}`, `Vno: ${refund.originalSaleId}`, refund.createdAt];
@@ -29,7 +38,7 @@ export function buildRefundPdf(refund: Refund, config: AppConfig): jsPDF {
 
   if (refund.reason) {
     doc.setFontSize(8);
-    doc.text(`Reason: ${refund.reason}`, 4, y, { maxWidth: 72 });
+    doc.text(`Reason: ${refund.reason}`, MARGIN_MM, y, { maxWidth: PAGE_WIDTH_MM - MARGIN_MM * 2 });
     y += 6;
   }
 

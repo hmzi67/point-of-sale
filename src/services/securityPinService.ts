@@ -1,3 +1,4 @@
+import type { DefaultCredentials } from "../types";
 import { call } from "./tauriClient";
 
 /**
@@ -28,4 +29,10 @@ export function revokeAreaAccess(): Promise<void> {
  * itself is admin-only). Requires the current PIN. */
 export function setAreaPin(oldPin: string, newPin: string): Promise<void> {
   return call<void>("security_set_area_pin", { oldPin, newPin });
+}
+
+/** Whether the Owner login PIN and the area PIN are still the install
+ * defaults — Owner/Admin only. Drives `DefaultPinBanner`. */
+export function getDefaultCredentials(): Promise<DefaultCredentials> {
+  return call<DefaultCredentials>("security_get_default_credentials", {});
 }

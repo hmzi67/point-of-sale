@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Download, Printer } from "lucide-react";
 import { useAppConfig } from "../hooks/useAppConfig";
-import { getShiftSummary, listRecentShifts, printShiftSummaryThermal } from "../services/shiftsService";
+import { useShiftSummaryOutput } from "../hooks/useShiftSummaryOutput";
+import { getShiftSummary, listRecentShifts } from "../services/shiftsService";
 import { formatMinor } from "../utils/format";
 import type { Shift, ShiftSummary } from "../types";
 
@@ -16,7 +17,7 @@ export function ShiftsPage() {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [summary, setSummary] = useState<ShiftSummary | null>(null);
-  const [printStatus, setPrintStatus] = useState<string | null>(null);
+  const { status: printStatus, setStatus: setPrintStatus, printThermal, downloadPdf } = useShiftSummaryOutput(config);
 
   useEffect(() => {
     listRecentShifts(100)
@@ -39,26 +40,6 @@ export function ShiftsPage() {
       setSummary(s);
     } catch (e) {
       setError((e as Error).message);
-    }
-  };
-
-  const printThermal = async (shiftId: number) => {
-    setPrintStatus(null);
-    try {
-      await printShiftSummaryThermal(shiftId);
-      setPrintStatus("Sent to thermal printer.");
-    } catch (e) {
-      setPrintStatus((e as Error).message);
-    }
-  };
-
-  const downloadPdf = async () => {
-    if (!summary) return;
-    try {
-      const { downloadShiftSummaryPdf } = await import("../utils/shiftSummaryPdf");
-      downloadShiftSummaryPdf(summary, config);
-    } catch (e) {
-      setPrintStatus(`Could not prepare the PDF: ${(e as Error).message}`);
     }
   };
 
@@ -128,7 +109,7 @@ export function ShiftsPage() {
                   <div className="flex gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => void downloadPdf()}
+                      onClick={() => summary && void downloadPdf(summary)}
                       className="flex items-center gap-1.5 rounded-md border border-line-strong px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface"
                     >
                       <Download className="h-3.5 w-3.5" />

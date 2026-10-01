@@ -5,9 +5,8 @@ import {
   getLicenseState,
   onLicenseChanged,
   refreshLicense,
-  type LicenseInfo,
-  type LicenseState,
 } from "../services/licenseService";
+import type { LicenseInfo, LicenseState } from "../types";
 
 /**
  * Mirror of Rust's licence state for rendering: the warning banner, the

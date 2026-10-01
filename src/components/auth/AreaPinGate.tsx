@@ -42,7 +42,8 @@ export function AreaPinGate({ label, children }: AreaPinGateProps) {
   // revoke, and calling it anyway would be harmless but pointless.
   useEffect(() => {
     return () => {
-      if (wasUnlocked.current) void revokeAreaAccess();
+      // Best-effort: the grant's own short timeout is the safety net.
+      if (wasUnlocked.current) revokeAreaAccess().catch(() => undefined);
     };
   }, []);
 

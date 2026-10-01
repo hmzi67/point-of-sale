@@ -122,53 +122,38 @@ impl From<rusqlite::Error> for TableError {
     }
 }
 
+/// The SELECT every `TableSummary` read uses, in `table_from_row`'s column
+/// order — including whether the table has an open (parked) order and its
+/// id. Callers append their own WHERE/ORDER BY.
+const TABLE_SELECT: &str = "SELECT t.id, t.name, t.seats, t.status,
+        EXISTS (SELECT 1 FROM table_orders o
+                 WHERE o.table_id = t.id AND o.status = 'open') AS has_parked,
+        (SELECT o.id FROM table_orders o
+          WHERE o.table_id = t.id AND o.status = 'open' LIMIT 1) AS open_order_id
+   FROM tables t";
+
+fn table_from_row(row: &rusqlite::Row) -> rusqlite::Result<TableSummary> {
+    Ok(TableSummary {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        seats: row.get(2)?,
+        status: row.get(3)?,
+        has_parked_order: row.get::<_, i64>(4)? != 0,
+        open_order_id: row.get(5)?,
+    })
+}
+
 fn load_table(conn: &Connection, table_id: i64) -> Result<TableSummary, TableError> {
-    conn.query_row(
-        "SELECT t.id, t.name, t.seats, t.status,
-                EXISTS (SELECT 1 FROM table_orders o
-                         WHERE o.table_id = t.id AND o.status = 'open') AS has_parked,
-                (SELECT o.id FROM table_orders o
-                  WHERE o.table_id = t.id AND o.status = 'open' LIMIT 1) AS open_order_id
-           FROM tables t
-          WHERE t.id = ?1",
-        params![table_id],
-        |row| {
-            Ok(TableSummary {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                seats: row.get(2)?,
-                status: row.get(3)?,
-                has_parked_order: row.get::<_, i64>(4)? != 0,
-                open_order_id: row.get(5)?,
-            })
-        },
-    )
-    .optional()?
-    .ok_or(TableError::TableNotFound)
+    conn.query_row(&format!("{TABLE_SELECT} WHERE t.id = ?1"), params![table_id], table_from_row)
+        .optional()?
+        .ok_or(TableError::TableNotFound)
 }
 
 /// Every table with its status and whether one already has a cart parked on
 /// it — the floor view, and the billing screen's table picker.
 pub fn list_tables(conn: &Connection) -> Result<Vec<TableSummary>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT t.id, t.name, t.seats, t.status,
-                EXISTS (SELECT 1 FROM table_orders o
-                         WHERE o.table_id = t.id AND o.status = 'open') AS has_parked,
-                (SELECT o.id FROM table_orders o
-                  WHERE o.table_id = t.id AND o.status = 'open' LIMIT 1) AS open_order_id
-           FROM tables t
-          ORDER BY t.name",
-    )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(TableSummary {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            seats: row.get(2)?,
-            status: row.get(3)?,
-            has_parked_order: row.get::<_, i64>(4)? != 0,
-            open_order_id: row.get(5)?,
-        })
-    })?;
+    let mut stmt = conn.prepare(&format!("{TABLE_SELECT} ORDER BY t.name"))?;
+    let rows = stmt.query_map([], table_from_row)?;
     rows.collect()
 }
 
@@ -209,28 +194,6 @@ pub fn update_table_status(conn: &Connection, table_id: i64, status: &str) -> Re
         return Err(TableError::TableNotFound);
     }
     load_table(conn, table_id)
-}
-
-/// Renames a physical table (e.g. "Table 7" -> "Patio 3"). Does not touch
-/// status or any parked order — same "one field, nothing else" shape as
-/// `update_table_status`. `UNIQUE(name)` is enforced the same way
-/// `add_table` handles it: a collision comes back as `DuplicateName`, not a
-/// raw SQLite error.
-pub fn rename_table(conn: &Connection, table_id: i64, name: &str) -> Result<TableSummary, TableError> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(TableError::EmptyName);
-    }
-
-    let result = conn.execute("UPDATE tables SET name = ?1 WHERE id = ?2", params![name, table_id]);
-    match result {
-        Ok(0) => Err(TableError::TableNotFound),
-        Ok(_) => load_table(conn, table_id),
-        Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
-            Err(TableError::DuplicateName(name.to_string()))
-        }
-        Err(err) => Err(TableError::Sqlite(err)),
-    }
 }
 
 /// Updates name and capacity together, preserving table status and orders.
@@ -536,18 +499,10 @@ pub fn close_table_order_for_sale(tx: &Transaction, table_id: i64, sale_id: i64)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::{item_id, table_id};
     use crate::db::sales::{self, CartLine, CreateSaleInput};
     use crate::db::schema::test_conn;
 
-    fn item_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM items WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
-    }
-
-    fn table_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM tables WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
-    }
 
     #[test]
     fn list_tables_reports_status_and_parked_flag() {
@@ -673,25 +628,18 @@ mod tests {
     }
 
     #[test]
-    fn rename_table_changes_the_name_and_rejects_blank_or_duplicate() {
+    fn update_table_renames_and_rejects_blank_duplicate_or_unknown() {
         let conn = test_conn();
         let t2 = table_id(&conn, "Table 2");
 
-        let renamed = rename_table(&conn, t2, "Patio 3").unwrap();
+        let renamed = update_table(&conn, t2, "Patio 3", 4).unwrap();
         assert_eq!(renamed.name, "Patio 3");
-        // Other fields untouched.
+        // Status untouched.
         assert_eq!(renamed.status, "free");
-        assert_eq!(renamed.seats, 4);
 
-        assert!(matches!(rename_table(&conn, t2, "   "), Err(TableError::EmptyName)));
-        assert!(matches!(
-            rename_table(&conn, t2, "Table 1"),
-            Err(TableError::DuplicateName(_))
-        ));
-        assert!(matches!(
-            rename_table(&conn, 999_999, "Whatever"),
-            Err(TableError::TableNotFound)
-        ));
+        assert!(matches!(update_table(&conn, t2, "   ", 4), Err(TableError::EmptyName)));
+        assert!(matches!(update_table(&conn, t2, "Table 1", 4), Err(TableError::DuplicateName(_))));
+        assert!(matches!(update_table(&conn, 999_999, "Whatever", 4), Err(TableError::TableNotFound)));
     }
 
     #[test]

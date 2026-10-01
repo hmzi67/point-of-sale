@@ -53,28 +53,28 @@ pub struct Shift {
     pub notes: Option<String>,
 }
 
+/// The SELECT list + join every `Shift` read uses, in `shift_from_row`'s
+/// column order. Callers append their own WHERE/ORDER BY.
+const SHIFT_SELECT: &str = "SELECT s.id, s.cashier_id, u.name, s.opened_at, s.closed_at,
+        s.opening_balance_minor, s.declared_cash_amount_minor, s.notes
+   FROM shifts s
+   LEFT JOIN users u ON u.id = s.cashier_id";
+
+fn shift_from_row(row: &rusqlite::Row) -> rusqlite::Result<Shift> {
+    Ok(Shift {
+        id: row.get(0)?,
+        cashier_id: row.get(1)?,
+        cashier_name: row.get(2)?,
+        opened_at: row.get(3)?,
+        closed_at: row.get(4)?,
+        opening_balance_minor: row.get(5)?,
+        declared_cash_amount_minor: row.get(6)?,
+        notes: row.get(7)?,
+    })
+}
+
 fn load_shift(conn: &Connection, id: i64) -> Result<Option<Shift>, rusqlite::Error> {
-    conn.query_row(
-        "SELECT s.id, s.cashier_id, u.name, s.opened_at, s.closed_at,
-                s.opening_balance_minor, s.declared_cash_amount_minor, s.notes
-           FROM shifts s
-           LEFT JOIN users u ON u.id = s.cashier_id
-          WHERE s.id = ?1",
-        params![id],
-        |row| {
-            Ok(Shift {
-                id: row.get(0)?,
-                cashier_id: row.get(1)?,
-                cashier_name: row.get(2)?,
-                opened_at: row.get(3)?,
-                closed_at: row.get(4)?,
-                opening_balance_minor: row.get(5)?,
-                declared_cash_amount_minor: row.get(6)?,
-                notes: row.get(7)?,
-            })
-        },
-    )
-    .optional()
+    conn.query_row(&format!("{SHIFT_SELECT} WHERE s.id = ?1"), params![id], shift_from_row).optional()
 }
 
 /// The cashier's currently-open shift, if any — used both to block opening a
@@ -268,64 +268,19 @@ pub fn list_shifts(conn: &Connection, limit: i64) -> Result<Vec<Shift>, rusqlite
     // Ordered by id, not opened_at: opened_at has only second resolution,
     // so two shifts opened in the same second would otherwise tie and sort
     // arbitrarily — id is monotonic and always reflects creation order.
-    let mut stmt = conn.prepare(
-        "SELECT s.id, s.cashier_id, u.name, s.opened_at, s.closed_at,
-                s.opening_balance_minor, s.declared_cash_amount_minor, s.notes
-           FROM shifts s
-           LEFT JOIN users u ON u.id = s.cashier_id
-          ORDER BY s.id DESC
-          LIMIT ?1",
-    )?;
-    let rows = stmt.query_map(params![limit], |row| {
-        Ok(Shift {
-            id: row.get(0)?,
-            cashier_id: row.get(1)?,
-            cashier_name: row.get(2)?,
-            opened_at: row.get(3)?,
-            closed_at: row.get(4)?,
-            opening_balance_minor: row.get(5)?,
-            declared_cash_amount_minor: row.get(6)?,
-            notes: row.get(7)?,
-        })
-    })?;
+    let mut stmt = conn.prepare(&format!("{SHIFT_SELECT} ORDER BY s.id DESC LIMIT ?1"))?;
+    let rows = stmt.query_map(params![limit], shift_from_row)?;
     rows.collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::{owner_id, ring_up};
     use crate::db::refunds::{create_refund, CreateRefundInput, RefundLineInput};
-    use crate::db::sales::{create_sale, CartLine, CreateSaleInput};
     use crate::db::schema::test_conn;
 
-    fn owner_id(conn: &Connection) -> i64 {
-        conn.query_row("SELECT id FROM users LIMIT 1", [], |row| row.get(0)).unwrap()
-    }
 
-    fn item_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM items WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
-    }
-
-    fn sell(conn: &mut Connection, shift_id: i64, item: &str, qty: i64, method: &str) -> i64 {
-        let tx = conn.transaction().unwrap();
-        let item_id = item_id(&tx, item);
-        let sale = create_sale(
-            &tx,
-            CreateSaleInput {
-                items: vec![CartLine { item_id, qty: qty as f64, notes: None }],
-                discount_minor: 0,
-                tax_minor: 0,
-                payment_method: method.into(),
-                cashier_id: None,
-                table_id: None,
-                shift_id: Some(shift_id),
-            },
-        )
-        .unwrap();
-        tx.commit().unwrap();
-        sale.id
-    }
 
     #[test]
     fn opening_a_second_shift_for_the_same_cashier_is_refused() {
@@ -343,7 +298,7 @@ mod tests {
         let cashier = owner_id(&conn);
         let shift = open_shift(&conn, cashier, 10_000).unwrap();
 
-        sell(&mut conn, shift.id, "Cola 500ml", 2, "cash"); // 2 * 8000 = 16000
+        ring_up(&mut conn, "Cola 500ml", 2.0, "cash", Some(shift.id)); // 2 * 8000 = 16000
 
         let tx = conn.transaction().unwrap();
         let summary = close_shift(&tx, shift.id, 10_000 + 16_000).unwrap();
@@ -360,7 +315,7 @@ mod tests {
         let cashier = owner_id(&conn);
         let shift = open_shift(&conn, cashier, 0).unwrap();
 
-        let sale_id = sell(&mut conn, shift.id, "Cola 500ml", 2, "cash"); // 16000 in
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 2.0, "cash", Some(shift.id)); // 16000 in
 
         let sale_item_id: i64 = conn
             .query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale_id], |row| row.get(0))
@@ -391,7 +346,7 @@ mod tests {
         let mut conn = test_conn();
         let cashier = owner_id(&conn);
         let shift = open_shift(&conn, cashier, 0).unwrap();
-        sell(&mut conn, shift.id, "Cola 500ml", 1, "cash"); // 8000 expected
+        ring_up(&mut conn, "Cola 500ml", 1.0, "cash", Some(shift.id)); // 8000 expected
 
         let tx = conn.transaction().unwrap();
         let summary = close_shift(&tx, shift.id, 7_500).unwrap(); // cashier counted less
@@ -406,7 +361,7 @@ mod tests {
         let mut conn = test_conn();
         let cashier = owner_id(&conn);
         let shift = open_shift(&conn, cashier, 0).unwrap();
-        sell(&mut conn, shift.id, "Cola 500ml", 1, "cash");
+        ring_up(&mut conn, "Cola 500ml", 1.0, "cash", Some(shift.id));
 
         let tx = conn.transaction().unwrap();
         let summary = close_shift(&tx, shift.id, 8_500).unwrap();
@@ -421,7 +376,7 @@ mod tests {
         let mut conn = test_conn();
         let cashier = owner_id(&conn);
         let shift = open_shift(&conn, cashier, 0).unwrap();
-        sell(&mut conn, shift.id, "Cola 500ml", 1, "cash");
+        ring_up(&mut conn, "Cola 500ml", 1.0, "cash", Some(shift.id));
 
         let preview = get_shift_summary(&conn, shift.id, Some(999_999)).unwrap();
         assert_eq!(preview.declared_cash_amount_minor, Some(999_999));
@@ -455,8 +410,8 @@ mod tests {
         let cashier = owner_id(&conn);
         let shift = open_shift(&conn, cashier, 1_000).unwrap();
 
-        sell(&mut conn, shift.id, "Cola 500ml", 1, "card"); // 8000
-        sell(&mut conn, shift.id, "Cola 500ml", 1, "other"); // 8000
+        ring_up(&mut conn, "Cola 500ml", 1.0, "card", Some(shift.id)); // 8000
+        ring_up(&mut conn, "Cola 500ml", 1.0, "other", Some(shift.id)); // 8000
 
         let summary = get_shift_summary(&conn, shift.id, None).unwrap();
         assert_eq!(summary.cash_sales_minor, 0);

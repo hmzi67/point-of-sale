@@ -68,7 +68,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
           <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
             {item.shortCode && (
               <span
-                className="rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-white"
+                className="rounded-full bg-overlay px-2 py-0.5 text-[10px] font-semibold tabular-nums text-overlay-ink"
                 title={`Quick code ${item.shortCode}`}
               >
                 #{item.shortCode}

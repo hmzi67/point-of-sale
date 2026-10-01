@@ -45,3 +45,11 @@ export function useModules() {
 
   return { modules, visibleModules, canAccess, fallbackPath, isLoaded, isLoading, error };
 }
+
+/** Whether module `key` is enabled on this installation, regardless of the
+ * signed-in role — for a screen that changes shape when another module is
+ * on (Billing's table picker when `tables` is, its shift controls when
+ * `shifts` is). Role-filtered visibility is `useModules().canAccess`. */
+export function useModuleEnabled(key: ModuleKey): boolean {
+  return useModuleStore((state) => state.modules.some((module) => module.key === key && module.enabled));
+}

@@ -337,7 +337,7 @@ fn validate(conn: &Connection, input: &ItemInput) -> Result<(), ItemError> {
     if input.price_minor < 0 || input.cost_minor < 0 {
         return Err(ItemError::Validation("Price and cost cannot be negative".into()));
     }
-    if input.stock_qty < 0.0 {
+    if !input.stock_qty.is_finite() || input.stock_qty < 0.0 {
         return Err(ItemError::Validation("Stock quantity cannot be negative".into()));
     }
     if input.low_stock_threshold < 0 {
@@ -509,6 +509,7 @@ pub fn delete_item(conn: &Connection, id: i64) -> Result<DeleteOutcome, ItemErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::{item_id};
     use crate::db::schema::test_conn;
 
     fn basic_input(name: &str) -> ItemInput {
@@ -570,9 +571,7 @@ mod tests {
     #[test]
     fn billing_search_excludes_archived_items() {
         let conn = test_conn();
-        let cola_id: i64 = conn
-            .query_row("SELECT id FROM items WHERE name = 'Cola 500ml'", [], |row| row.get(0))
-            .unwrap();
+        let cola_id = item_id(&conn, "Cola 500ml");
         conn.execute("UPDATE items SET is_active = 0 WHERE id = ?1", params![cola_id])
             .unwrap();
 

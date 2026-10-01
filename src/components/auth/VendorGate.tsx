@@ -14,7 +14,7 @@ import { getVendorGateStatus, verifyVendorGate } from "../../services/vendorGate
  * This component is presentation only. It cannot be the security boundary:
  * the app ships with `withGlobalTauri: true`, so anything decided here is
  * re-decidable from a devtools console, and the bundle itself can be
- * edited. The actual enforcement is `commands::update_app_config` refusing
+ * edited. The actual enforcement is `commands::config_update` refusing
  * to flip `onboarding_completed` without a grant recorded in Rust — so
  * skipping past this screen by any front-end route (a direct `#/onboarding`
  * URL, a patched guard) still leaves setup unable to finish.
