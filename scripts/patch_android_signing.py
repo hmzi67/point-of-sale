@@ -52,6 +52,14 @@ REQUIRED_IMPORTS = ["java.util.Properties", "java.io.FileInputStream"]
 # dev that's never touched release signing), the `keystoreProperties["..."]
 # as String` casts hit `null` and threw `null cannot be cast to non-null
 # type kotlin.String`, failing even a plain `tauri android build -- --debug`.
+#
+# The release signingConfig is assigned through the `buildTypes.getByName`
+# accessor, never a nested `buildTypes { … }` block: the Tauri CLI (2.12+)
+# finds the *first* `buildTypes {` in this file and requires a
+# `getByName("debug")` inside it (to inject applicationIdSuffix), so a
+# second block inserted ahead of the generated one fails every build with
+# "Could not find the Android debug build type". AGP creates the `release`
+# build type implicitly, so getByName is safe this early in `android {}`.
 SIGNING_PATCH = f"""
     {MARKER}
     val keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -70,11 +78,7 @@ SIGNING_PATCH = f"""
             }}
         }}
 
-        buildTypes {{
-            release {{
-                signingConfig = signingConfigs.getByName("release")
-            }}
-        }}
+        buildTypes.getByName("release").signingConfig = signingConfigs.getByName("release")
     }}
 """
 
