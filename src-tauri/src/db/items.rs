@@ -485,8 +485,12 @@ pub enum DeleteOutcome {
 }
 
 pub fn delete_item(conn: &Connection, id: i64) -> Result<DeleteOutcome, ItemError> {
+    // Any RESTRICT reference (sales, kitchen tokens, order lines) means the
+    // item has history: archive instead of letting the DELETE fail.
     let has_sales: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sale_items WHERE item_id = ?1)",
+        "SELECT EXISTS(SELECT 1 FROM sale_items WHERE item_id = ?1)
+             OR EXISTS(SELECT 1 FROM token_items WHERE item_id = ?1)
+             OR EXISTS(SELECT 1 FROM order_items WHERE item_id = ?1)",
         params![id],
         |row| row.get(0),
     )?;
@@ -898,6 +902,25 @@ mod tests {
             )
             .unwrap();
         assert!(remaining > 0);
+    }
+
+    #[test]
+    fn deleting_an_item_on_an_unpaid_order_archives_it_instead_of_failing() {
+        let conn = test_conn();
+        let created = add_item(&conn, basic_input("On Order")).unwrap();
+        conn.execute(
+            "INSERT INTO orders (id, order_no, order_type, client_ref) VALUES (1, 1, 'takeaway', 'ref-1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor) VALUES (1, ?1, 1, 10000)",
+            [created.id],
+        )
+        .unwrap();
+
+        assert_eq!(delete_item(&conn, created.id).unwrap(), DeleteOutcome::Archived);
+        assert!(!get_item(&conn, created.id).unwrap().is_active);
     }
 
     #[test]

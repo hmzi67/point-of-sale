@@ -304,16 +304,18 @@ pub fn run() {
                         "main",
                         tauri::WebviewUrl::App("index.html".into()),
                     )
-                    .title("Diwan")
-                    .inner_size(1280.0, 800.0);
+                    .title("Diwan");
                     // Desktop only: mobile has no splash *window* to reveal
                     // past (see `reveal_main_window`'s doc comment) —
-                    // Android's and iOS's "main" is shown immediately, at its
-                    // config's default size, with no minimum-size constraint
-                    // of its own.
+                    // Android's and iOS's "main" is shown immediately and fills
+                    // the screen — a fixed `inner_size` there would pin the
+                    // webview to 1280×800 points instead.
                     #[cfg(desktop)]
                     {
-                        main_window = main_window.min_inner_size(1024.0, 640.0).visible(false);
+                        main_window = main_window
+                            .inner_size(1280.0, 800.0)
+                            .min_inner_size(1024.0, 640.0)
+                            .visible(false);
                     }
                     main_window.build()?;
                     startup_log::log("setup(): \"main\" window built");

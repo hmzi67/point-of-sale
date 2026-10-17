@@ -161,6 +161,75 @@ mod tests {
         assert_eq!(count(&db), 1);
     }
 
+    /// Goes through the real `Db::open` (file on disk, pragmas, migrations),
+    /// not `schema::test_conn`, which sets foreign_keys itself.
+    #[test]
+    fn open_enables_foreign_keys_and_wal_on_a_real_file() {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("diwan-open-test-{}-{nanos}", std::process::id()));
+
+        let db = Db::open(dir.clone()).unwrap();
+        let (foreign_keys, journal_mode): (i64, String) = db
+            .with_conn(|conn| {
+                Ok((
+                    conn.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?,
+                    conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?,
+                ))
+            })
+            .unwrap();
+        assert_eq!(foreign_keys, 1);
+        assert_eq!(journal_mode, "wal");
+
+        // Enforced, not just reported: an order line for a missing order is refused.
+        let orphan = db.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor)
+                 VALUES (999999, (SELECT id FROM items LIMIT 1), 1, 100)",
+                [],
+            )
+        });
+        assert!(orphan.is_err());
+
+        drop(db);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Migrates a COPY of a real install's database in place:
+    /// `DIWAN_MIGRATE_DIR=/path/to/dir-with-pos.db cargo test migrate_a_real_db_copy -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn migrate_a_real_db_copy() {
+        let dir = PathBuf::from(std::env::var("DIWAN_MIGRATE_DIR").expect("set DIWAN_MIGRATE_DIR"));
+        let tables = ["sales", "sale_items", "tokens", "token_items", "table_orders", "refunds"];
+        let counts = |conn: &Connection| -> Vec<i64> {
+            tables
+                .iter()
+                .map(|t| conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |row| row.get(0)).unwrap())
+                .collect()
+        };
+
+        let before = {
+            let conn = Connection::open(dir.join(DB_FILE_NAME)).unwrap();
+            let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+            println!("user_version before: {version}");
+            counts(&conn)
+        };
+        let db = Db::open(dir).unwrap();
+        let (after, version, fk_problems) = db
+            .with_conn(|conn| {
+                let fk_problems = conn.prepare("PRAGMA foreign_key_check")?.query_map([], |_| Ok(()))?.count();
+                Ok((counts(conn), conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))?, fk_problems))
+            })
+            .unwrap();
+        for ((table, b), a) in tables.iter().zip(&before).zip(&after) {
+            println!("{table:>12}: {b} -> {a}");
+        }
+        println!("user_version after: {version}, foreign_key_check violations: {fk_problems}");
+        assert_eq!(before, after);
+        assert_eq!(version, crate::db::schema::SCHEMA_VERSION);
+        assert_eq!(fk_problems, 0);
+    }
+
     /// The case `with_transaction(|tx| Ok(domain_fn(tx)))` got wrong: a
     /// domain error after a write must not commit that write.
     #[test]

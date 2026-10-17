@@ -35,7 +35,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -60,6 +60,9 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "table_orders",
     "tokens",
     "token_items",
+    "orders",
+    "order_items",
+    "order_status_events",
     "employees",
     "attendance",
     "salary_payments",
@@ -278,6 +281,20 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // column constraint — `ALTER TABLE ... ADD COLUMN` can't add a UNIQUE
     // constraint, only `CREATE UNIQUE INDEX` can, hence the two-step setup.
     ("items", "short_code", "TEXT"),
+    // Orders links — see schema.sql's `orders` section. Each references a
+    // table `execute_batch(SCHEMA_SQL)` has just created, and is nullable
+    // (SQLite only allows ADD COLUMN ... REFERENCES with a NULL default).
+    ("sales", "order_id", "INTEGER REFERENCES orders (id) ON DELETE SET NULL"),
+    ("tokens", "order_id", "INTEGER REFERENCES orders (id) ON DELETE SET NULL"),
+    // Existing tokens become 'queued', which is harmless: they have no
+    // order_id, and the kitchen display only lists tokens that do.
+    (
+        "tokens",
+        "kitchen_status",
+        "TEXT NOT NULL DEFAULT 'queued' CHECK (kitchen_status IN ('queued', 'preparing', 'ready'))",
+    ),
+    ("tokens", "ready_at", "TEXT"),
+    ("token_items", "order_item_id", "INTEGER REFERENCES order_items (id) ON DELETE SET NULL"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs
@@ -292,6 +309,9 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
 const ADDED_COLUMN_INDEXES: &[(&str, &str, &str)] = &[
     // (index name, table, column)
     ("idx_sales_shift", "sales", "shift_id"),
+    ("idx_sales_order", "sales", "order_id"),
+    ("idx_tokens_order", "tokens", "order_id"),
+    ("idx_token_items_order_item", "token_items", "order_item_id"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -537,6 +557,213 @@ mod tests {
 
         // Idempotent — a second run (e.g. a second app launch) must be a no-op.
         relax_tokens_table_order_id(&conn).unwrap();
+    }
+
+    fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
+        conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name = ?2",
+            params![table, column],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+            == 1
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |row| row.get(0)).unwrap()
+    }
+
+    /// Inserts a takeaway order and returns its id.
+    fn insert_order(conn: &Connection, order_no: i64, client_ref: &str, created_at: &str) -> i64 {
+        conn.execute(
+            "INSERT INTO orders (order_no, order_type, client_ref, created_at) VALUES (?1, 'takeaway', ?2, ?3)",
+            params![order_no, client_ref, created_at],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn upgrading_a_v11_install_adds_the_order_link_columns_and_keeps_existing_rows() {
+        let conn = test_conn();
+        // A token with a line, so tokens/token_items have rows to carry over.
+        conn.execute_batch(
+            "INSERT INTO counters (name) VALUES ('Grill');
+             INSERT INTO tokens (token_number, counter_id) VALUES (7, last_insert_rowid());
+             INSERT INTO token_items (token_id, item_id, qty_on_token)
+                 VALUES (last_insert_rowid(), (SELECT id FROM items LIMIT 1), 2);",
+        )
+        .unwrap();
+        let sales_before = count(&conn, "SELECT COUNT(*) FROM sales");
+        let tokens_before = count(&conn, "SELECT COUNT(*) FROM tokens");
+        let token_items_before = count(&conn, "SELECT COUNT(*) FROM token_items");
+        assert!(sales_before > 0);
+
+        // Rewind to the v11 shape: no orders tables, and sales/tokens/
+        // token_items rebuilt from their exact v11 definitions (the bundled
+        // SQLite can't DROP COLUMN out of these commented CREATE TABLEs).
+        conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+        conn.execute_batch(
+            "DROP TABLE order_status_events;
+             DROP TABLE order_items;
+             DROP TABLE orders;
+             CREATE TABLE sales_v11 (
+                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                 total_minor    INTEGER NOT NULL CHECK (total_minor >= 0),
+                 discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
+                 tax_minor      INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
+                 payment_method TEXT    NOT NULL DEFAULT 'cash'
+                                        CHECK (payment_method IN ('cash', 'card', 'other')),
+                 cashier_id     INTEGER REFERENCES users (id) ON DELETE SET NULL,
+                 table_id       INTEGER REFERENCES tables (id) ON DELETE SET NULL,
+                 shift_id       INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
+                 created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+             );
+             INSERT INTO sales_v11
+                 SELECT id, total_minor, discount_minor, tax_minor, payment_method,
+                        cashier_id, table_id, shift_id, created_at FROM sales;
+             DROP TABLE sales;
+             ALTER TABLE sales_v11 RENAME TO sales;
+             CREATE TABLE tokens_v11 (
+                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                 token_number   INTEGER NOT NULL,
+                 table_order_id INTEGER REFERENCES table_orders (id) ON DELETE CASCADE,
+                 counter_id     INTEGER NOT NULL REFERENCES counters (id) ON DELETE RESTRICT,
+                 printed_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+                 printed_by     INTEGER REFERENCES users (id) ON DELETE SET NULL,
+                 status         TEXT    NOT NULL DEFAULT 'printed' CHECK (status IN ('printed', 'cancelled'))
+             );
+             INSERT INTO tokens_v11
+                 SELECT id, token_number, table_order_id, counter_id, printed_at, printed_by, status FROM tokens;
+             DROP TABLE tokens;
+             ALTER TABLE tokens_v11 RENAME TO tokens;
+             CREATE TABLE token_items_v11 (
+                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                 token_id      INTEGER NOT NULL REFERENCES tokens (id) ON DELETE CASCADE,
+                 item_id       INTEGER NOT NULL REFERENCES items (id) ON DELETE RESTRICT,
+                 qty_on_token  REAL    NOT NULL CHECK (qty_on_token > 0)
+             );
+             INSERT INTO token_items_v11 SELECT id, token_id, item_id, qty_on_token FROM token_items;
+             DROP TABLE token_items;
+             ALTER TABLE token_items_v11 RENAME TO token_items;
+             PRAGMA user_version = 11;",
+        )
+        .unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        assert!(!has_column(&conn, "sales", "order_id"));
+
+        apply(&conn).unwrap();
+
+        for (table, column) in [
+            ("sales", "order_id"),
+            ("tokens", "order_id"),
+            ("tokens", "kitchen_status"),
+            ("tokens", "ready_at"),
+            ("token_items", "order_item_id"),
+        ] {
+            assert!(has_column(&conn, table, column), "{table}.{column} missing after upgrade");
+        }
+        assert!(missing_tables(&conn).unwrap().is_empty());
+        assert_eq!(count(&conn, "PRAGMA user_version"), SCHEMA_VERSION);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM sales"), sales_before);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM tokens"), tokens_before);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM token_items"), token_items_before);
+        // Existing tokens get the default and no order link.
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM tokens WHERE kitchen_status = 'queued' AND order_id IS NULL"),
+            tokens_before
+        );
+        for index in ["idx_sales_order", "idx_tokens_order", "idx_token_items_order_item"] {
+            assert_eq!(
+                count(&conn, &format!("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = '{index}'")),
+                1,
+                "{index} missing after upgrade"
+            );
+        }
+    }
+
+    #[test]
+    fn order_numbers_are_unique_per_day_and_client_refs_are_unique() {
+        let conn = test_conn();
+        insert_order(&conn, 1, "a", "2026-10-17 09:00:00");
+        // Same number, same day: refused.
+        assert!(conn
+            .execute(
+                "INSERT INTO orders (order_no, order_type, client_ref, created_at)
+                 VALUES (1, 'takeaway', 'b', '2026-10-17 18:00:00')",
+                [],
+            )
+            .is_err());
+        // Same number, next day: fine (the sequence resets daily).
+        insert_order(&conn, 1, "c", "2026-10-18 09:00:00");
+        // A retried create with the same client_ref: refused.
+        assert!(conn
+            .execute(
+                "INSERT INTO orders (order_no, order_type, client_ref) VALUES (2, 'takeaway', 'a')",
+                [],
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn order_columns_reject_values_outside_their_sets() {
+        let conn = test_conn();
+        let order_id = insert_order(&conn, 1, "a", "2026-10-17 09:00:00");
+        let item_id = count(&conn, "SELECT id FROM items LIMIT 1");
+        for bad in [
+            "UPDATE orders SET status = 'paid' WHERE id = ?1",
+            "UPDATE orders SET order_type = 'drive_thru' WHERE id = ?1",
+            "UPDATE orders SET held_from_status = 'held' WHERE id = ?1",
+            "UPDATE orders SET version = 0 WHERE id = ?1",
+        ] {
+            assert!(conn.execute(bad, [order_id]).is_err(), "accepted: {bad}");
+        }
+        for bad in [
+            "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor) VALUES (?1, ?2, 0, 100)",
+            "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor) VALUES (?1, ?2, 1, -1)",
+            "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor, status)
+                 VALUES (?1, ?2, 1, 100, 'gone')",
+        ] {
+            assert!(conn.execute(bad, params![order_id, item_id]).is_err(), "accepted: {bad}");
+        }
+        conn.execute_batch(
+            "INSERT INTO counters (name) VALUES ('Grill');
+             INSERT INTO tokens (token_number, counter_id) VALUES (1, last_insert_rowid());",
+        )
+        .unwrap();
+        assert!(conn.execute("UPDATE tokens SET kitchen_status = 'served'", []).is_err());
+    }
+
+    #[test]
+    fn a_sale_that_paid_order_lines_cannot_be_deleted_and_orders_cascade_their_lines() {
+        let conn = test_conn();
+        let order_id = insert_order(&conn, 1, "a", "2026-10-17 09:00:00");
+        let (sale_id, item_id): (i64, i64) = conn
+            .query_row("SELECT sale_id, item_id FROM sale_items LIMIT 1", [], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor, sale_id)
+             VALUES (?1, ?2, 1, 100, ?3)",
+            params![order_id, item_id, sale_id],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO order_status_events (order_id, to_status) VALUES (?1, 'draft')",
+            [order_id],
+        )
+        .unwrap();
+        conn.execute("UPDATE sales SET order_id = ?1 WHERE id = ?2", params![order_id, sale_id]).unwrap();
+
+        // Historic data is immutable: the paying sale can't vanish.
+        assert!(conn.execute("DELETE FROM sales WHERE id = ?1", [sale_id]).is_err());
+
+        // Deleting the order takes its lines and history; the sale survives, unlinked.
+        conn.execute("DELETE FROM orders WHERE id = ?1", [order_id]).unwrap();
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM order_items"), 0);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM order_status_events"), 0);
+        let link: Option<i64> =
+            conn.query_row("SELECT order_id FROM sales WHERE id = ?1", [sale_id], |row| row.get(0)).unwrap();
+        assert_eq!(link, None);
     }
 
     #[test]

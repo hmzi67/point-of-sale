@@ -41,6 +41,13 @@
 --     shift reconciles its declared cash count against cash sales minus
 --     refunds recorded during the shift — see `db::shifts`.
 --
+--   Orders (restaurant order management — see the `orders` section below)
+--     tables 1──* orders 1──* order_items *──1 items
+--     orders 1──* sales (sales.order_id; split bill = several sales)
+--     order_items *──?1 sales (order_items.sale_id: which bill paid it)
+--     orders 1──* tokens 1──* token_items *──?1 order_items
+--     orders 1──* order_status_events
+--
 --   Restaurant flow (only when the tables module is enabled)
 --     tables 1──* table_orders *──1 sales
 --     A table is opened, an order row links it to a draft sale, and the sale
@@ -343,6 +350,10 @@ CREATE TABLE IF NOT EXISTS sales (
     -- install gets it via ADDED_COLUMNS in schema.rs, since a table that
     -- already exists never sees a column added to this CREATE TABLE.
     shift_id       INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
+    -- The order this sale paid for (some or all of its lines), if any; NULL
+    -- for a plain counter sale. One order can have several sales (split
+    -- bill). Added via ADDED_COLUMNS on an existing install, like shift_id.
+    order_id       INTEGER REFERENCES orders (id) ON DELETE SET NULL,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -487,7 +498,15 @@ CREATE TABLE IF NOT EXISTS tokens (
     -- 'printed' (the physical print already succeeded by the time the row
     -- exists at all — see `get_pending_token_items`'s doc comment on why a
     -- failed print never reaches this table).
-    status         TEXT    NOT NULL DEFAULT 'printed' CHECK (status IN ('printed', 'cancelled'))
+    status         TEXT    NOT NULL DEFAULT 'printed' CHECK (status IN ('printed', 'cancelled')),
+    -- The order this ticket belongs to (orders flow); NULL for tokens from
+    -- the older table_orders / ad hoc paths, which the kitchen display
+    -- never shows. Added via ADDED_COLUMNS on an existing install.
+    order_id       INTEGER REFERENCES orders (id) ON DELETE SET NULL,
+    -- Kitchen-display progress of this ticket at its counter.
+    kitchen_status TEXT    NOT NULL DEFAULT 'queued'
+                           CHECK (kitchen_status IN ('queued', 'preparing', 'ready')),
+    ready_at       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_tokens_table_order ON tokens (table_order_id);
@@ -503,11 +522,108 @@ CREATE TABLE IF NOT EXISTS token_items (
     -- REAL, matching `sale_items.qty`/`items.stock_qty` — a `sold_by_amount`
     -- item's token quantity is a real-world weight too (e.g. "0.77 kg"),
     -- not necessarily a whole number.
-    qty_on_token  REAL    NOT NULL CHECK (qty_on_token > 0)
+    qty_on_token  REAL    NOT NULL CHECK (qty_on_token > 0),
+    -- The exact order line this ticket line came from (orders flow); NULL
+    -- for the older per-item-diff tokens. Added via ADDED_COLUMNS.
+    order_item_id INTEGER REFERENCES order_items (id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_token_items_token ON token_items (token_id);
 CREATE INDEX IF NOT EXISTS idx_token_items_item  ON token_items (item_id);
+-- Indexes on sales.order_id, tokens.order_id and token_items.order_item_id
+-- live in schema.rs's ADDED_COLUMN_INDEXES (an upgrading install only has
+-- those columns after add_missing_columns runs).
+
+-- ---------------------------------------------------------------------------
+-- Orders (restaurant order management). An order runs on two independent
+-- tracks: fulfillment (`orders.status`, below) and payment, which is never
+-- stored — an order is paid when every non-voided `order_items` row has a
+-- `sale_id`. Completed = paid AND served; `completed_at` is stamped when
+-- both first hold. Sales stay the money ledger: paying lines is an ordinary
+-- `create_sale` whose `sales.order_id` points back here, so receipts,
+-- refunds and shift reconciliation are unchanged. Replaces `table_orders`
+-- (and its `cart_json` stand-in) for new orders.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS orders (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Shown to staff and printed on tickets; resets daily (unique per
+    -- calendar day via idx_orders_day_no).
+    order_no         INTEGER NOT NULL CHECK (order_no > 0),
+    order_type       TEXT    NOT NULL
+                             CHECK (order_type IN ('dine_in', 'takeaway', 'delivery')),
+    table_id         INTEGER REFERENCES tables (id) ON DELETE SET NULL,
+    status           TEXT    NOT NULL DEFAULT 'draft'
+                             CHECK (status IN ('draft', 'sent', 'preparing', 'ready',
+                                               'served', 'held', 'cancelled')),
+    -- What `held` resumes to; set only while status = 'held'.
+    held_from_status TEXT    CHECK (held_from_status IN ('draft', 'sent', 'preparing',
+                                                         'ready', 'served')),
+    -- Bumped on every change; a write naming a stale version is refused, so
+    -- two devices can never silently overwrite each other.
+    version          INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+    -- Client-generated UUID, made once per order: a retried create returns
+    -- the existing order instead of a duplicate.
+    client_ref       TEXT    NOT NULL UNIQUE,
+    customer_name    TEXT,
+    notes            TEXT,
+    created_by       INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    sent_at          TEXT,
+    ready_at         TEXT,
+    served_at        TEXT,
+    completed_at     TEXT,
+    cancelled_at     TEXT,
+    cancel_reason    TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_day_no ON orders (date(created_at), order_no);
+-- The active-orders board filters on status.
+CREATE INDEX IF NOT EXISTS idx_orders_status     ON orders (status);
+CREATE INDEX IF NOT EXISTS idx_orders_table      ON orders (table_id);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders (created_at);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id             INTEGER NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+    -- RESTRICT, matching sale_items.item_id — archive, never delete.
+    item_id              INTEGER NOT NULL REFERENCES items (id) ON DELETE RESTRICT,
+    -- REAL, matching sale_items.qty (sold_by_amount lines are fractional).
+    qty                  REAL    NOT NULL CHECK (qty > 0),
+    -- Copied from the live item by the server when the line is added — never
+    -- sent by the client — so paying can copy it as price_at_sale_minor.
+    price_at_order_minor INTEGER NOT NULL CHECK (price_at_order_minor >= 0),
+    notes                TEXT,
+    -- A line the kitchen was told about is voided, never deleted.
+    status               TEXT    NOT NULL DEFAULT 'active'
+                                 CHECK (status IN ('active', 'voided')),
+    voided_by            INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    void_reason          TEXT,
+    voided_at            TEXT,
+    -- The sale that paid this line; NULL = unpaid. RESTRICT for the same
+    -- historic-immutability reason refunds.original_sale_id is.
+    sale_id              INTEGER REFERENCES sales (id) ON DELETE RESTRICT,
+    added_by             INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    added_at             TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items (order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_sale  ON order_items (sale_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_item  ON order_items (item_id);
+
+-- Append-only: one row per fulfillment status change (from_status NULL on
+-- creation). Feeds the board's timers, the history timeline and the void
+-- audit trail.
+CREATE TABLE IF NOT EXISTS order_status_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    INTEGER NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+    from_status TEXT,
+    to_status   TEXT    NOT NULL,
+    user_id     INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    detail      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_status_events_order ON order_status_events (order_id);
 
 -- ---------------------------------------------------------------------------
 -- Staff, attendance and pay
