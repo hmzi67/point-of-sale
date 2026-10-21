@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Ticket } from "lucide-react";
+import { Bike, Edit2, Store, Ticket } from "lucide-react";
 import { getItems } from "../../services/inventoryService";
 import { attachCartToTable, getParkedCart, getTables } from "../../services/tablesService";
 import { useBillingStore } from "../../store";
+import { useModuleEnabled } from "../../hooks/useModules";
 import { computeCartTotals } from "../../utils/billingTotals";
 import { DropdownSelect } from "../ui/DropdownSelect";
 import { TokenPrintDialog, type TokenPrintSource } from "./TokenPrintDialog";
+import { DeliveryDetailsModal } from "./DeliveryDetailsModal";
+import { ThirdPartyDeliveryModal } from "./ThirdPartyDeliveryModal";
 import type { TableSummary } from "../../types";
 import { runAction } from "../../utils/runAction";
+import { ORDER_TYPE_LABELS } from "../../utils/orderType";
 
 interface OrderTypeAndTableProps {
   taxPercent: number;
@@ -45,15 +49,6 @@ const STATUS_LABEL: Record<TableSummary["status"], string> = {
   reserved: "Reserved",
 };
 
-/**
- * The cart panel's Table + Order Type row. All the actual park/resume logic
- * is unchanged from the previous `TableSelector` — only the layout changed,
- * plus a purely-derived "Order Type" reading: `tableId` set means Dine In,
- * `null` means Takeaway. There's no `order_type` column anywhere to store —
- * picking "Takeaway" just clears `tableId`, same as "Counter sale" did
- * before, so this stays wired to the exact same state the backend already
- * understands.
- */
 export function OrderTypeAndTable({
   taxPercent,
   currency,
@@ -66,9 +61,19 @@ export function OrderTypeAndTable({
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tokenSource, setTokenSource] = useState<TokenPrintSource | null>(null);
+  const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false);
+  const [isThirdPartyModalOpen, setIsThirdPartyModalOpen] = useState(false);
+
+  const isDeliveryEnabled = useModuleEnabled("delivery");
 
   const tableId = useBillingStore((state) => state.tableId);
   const setTableId = useBillingStore((state) => state.setTableId);
+  const currentOrderType = useBillingStore((state) => state.orderType);
+  const setOrderType = useBillingStore((state) => state.setOrderType);
+  const deliveryDetails = useBillingStore((state) => state.deliveryDetails);
+  const setDeliveryDetails = useBillingStore((state) => state.setDeliveryDetails);
+  const setPaymentMethod = useBillingStore((state) => state.setPaymentMethod);
+
   const cart = useBillingStore((state) => state.cart);
   const cartOrder = useBillingStore((state) => state.cartOrder);
   const discountMode = useBillingStore((state) => state.discountMode);
@@ -95,7 +100,7 @@ export function OrderTypeAndTable({
   }, []);
 
   const selectedTable = tables.find((t) => t.id === tableId);
-  const orderType = tableId !== null ? "dineIn" : "takeaway";
+  const effectiveOrderType = tableId !== null ? "dineIn" : currentOrderType;
 
   const saveToTable = async () => {
     if (tableId === null || cartOrder.length === 0) return;
@@ -117,19 +122,13 @@ export function OrderTypeAndTable({
 
   const resumeParkedOrder = async () => {
     if (tableId === null) return;
-    setIsBusy(true);
-    setError(null);
-    try {
+    await runAction(setIsBusy, setError, async () => {
       const [parked, items] = await Promise.all([getParkedCart(tableId), getItems({})]);
       if (!parked) return;
       const byId = new Map(items.map((item) => [item.id, item]));
       loadParkedCart(parked.items, parked.discountMinor, (id) => byId.get(id));
       setTableId(tableId);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsBusy(false);
-    }
+    });
   };
 
   // "Print Token" needs a `table_orders` row to hang tokens off of — the
@@ -140,9 +139,7 @@ export function OrderTypeAndTable({
   // parking it away to bill later.
   const openTableTokenDialog = async () => {
     if (tableId === null) return;
-    setIsBusy(true);
-    setError(null);
-    try {
+    await runAction(setIsBusy, setError, async () => {
       if (cartOrder.length > 0) {
         const lines = cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty }));
         const { discountMinor } = computeCartTotals(
@@ -160,11 +157,7 @@ export function OrderTypeAndTable({
         return;
       }
       setTokenSource({ kind: "table", tableOrderId: openOrderId, tableName: selectedTable?.name ?? "the table" });
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsBusy(false);
-    }
+    });
   };
 
   // A Takeaway order has no table and so no `table_orders` row to sync to —
@@ -209,33 +202,97 @@ export function OrderTypeAndTable({
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2.5">
-        <DropdownSelect
-          value={tableId}
-          placeholder="Select Table"
-          disabled={isLoading}
-          onChange={(id) => setTableId(id)}
-          options={tables.map((table) => ({
-            value: table.id,
-            label: table.name,
-            meta: (
-              <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
-                <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[table.status]}`} />
-                {STATUS_LABEL[table.status]}
-                {table.hasParkedOrder ? " · parked" : ""}
+        {effectiveOrderType === "delivery" ? (
+          <button
+            type="button"
+            onClick={() => setIsDeliveryModalOpen(true)}
+            className="flex items-center justify-between gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-xs font-medium text-fg hover:border-accent transition text-left truncate"
+            title="Edit Delivery Details"
+          >
+            <div className="flex items-center gap-1.5 truncate">
+              <Bike className="h-3.5 w-3.5 text-accent-text shrink-0" />
+              <span className="truncate">
+                {deliveryDetails?.customerPhone
+                  ? `${deliveryDetails.customerPhone} · ${deliveryDetails.deliveryRiderName || "Rider"}`
+                  : "Set Delivery Info"}
               </span>
-            ),
-          }))}
-        />
+            </div>
+            <Edit2 className="h-3 w-3 text-fg-muted shrink-0" />
+          </button>
+        ) : effectiveOrderType === "third_party_delivery" ? (
+          <button
+            type="button"
+            onClick={() => setIsThirdPartyModalOpen(true)}
+            className="flex items-center justify-between gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-xs font-medium text-fg hover:border-accent transition text-left truncate"
+            title="Edit Platform Details"
+          >
+            <div className="flex items-center gap-1.5 truncate">
+              <Store className="h-3.5 w-3.5 text-accent-text shrink-0" />
+              <span className="truncate">
+                {deliveryDetails?.deliveryPlatformName
+                  ? `${deliveryDetails.deliveryPlatformName}${deliveryDetails.platformOrderRef ? ` (${deliveryDetails.platformOrderRef})` : ""}`
+                  : "Select Platform"}
+              </span>
+            </div>
+            <Edit2 className="h-3 w-3 text-fg-muted shrink-0" />
+          </button>
+        ) : (
+          <DropdownSelect
+            value={tableId}
+            placeholder="Select Table"
+            disabled={isLoading}
+            onChange={(id) => {
+              setTableId(id);
+              if (id !== null) {
+                setOrderType("dine_in");
+                setDeliveryDetails(null);
+              }
+            }}
+            options={tables.map((table) => ({
+              value: table.id,
+              label: table.name,
+              meta: (
+                <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
+                  <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[table.status]}`} />
+                  {STATUS_LABEL[table.status]}
+                  {table.hasParkedOrder ? " · parked" : ""}
+                </span>
+              ),
+            }))}
+          />
+        )}
 
         <DropdownSelect
-          value={orderType}
+          value={effectiveOrderType}
           placeholder="Order Type"
           onChange={(next) => {
-            if (next === "takeaway") setTableId(null);
+            if (next === "dineIn") {
+              setOrderType("dine_in");
+              setDeliveryDetails(null);
+            } else if (next === "takeaway") {
+              setTableId(null);
+              setOrderType("takeaway");
+              setDeliveryDetails(null);
+            } else if (next === "delivery") {
+              setTableId(null);
+              setOrderType("delivery");
+              setIsDeliveryModalOpen(true);
+            } else if (next === "third_party_delivery") {
+              setTableId(null);
+              setOrderType("third_party_delivery");
+              setPaymentMethod("platform");
+              setIsThirdPartyModalOpen(true);
+            }
           }}
           options={[
-            { value: "dineIn", label: "Dine In", disabled: tableId === null },
-            { value: "takeaway", label: "Takeaway" },
+            { value: "dineIn", label: ORDER_TYPE_LABELS.dine_in, disabled: tableId === null && tables.length === 0 },
+            { value: "takeaway", label: ORDER_TYPE_LABELS.takeaway },
+            ...(isDeliveryEnabled
+              ? [
+                  { value: "delivery", label: ORDER_TYPE_LABELS.delivery },
+                  { value: "third_party_delivery", label: ORDER_TYPE_LABELS.third_party_delivery },
+                ]
+              : []),
           ]}
         />
       </div>
@@ -253,33 +310,32 @@ export function OrderTypeAndTable({
         </button>
       )}
 
-      {tableId !== null && cartOrder.length > 0 && (
-        <button
-          type="button"
-          onClick={() => void saveToTable()}
-          disabled={isBusy}
-          className="w-full rounded-xl border border-line px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
-        >
-          Save to table (bill later)
-        </button>
-      )}
-
-      {/* Kitchen instruction, printed as the order is taken — distinct from
-          "Complete Sale", which handles payment and prints the bill. Needs
-          either a cart in hand or an already-parked order to token. */}
       {tableId !== null && (cartOrder.length > 0 || selectedTable?.hasParkedOrder) && (
-        <button
-          type="button"
-          onClick={() => void openTableTokenDialog()}
-          disabled={isBusy}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-line px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
-        >
-          <Ticket className="h-3.5 w-3.5" />
-          Print token
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          {cartOrder.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void saveToTable()}
+              disabled={isBusy}
+              className="rounded-xl border border-line px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50"
+            >
+              Save to table
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void openTableTokenDialog()}
+            disabled={isBusy}
+            className={`flex items-center justify-center gap-1.5 rounded-xl border border-line px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-50 ${cartOrder.length === 0 ? "col-span-2" : ""}`}
+          >
+            <Ticket className="h-3.5 w-3.5" />
+            Print token
+          </button>
+        </div>
       )}
 
-      {/* Same action for a Takeaway order — no table, no parked order, so
+      {/* Same action for a Takeaway or Delivery order — no table, no parked order, so
           straight off the live cart (see `openTakeawayTokenDialog`). */}
       {tableId === null && cartOrder.length > 0 && (
         <button
@@ -295,6 +351,27 @@ export function OrderTypeAndTable({
 
       {tokenSource && (
         <TokenPrintDialog source={tokenSource} currency={currency} onClose={() => setTokenSource(null)} />
+      )}
+
+      {isDeliveryModalOpen && (
+        <DeliveryDetailsModal
+          onClose={() => setIsDeliveryModalOpen(false)}
+          onSaved={(details) => {
+            setDeliveryDetails(details);
+            setIsDeliveryModalOpen(false);
+          }}
+        />
+      )}
+
+      {isThirdPartyModalOpen && (
+        <ThirdPartyDeliveryModal
+          onClose={() => setIsThirdPartyModalOpen(false)}
+          onSaved={(details) => {
+            setDeliveryDetails(details);
+            setPaymentMethod("platform");
+            setIsThirdPartyModalOpen(false);
+          }}
+        />
       )}
     </div>
   );

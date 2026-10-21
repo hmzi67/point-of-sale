@@ -9,6 +9,7 @@ mod printer;
 mod product_owner_session;
 mod session;
 mod startup_log;
+mod sync;
 mod vendor_gate;
 
 use tauri::Manager;
@@ -275,6 +276,7 @@ pub fn run() {
                     app_ref.manage(db);
                     app_ref.manage(license);
                     license::runtime::spawn_background_refresh(app_ref.handle().clone());
+                    sync::spawn_background_sync(app_ref.handle().clone());
                     // iOS: redeem App Store purchases StoreKit is still
                     // holding (see `iap.rs`). A no-op everywhere else.
                     iap::spawn_unfinished_sweep(app_ref.handle().clone());
@@ -343,12 +345,12 @@ pub fn run() {
 
             match result {
                 Ok(inner) => inner.map_err(|e| {
-                    startup_log::error(&format!("setup() returned an error: {e}"));
+                    startup_log::error(&format!("setup() returned an error: {}", startup_log::clip(&e.to_string())));
                     e
                 }),
                 Err(panic) => {
                     let message = panic_message(&*panic);
-                    startup_log::error(&format!("setup() PANICKED: {message}"));
+                    startup_log::error(&format!("setup() PANICKED: {}", startup_log::clip(&message)));
                     Err(message.into())
                 }
             }
@@ -357,6 +359,7 @@ pub fn run() {
             commands::app_ping,
             commands::splashscreen_ready,
             commands::app_log_frontend_error,
+            commands::app_log_frontend_warning,
             commands::app_db_version,
             commands::app_db_tables,
             commands::config_get,
@@ -370,6 +373,8 @@ pub fn run() {
             commands::license_get_info,
             commands::license_refresh,
             commands::license_activate,
+            commands::pos_sync_now,
+            commands::pos_get_sync_status,
             commands::iap_get_products,
             commands::iap_purchase,
             commands::iap_restore,
@@ -425,6 +430,7 @@ pub fn run() {
             commands::reports_print_table_sales_summary,
             commands::reports_get_refunds_summary,
             commands::reports_print_refunds_summary,
+            commands::reports_get_delivery_report,
             commands::reports_get_full_report,
             commands::reports_print_full_report,
             commands::reports_get_product_sales_summary,
@@ -448,6 +454,22 @@ pub fn run() {
             commands::tokens_reprint,
             commands::tokens_get_adhoc_groups,
             commands::tokens_print_adhoc,
+            commands::orders_create_and_hold,
+            commands::orders_list_active,
+            commands::orders_get,
+            commands::orders_resume,
+            commands::orders_transition,
+            commands::orders_update_prep_time,
+            commands::orders_update_delivery_status,
+            commands::orders_cancel,
+            commands::orders_pay,
+            commands::orders_print_token,
+            commands::delivery_platforms_list,
+            commands::delivery_platforms_list_active,
+            commands::delivery_platforms_add,
+            commands::delivery_platforms_update,
+            commands::delivery_platforms_set_active,
+            commands::delivery_platforms_get_recent_riders,
             commands::attendance_get_employees,
             commands::attendance_get_all_employees,
             commands::attendance_add_employee,
@@ -484,11 +506,12 @@ pub fn run() {
             commands::security_verify_area_pin,
             commands::security_revoke_area_access,
             commands::security_get_default_credentials,
-            commands::security_set_area_pin
+            commands::security_set_area_pin,
+            commands::security_replace_default_pins
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|error| {
-            startup_log::error(&format!("run() returned a fatal error: {error}"));
+            startup_log::error(&format!("run() returned a fatal error: {}", startup_log::clip(&error.to_string())));
             // A release build has no attached console, so a fatal startup
             // failure — no writable app-data folder, a database that won't
             // open, a missing WebView2 runtime on Windows, `setup()` erroring

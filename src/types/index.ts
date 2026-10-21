@@ -14,4 +14,6 @@ export * from "./salary";
 export * from "./shifts";
 export * from "./tables";
 export * from "./tokens";
+export * from "./orders";
+export * from "./sync";
 export * from "./vendorGate";

@@ -8,7 +8,9 @@
 // takes to render its first frame. Fires on `load` (after the logo image
 // itself has decoded and is visibly on screen), not any earlier point.
 window.addEventListener("load", () => {
-  window.__TAURI__?.core?.invoke("splashscreen_ready")?.catch(() => {
+  // `__TAURI_INTERNALS__` is always injected; `window.__TAURI__` only exists with
+  // `withGlobalTauri`, which is off so the full API isn't a page global.
+  window.__TAURI_INTERNALS__?.invoke("splashscreen_ready")?.catch(() => {
     // Nothing to do — the MAX_SPLASH_MS ceiling in lib.rs::run still
     // reveals the main window regardless, so a failed/unreachable IPC
     // bridge here can't strand anyone on the splash.

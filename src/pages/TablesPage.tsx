@@ -20,6 +20,7 @@ import {
 } from "../services/tablesService";
 import { useBillingStore } from "../store";
 import type { TableSummary } from "../types";
+import { runAction } from "../utils/runAction";
 
 /** Restaurant floor view: one card per table, color-coded by status. Tapping
  * a free/reserved table seats it and jumps into billing pre-linked to that
@@ -119,17 +120,11 @@ export function TablesPage() {
 
   const confirmDeleteTable = async () => {
     if (!deletingTable) return;
-    setIsDeleting(true);
-    setDeleteError(null);
-    try {
+    await runAction(setIsDeleting, setDeleteError, async () => {
       await deleteTable(deletingTable.id);
       setDeletingTable(null);
       reload();
-    } catch (e) {
-      setDeleteError((e as Error).message);
-    } finally {
-      setIsDeleting(false);
-    }
+    });
   };
 
   /** Confirmed from the Shift Table picker: moves `shiftingTable`'s order

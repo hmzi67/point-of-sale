@@ -82,6 +82,18 @@ pub fn two_col(label: &str, value: &str) -> String {
     format!("{}{}", pad(label, label_width, false), pad(value, VALUE_WIDTH, true))
 }
 
+/// Centers `text` within `width` visible characters, truncating if it exceeds `width`.
+pub fn center_text(text: &str, width: usize) -> String {
+    let char_count = text.chars().count();
+    if char_count >= width {
+        return text.chars().take(width).collect();
+    }
+    let total_pad = width - char_count;
+    let left_pad = total_pad / 2;
+    let right_pad = total_pad - left_pad;
+    format!("{}{}{}", " ".repeat(left_pad), text, " ".repeat(right_pad))
+}
+
 /// A row of arbitrary columns, each `(text, width, right_align)`. Widths are
 /// the caller's responsibility to sum to [`LINE_WIDTH`] (they're constants
 /// per template, not computed here) — this only handles padding/truncating

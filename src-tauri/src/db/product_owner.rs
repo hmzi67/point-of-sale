@@ -34,42 +34,25 @@ use crate::db::users::hash_pin;
 pub const MIN_PASSWORD_LEN: usize = 8;
 pub const MAX_PASSWORD_LEN: usize = 128;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ProductOwnerError {
     /// `setup` was called but a credential already exists on this install —
     /// refused rather than silently overwriting it, so discovering the
     /// hidden entry point on an already-configured install can never be
     /// used to hijack the account by "setting" a new password over it.
+    #[error("A credential is already set on this install")]
     AlreadyConfigured,
     /// `verify`/login was attempted before any credential has been set.
+    #[error("No credential has been set on this install yet")]
     NotConfigured,
+    #[error("Password must be {}-{} characters", MIN_PASSWORD_LEN, MAX_PASSWORD_LEN)]
     InvalidLength,
+    #[error("Incorrect password")]
     InvalidPassword,
+    #[error("{0}")]
     Hash(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for ProductOwnerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ProductOwnerError::AlreadyConfigured => {
-                write!(f, "A credential is already set on this install")
-            }
-            ProductOwnerError::NotConfigured => write!(f, "No credential has been set on this install yet"),
-            ProductOwnerError::InvalidLength => {
-                write!(f, "Password must be {}-{} characters", MIN_PASSWORD_LEN, MAX_PASSWORD_LEN)
-            }
-            ProductOwnerError::InvalidPassword => write!(f, "Incorrect password"),
-            ProductOwnerError::Hash(msg) => write!(f, "{}", msg),
-            ProductOwnerError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for ProductOwnerError {
-    fn from(err: rusqlite::Error) -> Self {
-        ProductOwnerError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 fn validate_password(password: &str) -> Result<(), ProductOwnerError> {

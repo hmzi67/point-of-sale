@@ -33,6 +33,18 @@ export async function call<TResult>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<TResult> {
+  // Dev-only so the mock (and its demo data) is dropped from release bundles.
+  if (import.meta.env.DEV && !isTauri()) {
+    try {
+      const { handleBrowserMock } = await import("./browserMock");
+      return await handleBrowserMock<TResult>(command, args);
+    } catch (mockError) {
+      const message =
+        typeof mockError === "string" ? mockError : (mockError as Error)?.message ?? String(mockError);
+      throw new TauriCommandError(command, message, mockError);
+    }
+  }
+
   try {
     return await invoke<TResult>(command, args);
   } catch (error) {

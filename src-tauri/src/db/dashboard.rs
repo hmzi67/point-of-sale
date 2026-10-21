@@ -20,31 +20,12 @@ use serde::Serialize;
 use crate::db::modules::{self, Platform};
 use crate::db::reports::{self, ReportError};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DashboardError {
-    Report(ReportError),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for DashboardError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DashboardError::Report(err) => write!(f, "{}", err),
-            DashboardError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for DashboardError {
-    fn from(err: rusqlite::Error) -> Self {
-        DashboardError::Sqlite(err)
-    }
-}
-
-impl From<ReportError> for DashboardError {
-    fn from(err: ReportError) -> Self {
-        DashboardError::Report(err)
-    }
+    #[error("{0}")]
+    Report(#[from] ReportError),
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +60,18 @@ pub struct DashboardSummary {
     /// anything" has nothing meaningful to show either way, same spirit as
     /// `low_stock_item_count` only rendering client-side when non-zero.
     pub top_table_by_sales: Option<TopTable>,
+
+    /// `None` when the `delivery` module is disabled for this
+    /// installation/platform. When enabled, reports today's/range's delivery
+    /// order count and gross delivery sales.
+    pub delivery_stats: Option<DeliveryDashboardStats>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryDashboardStats {
+    pub order_count: i64,
+    pub sales_minor: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,10 +80,6 @@ pub struct TopTable {
     pub table_id: i64,
     pub name: String,
     pub total_minor: i64,
-}
-
-fn module_enabled(conn: &Connection, platform: Platform, key: &str) -> Result<bool, rusqlite::Error> {
-    Ok(modules::list(conn, platform)?.into_iter().any(|m| m.key == key && m.enabled))
 }
 
 fn expenses_total(conn: &Connection, start_date: &str, end_date: &str) -> Result<i64, rusqlite::Error> {
@@ -134,6 +123,35 @@ fn top_table_by_sales(conn: &Connection, start_date: &str, end_date: &str) -> Re
         .find_map(|row| row.table_id.map(|table_id| TopTable { table_id, name: row.label, total_minor: row.total_minor })))
 }
 
+fn delivery_stats_query(
+    conn: &Connection,
+    start_date: &str,
+    end_date: &str,
+) -> Result<DeliveryDashboardStats, DashboardError> {
+    let (start_bound, end_bound) = reports::validate_range(start_date, end_date)?;
+    Ok(conn.query_row(
+        "SELECT COUNT(*),
+                COALESCE(SUM(
+                    COALESCE(
+                        (SELECT SUM(s.total_minor) FROM sales s WHERE s.order_id = o.id),
+                        (SELECT COALESCE(SUM(ROUND(oi.price_at_order_minor * oi.qty)), 0)
+                           FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'active')
+                    )
+                ), 0)
+           FROM orders o
+          WHERE o.order_type IN ('delivery', 'third_party_delivery')
+            AND o.created_at >= ?1 AND o.created_at <= ?2
+            AND o.status != 'cancelled'",
+        params![start_bound, end_bound],
+        |row| {
+            Ok(DeliveryDashboardStats {
+                order_count: row.get(0)?,
+                sales_minor: row.get(1)?,
+            })
+        },
+    )?)
+}
+
 /// Aggregates sales, expenses and salary payouts for `start_date`..`end_date`
 /// (inclusive), scoped to whichever optional modules `platform` currently has
 /// enabled. Billing is core and always contributes; Expenses, Salary and
@@ -148,23 +166,28 @@ pub fn get_summary(
 ) -> Result<DashboardSummary, DashboardError> {
     let sales = reports::get_sales_summary(conn, start_date, end_date)?;
 
-    let total_expenses_minor = if module_enabled(conn, platform, "expenses")? {
+    let total_expenses_minor = if modules::is_enabled(conn, modules::key::EXPENSES, platform)? {
         Some(expenses_total(conn, start_date, end_date)?)
     } else {
         None
     };
-    let total_salary_paid_minor = if module_enabled(conn, platform, "salary")? {
+    let total_salary_paid_minor = if modules::is_enabled(conn, modules::key::SALARY, platform)? {
         Some(salary_paid_total(conn, start_date, end_date)?)
     } else {
         None
     };
-    let low_stock_item_count = if module_enabled(conn, platform, "inventory")? {
+    let low_stock_item_count = if modules::is_enabled(conn, modules::key::INVENTORY, platform)? {
         Some(low_stock_count(conn)?)
     } else {
         None
     };
-    let top_table_by_sales = if module_enabled(conn, platform, "tables")? {
+    let top_table_by_sales = if modules::is_enabled(conn, modules::key::TABLES, platform)? {
         top_table_by_sales(conn, start_date, end_date)?
+    } else {
+        None
+    };
+    let delivery_stats = if modules::is_enabled(conn, modules::key::DELIVERY, platform)? {
+        Some(delivery_stats_query(conn, start_date, end_date)?)
     } else {
         None
     };
@@ -183,6 +206,7 @@ pub fn get_summary(
         net_profit_minor,
         low_stock_item_count,
         top_table_by_sales,
+        delivery_stats,
     })
 }
 
@@ -388,5 +412,66 @@ mod tests {
         assert_eq!(top.table_id, table_id);
         assert_eq!(top.name, table_name);
         assert_eq!(top.total_minor, 3 * 8000);
+    }
+
+    #[test]
+    fn delivery_stats_is_none_when_delivery_module_is_disabled() {
+        let conn = test_conn(); // delivery is disabled by default (desktop_default = 0)
+        let (start, end) = wide_range();
+        let summary = get_summary(&conn, &start, &end, Platform::Desktop).unwrap();
+        assert!(summary.delivery_stats.is_none(), "delivery module is disabled by default");
+    }
+
+    #[test]
+    fn delivery_stats_reflects_delivery_orders_when_enabled() {
+        use crate::db::orders::{create_order, DeliveryDetails};
+
+        let mut conn = test_conn();
+        // Enable delivery module
+        conn.execute(
+            "UPDATE enabled_modules SET desktop_enabled = 1
+              WHERE module_id = (SELECT id FROM modules WHERE key = 'delivery')",
+            [],
+        ).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let order = create_order(
+            &tx,
+            "del-test-1",
+            "delivery",
+            None,
+            None,
+            Some("Customer"),
+            None,
+            None,
+            None,
+            Some(DeliveryDetails {
+                rider_source: Some("manual".to_string()),
+                delivery_rider_id: None,
+                delivery_rider_name: Some("Rider One".to_string()),
+                delivery_rider_phone: Some("03001234567".to_string()),
+                delivery_platform_id: None,
+                delivery_platform_name: None,
+                customer_phone: Some("03009876543".to_string()),
+                delivery_address: Some("Street 123".to_string()),
+                delivery_charge_minor: Some(15_000),
+                delivery_status: None,
+                platform_order_ref: None,
+            }),
+        ).unwrap();
+        tx.commit().unwrap();
+
+        // Attach a sale to this order
+        conn.execute(
+            "INSERT INTO sales (total_minor, payment_method, order_id, created_at)
+             VALUES (31000, 'cash', ?1, datetime('now', 'localtime'))",
+            [order.id],
+        ).unwrap();
+
+        let (start, end) = wide_range();
+        let summary = get_summary(&conn, &start, &end, Platform::Desktop).unwrap();
+        let stats = summary.delivery_stats.expect("delivery module is enabled");
+        assert_eq!(stats.order_count, 1);
+        assert_eq!(stats.sales_minor, 31000);
     }
 }

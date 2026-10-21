@@ -1,5 +1,5 @@
 import { buildCsv, downloadTextFile } from "./csv";
-import { minorToDecimal } from "./format";
+import { minorToDecimal, roundQty } from "./format";
 import type { AppConfig, DailySales, SalesSummary, TopItem } from "../types";
 
 export interface ReportData {
@@ -30,7 +30,7 @@ export function buildReportCsv({ summary, topItems, series }: ReportData): strin
       // Rounded to 2dp, same as everywhere else a fractional (`soldByAmount`)
       // qty is displayed — a raw sum straight from the database can carry
       // floating-point noise (e.g. 12.499999999999998).
-      ...topItems.map((item) => [item.itemName, Math.round(item.qtySold * 100) / 100, minorToDecimal(item.revenueMinor).toFixed(2)]),
+      ...topItems.map((item) => [item.itemName, roundQty(item.qtySold), minorToDecimal(item.revenueMinor).toFixed(2)]),
     ]),
   );
 

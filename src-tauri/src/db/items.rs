@@ -18,29 +18,14 @@ pub struct Category {
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CategoryError {
+    #[error("A category named \"{0}\" already exists")]
     DuplicateName(String),
+    #[error("{0}")]
     Validation(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for CategoryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CategoryError::DuplicateName(name) => {
-                write!(f, "A category named \"{}\" already exists", name)
-            }
-            CategoryError::Validation(msg) => write!(f, "{}", msg),
-            CategoryError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for CategoryError {
-    fn from(err: rusqlite::Error) -> Self {
-        CategoryError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 pub fn list_categories(conn: &Connection) -> Result<Vec<Category>, rusqlite::Error> {
@@ -162,40 +147,23 @@ pub struct ItemQuery {
     pub include_inactive: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ItemError {
+    #[error("Item not found")]
     NotFound,
+    #[error("Barcode \"{0}\" is already used by another item")]
     DuplicateBarcode(String),
+    #[error("Code \"{0}\" is already used by another item")]
     DuplicateShortCode(String),
+    #[error("Category {0} does not exist")]
     UnknownCategory(i64),
+    #[error("Counter {0} does not exist")]
     UnknownCounter(i64),
+    #[error("{0}")]
     Validation(String),
     /// The item has sale history, so it was archived instead of deleted.
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for ItemError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ItemError::NotFound => write!(f, "Item not found"),
-            ItemError::DuplicateBarcode(code) => {
-                write!(f, "Barcode \"{}\" is already used by another item", code)
-            }
-            ItemError::DuplicateShortCode(code) => {
-                write!(f, "Code \"{}\" is already used by another item", code)
-            }
-            ItemError::UnknownCategory(id) => write!(f, "Category {} does not exist", id),
-            ItemError::UnknownCounter(id) => write!(f, "Counter {} does not exist", id),
-            ItemError::Validation(msg) => write!(f, "{}", msg),
-            ItemError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for ItemError {
-    fn from(err: rusqlite::Error) -> Self {
-        ItemError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.short_code, i.description, i.price_minor, i.cost_minor,
@@ -513,25 +481,11 @@ pub fn delete_item(conn: &Connection, id: i64) -> Result<DeleteOutcome, ItemErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::test_support::{item_id};
+    use crate::db::test_support::{item_id, item_input};
     use crate::db::schema::test_conn;
 
     fn basic_input(name: &str) -> ItemInput {
-        ItemInput {
-            name: name.to_string(),
-            barcode: None,
-            short_code: None,
-            description: None,
-            price_minor: 10000,
-            cost_minor: 8000,
-            stock_qty: 5.0,
-            category_id: None,
-            low_stock_threshold: 2,
-            image_path: None,
-            sold_by_amount: false,
-            unit: None,
-            counter_id: None,
-        }
+        item_input(name, 5.0)
     }
 
     #[test]

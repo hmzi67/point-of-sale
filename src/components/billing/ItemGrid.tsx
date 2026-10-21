@@ -27,7 +27,9 @@ export function ItemGrid({
   bestSellerIds,
   fixedTwoColumns = false,
 }: ItemGridProps) {
-  const gridClass = fixedTwoColumns ? "grid grid-cols-2 gap-3" : "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4";
+  const gridClass = fixedTwoColumns
+    ? "grid grid-cols-2 gap-2.5"
+    : "grid grid-cols-2 gap-2.5 sm:gap-3 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4";
 
   if (isLoading) {
     return (

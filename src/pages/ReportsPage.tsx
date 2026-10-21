@@ -1,6 +1,7 @@
-import { BarChart3, Boxes, CalendarDays, RotateCcw, Table2 } from "lucide-react";
+import { BarChart3, Bike, Boxes, CalendarDays, RotateCcw, Table2 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { DateRangePicker } from "../components/reports/DateRangePicker";
+import { DeliveryReport } from "../components/reports/DeliveryReport";
 import { ExportButtons } from "../components/reports/ExportButtons";
 import { ProductWiseSalesTable } from "../components/reports/ProductWiseSalesTable";
 import { RefundsTable } from "../components/reports/RefundsTable";
@@ -10,6 +11,7 @@ import { TopItemsTable } from "../components/reports/TopItemsTable";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useModuleEnabled } from "../hooks/useModules";
 import { getDashboardSummary } from "../services/dashboardService";
+import { getDeliveryReport } from "../services/deliveryService";
 import { getCategories } from "../services/inventoryService";
 import { devWarn } from "../services/logService";
 import { getProductSalesSummary, getRefundsSummary, getTableSalesSummary } from "../services/reportsService";
@@ -17,6 +19,7 @@ import { useReportsStore } from "../store";
 import type {
   Category,
   DashboardSummary,
+  DeliveryReport as DeliveryReportData,
   ProductSalesSummaryReport,
   RefundsSummary,
   TableSalesSummary,
@@ -30,13 +33,14 @@ const TopEntriesChart = lazy(() =>
   import("../components/reports/TopEntriesChart").then((m) => ({ default: m.TopEntriesChart })),
 );
 
-type View = "overview" | "tables" | "products" | "refunds";
+type View = "overview" | "tables" | "products" | "refunds" | "delivery";
 
 const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border border-line bg-surface-2" />;
 
 export function ReportsPage() {
   const { config } = useAppConfig();
   const tablesEnabled = useModuleEnabled("tables");
+  const deliveryEnabled = useModuleEnabled("delivery");
 
   const summary = useReportsStore((state) => state.summary);
   const topItems = useReportsStore((state) => state.topItems);
@@ -71,6 +75,12 @@ export function ReportsPage() {
   const [isLoadingTableSales, setIsLoadingTableSales] = useState(false);
   const [tableSalesError, setTableSalesError] = useState<string | null>(null);
 
+  // Delivery Report query — only fetched when "delivery" view is active
+  // and the Delivery module is enabled.
+  const [deliveryReport, setDeliveryReport] = useState<DeliveryReportData | null>(null);
+  const [isLoadingDelivery, setIsLoadingDelivery] = useState(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+
   // Product Wise Sales is likewise its own query, plus its own category
   // filter/sort controls (independent of Top Items' sort) and the category
   // list they're populated from — fetched once, lazily, the first time this
@@ -99,6 +109,10 @@ export function ReportsPage() {
   }, [tablesEnabled, view]);
 
   useEffect(() => {
+    if (!deliveryEnabled && view === "delivery") setView("overview");
+  }, [deliveryEnabled, view]);
+
+  useEffect(() => {
     if (view !== "tables" || !tablesEnabled) return;
     setIsLoadingTableSales(true);
     setTableSalesError(null);
@@ -125,6 +139,16 @@ export function ReportsPage() {
       .catch((e: Error) => setProductSalesError(e.message))
       .finally(() => setIsLoadingProductSales(false));
   }, [view, startDate, endDate, productCategoryId, productSort]);
+
+  useEffect(() => {
+    if (view !== "delivery" || !deliveryEnabled) return;
+    setIsLoadingDelivery(true);
+    setDeliveryError(null);
+    getDeliveryReport(startDate, endDate)
+      .then(setDeliveryReport)
+      .catch((e: Error) => setDeliveryError(e.message))
+      .finally(() => setIsLoadingDelivery(false));
+  }, [view, deliveryEnabled, startDate, endDate]);
 
   useEffect(() => {
     if (view !== "refunds") return;
@@ -165,7 +189,7 @@ export function ReportsPage() {
         </div>
 
         <div className="flex flex-wrap gap-2 border-t border-line pt-4">
-          {(["overview", "products", ...(tablesEnabled ? (["tables"] as const) : []), "refunds"] as const).map((v) => (
+          {(["overview", "products", ...(tablesEnabled ? (["tables"] as const) : []), ...(deliveryEnabled ? (["delivery"] as const) : []), "refunds"] as const).map((v) => (
             <button
               key={v}
               type="button"
@@ -176,14 +200,16 @@ export function ReportsPage() {
                 view === v ? "border-accent/40 bg-accent-soft text-accent-text" : "border-transparent text-fg-muted hover:bg-surface-2",
               ].join(" ")}
             >
-              {v === "overview" ? <BarChart3 className="h-4 w-4" /> : v === "products" ? <Boxes className="h-4 w-4" /> : v === "tables" ? <Table2 className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+              {v === "overview" ? <BarChart3 className="h-4 w-4" /> : v === "products" ? <Boxes className="h-4 w-4" /> : v === "tables" ? <Table2 className="h-4 w-4" /> : v === "delivery" ? <Bike className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
               {v === "overview"
                 ? "Overview"
                 : v === "products"
                   ? "Product Wise Sales"
                   : v === "tables"
                     ? "Table Wise Sales"
-                    : "Refunds"}
+                    : v === "delivery"
+                      ? "Deliveries"
+                      : "Refunds"}
             </button>
           ))}
         </div>
@@ -239,6 +265,13 @@ export function ReportsPage() {
             />
           </Suspense>
           <TableWiseSalesTable data={tableSales} currency={config.currency} isLoading={isLoadingTableSales} />
+        </>
+      ) : view === "delivery" ? (
+        <>
+          {deliveryError && (
+            <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{deliveryError}</p>
+          )}
+          <DeliveryReport data={deliveryReport} currency={config.currency} isLoading={isLoadingDelivery} />
         </>
       ) : (
         <>

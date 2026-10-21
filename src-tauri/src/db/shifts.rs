@@ -9,35 +9,20 @@
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ShiftError {
+    #[error("You already have an open shift (#{existing_shift_id})")]
     AlreadyOpen { existing_shift_id: i64 },
+    #[error("Shift {0} not found")]
     NotFound(i64),
+    #[error("Shift {0} is already closed")]
     AlreadyClosed(i64),
+    #[error("Opening balance cannot be negative")]
     InvalidOpeningBalance,
+    #[error("Declared cash amount cannot be negative")]
     InvalidDeclaredAmount,
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for ShiftError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ShiftError::AlreadyOpen { existing_shift_id } => {
-                write!(f, "You already have an open shift (#{})", existing_shift_id)
-            }
-            ShiftError::NotFound(id) => write!(f, "Shift {} not found", id),
-            ShiftError::AlreadyClosed(id) => write!(f, "Shift {} is already closed", id),
-            ShiftError::InvalidOpeningBalance => write!(f, "Opening balance cannot be negative"),
-            ShiftError::InvalidDeclaredAmount => write!(f, "Declared cash amount cannot be negative"),
-            ShiftError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for ShiftError {
-    fn from(err: rusqlite::Error) -> Self {
-        ShiftError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,6 +79,24 @@ pub fn get_open_shift_for_cashier(conn: &Connection, cashier_id: i64) -> Result<
     }
 }
 
+/// Returns the open shift id for `cashier_id` if present, falling back to any
+/// currently open shift in the till (e.g. storeowner ringing up while cashier shift is active).
+pub fn get_effective_open_shift_id(conn: &Connection, cashier_id: Option<i64>) -> Result<Option<i64>, ShiftError> {
+    if let Some(cid) = cashier_id {
+        if let Some(shift) = get_open_shift_for_cashier(conn, cid)? {
+            return Ok(Some(shift.id));
+        }
+    }
+    let any_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(any_id)
+}
+
 /// Opens a new shift for `cashier_id`. Refuses if that cashier already has
 /// one open — a cashier's cash drawer is reconciled one shift at a time,
 /// never two overlapping ones.
@@ -129,6 +132,8 @@ pub struct ShiftSummary {
     /// shows it (matching a reference receipt with a "Credit Sale" line)
     /// never needs a special case for this product not having the concept.
     pub credit_sales_minor: i64,
+    #[serde(default)]
+    pub platform_sales_minor: i64,
     pub total_sales_minor: i64,
     /// Sum of `sale_items` discount applied across this shift's sales —
     /// "today's discount total" on the close-out receipt.
@@ -139,7 +144,7 @@ pub struct ShiftSummary {
     /// `opening_balance + cash_sales - refunds` — refunds are assumed to
     /// come back out of the cash drawer regardless of how the original sale
     /// was paid, same as a real till: a card sale refunded in cash still
-    /// empties the drawer by that amount.
+    /// empties the drawer by that amount. Third-party platform sales are excluded.
     pub expected_cash_minor: i64,
     /// `None` until the shift is closed (or a live preview amount is
     /// supplied — see `get_shift_summary`).
@@ -154,20 +159,21 @@ pub struct ShiftSummary {
 /// `refunds` — shared by `get_shift_summary` (reads the shift's own
 /// `opened_at`/`closed_at` window) and `close_shift` (same query, inside
 /// the transaction that's about to persist the closing values).
-fn aggregate(conn: &Connection, shift: &Shift) -> Result<(i64, i64, i64, i64, i64), rusqlite::Error> {
+fn aggregate(conn: &Connection, shift: &Shift) -> Result<(i64, i64, i64, i64, i64, i64), rusqlite::Error> {
     // Sales are attributed to a shift directly (`sales.shift_id`, set at
     // checkout time — see `sales::CreateSaleInput`), so this is an exact
     // match, not a time-window guess.
-    let (cash, card, other, discount): (i64, i64, i64, i64) = conn.query_row(
+    let (cash, card, other, platform, discount): (i64, i64, i64, i64, i64) = conn.query_row(
         "SELECT
-             COALESCE(SUM(CASE WHEN payment_method = 'cash'  THEN total_minor ELSE 0 END), 0),
-             COALESCE(SUM(CASE WHEN payment_method = 'card'  THEN total_minor ELSE 0 END), 0),
-             COALESCE(SUM(CASE WHEN payment_method = 'other' THEN total_minor ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN payment_method = 'cash'     THEN total_minor ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN payment_method = 'card'     THEN total_minor ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN payment_method = 'other'    THEN total_minor ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN payment_method = 'platform' THEN total_minor ELSE 0 END), 0),
              COALESCE(SUM(discount_minor), 0)
            FROM sales
           WHERE shift_id = ?1",
         params![shift.id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
     )?;
 
     // Refunds have no shift_id of their own (a refund can be processed by
@@ -185,7 +191,7 @@ fn aggregate(conn: &Connection, shift: &Shift) -> Result<(i64, i64, i64, i64, i6
         |row| row.get(0),
     )?;
 
-    Ok((cash, card, other, discount, refunds))
+    Ok((cash, card, other, platform, discount, refunds))
 }
 
 fn build_summary(
@@ -193,9 +199,9 @@ fn build_summary(
     shift: Shift,
     declared_override: Option<i64>,
 ) -> Result<ShiftSummary, ShiftError> {
-    let (cash_sales_minor, card_sales_minor, other_sales_minor, discount_minor, refunds_minor) =
+    let (cash_sales_minor, card_sales_minor, other_sales_minor, platform_sales_minor, discount_minor, refunds_minor) =
         aggregate(conn, &shift)?;
-    let total_sales_minor = cash_sales_minor + card_sales_minor + other_sales_minor;
+    let total_sales_minor = cash_sales_minor + card_sales_minor + other_sales_minor + platform_sales_minor;
     let expected_cash_minor = shift.opening_balance_minor + cash_sales_minor - refunds_minor;
 
     let declared_cash_amount_minor = declared_override.or(shift.declared_cash_amount_minor);
@@ -207,6 +213,7 @@ fn build_summary(
         card_sales_minor,
         other_sales_minor,
         credit_sales_minor: 0,
+        platform_sales_minor,
         total_sales_minor,
         discount_minor,
         refunds_minor,
@@ -420,6 +427,21 @@ mod tests {
         assert_eq!(summary.credit_sales_minor, 0);
         assert_eq!(summary.total_sales_minor, 16_000);
         assert_eq!(summary.expected_cash_minor, 1_000, "card/other sales never touch the cash drawer");
+    }
+
+    #[test]
+    fn platform_sales_are_tracked_separately_and_never_affect_expected_cash() {
+        let mut conn = test_conn();
+        let cashier = owner_id(&conn);
+        let shift = open_shift(&conn, cashier, 5_000).unwrap();
+
+        ring_up(&mut conn, "Cola 500ml", 1.0, "platform", Some(shift.id)); // 8000
+
+        let summary = get_shift_summary(&conn, shift.id, None).unwrap();
+        assert_eq!(summary.cash_sales_minor, 0);
+        assert_eq!(summary.platform_sales_minor, 8_000);
+        assert_eq!(summary.total_sales_minor, 8_000);
+        assert_eq!(summary.expected_cash_minor, 5_000, "platform sales never touch the cash drawer");
     }
 
     #[test]

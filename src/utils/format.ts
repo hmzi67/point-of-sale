@@ -19,6 +19,13 @@ export function formatMinor(minor: number, currency = "PKR"): string {
   return formatCurrency(minorToDecimal(minor), currency);
 }
 
+/** A quantity rounded to 2 decimal places — the precision every fractional
+ * (`soldByAmount`) qty is stepped, shown and exported at, which also strips
+ * floating-point noise like 12.499999999999998. */
+export function roundQty(qty: number): number {
+  return Math.round(qty * 100) / 100;
+}
+
 /** A quantity -> a plain string, rounded to 2 decimal places with trailing
  * zeros trimmed ("2" for a whole unit, "0.77" for a `soldByAmount` line),
  * optionally suffixed with a unit ("0.77 kg"). Mirrors `printer::layout::
@@ -26,7 +33,7 @@ export function formatMinor(minor: number, currency = "PKR"): string {
  * unit — the PDF/on-screen cart isn't squeezed into a fixed 42-character
  * grid the way the thermal receipt is. */
 export function formatQty(qty: number, unit?: string | null): string {
-  const rounded = Math.round(qty * 100) / 100;
+  const rounded = roundQty(qty);
   const number = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
   return unit ? `${number} ${unit}` : number;
 }

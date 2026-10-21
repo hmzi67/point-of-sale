@@ -7,6 +7,7 @@ import { useShiftSummaryOutput } from "../../hooks/useShiftSummaryOutput";
 import { decimalToMinor, formatMinor } from "../../utils/format";
 import type { AppConfig, ShiftSummary } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 interface CloseShiftModalProps {
   shiftId: number;
@@ -40,16 +41,10 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
 
   const confirmClose = async () => {
     if (declaredMinor === null) return;
-    setIsClosing(true);
-    setPreviewError(null);
-    try {
+    await runAction(setIsClosing, setPreviewError, async () => {
       const summary = await closeShift(declaredMinor);
       setClosed(summary);
-    } catch (e) {
-      setPreviewError((e as Error).message);
-    } finally {
-      setIsClosing(false);
-    }
+    });
   };
 
   const summary = closed ?? preview;

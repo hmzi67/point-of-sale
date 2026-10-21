@@ -95,7 +95,7 @@ jobs:
       # "already_exists" error when trying to undraft it.
       - name: Find or create release for this tag
         id: create-release
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             try {
@@ -136,22 +136,22 @@ jobs:
     # ambiguous cancellation.
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       # Keyed by matrix.target too: both matrix jobs share the job id
       # ("windows"), and without an explicit extra key Swatinem/rust-cache
       # would key them the same despite compiling for different targets —
       # same reasoning as the macOS job's cache below.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: "src-tauri -> target"
           key: ${{ matrix.target }}
@@ -160,7 +160,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -180,21 +180,21 @@ jobs:
     # without masking a stuck build as an ambiguous cancellation.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       # Keyed by matrix.target too: both matrix jobs share the job id
       # ("macos"), and without an explicit extra key Swatinem/rust-cache
       # would key them the same despite compiling for different targets.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: "src-tauri -> target"
           key: ${{ matrix.target }}
@@ -227,7 +227,7 @@ jobs:
       #
       # See https://v2.tauri.app/distribute/sign/macos/ for the full setup.
       # ---------------------------------------------------------------
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -248,16 +248,16 @@ jobs:
     # produces AppImage + .deb + .rpm together — no per-format matrix needed.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: "src-tauri -> target"
           cache-on-failure: true
@@ -280,7 +280,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -304,15 +304,15 @@ jobs:
     # revisit this timeout if a real CI run needs adjusting.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: >-
             aarch64-linux-android,
             armv7-linux-androideabi,
@@ -322,14 +322,14 @@ jobs:
       # Four targets share the job id ("android"); key on the target list
       # so this doesn't collide with a future per-target matrix split the
       # same way the macOS job's cache does.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: "src-tauri -> target"
           cache-on-failure: true
 
       # VERIFY: JDK version required by this repo's @tauri-apps/cli — see
       # the pin notes at the top of this file.
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: zulu
           java-version: "17"
@@ -339,7 +339,7 @@ jobs:
       # will pull any additional SDK packages it needs on top of this
       # baseline as long as licenses are pre-accepted, which this action
       # does.
-      - uses: android-actions/setup-android@v4
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
         with:
           packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
@@ -347,7 +347,7 @@ jobs:
       # notes at the top of this file).
       - name: Set up Android NDK
         id: setup-ndk
-        uses: nttld/setup-ndk@v1
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1
         with:
           ndk-version: r27c
           link-to-sdk: true
@@ -362,14 +362,14 @@ jobs:
         run: test -d src-tauri/gen/android || npm run tauri android init
 
       # `tauri android init` regenerates build.gradle.kts from scratch every
-      # run, and the generated file does NOT read keystore.properties or
+      # run, and the generated file does NOT read any signing values or
       # apply a signing config to the release build type on its own — see
       # https://v2.tauri.app/distribute/sign/android/. Without this, the
-      # keystore.properties written by the next step is inert and the build
+      # signing env vars given to the build step are inert and the build
       # silently produces an unsigned APK/AAB. scripts/patch_android_signing.py
       # is idempotent (safe to re-run) and is the same script a developer
       # runs locally after `npm run tauri android init` — see docs/DEPLOYMENT.md.
-      - name: Patch Android Gradle project to use keystore.properties
+      - name: Patch Android Gradle project with the release signing config
         run: python3 scripts/patch_android_signing.py
 
       # Same reason as the step above — `tauri android init` regenerates
@@ -381,35 +381,28 @@ jobs:
       - name: Patch AndroidManifest.xml with printer permissions
         run: python3 scripts/patch_android_manifest.py
 
-      # Tauri's Android signing reads src-tauri/gen/android/keystore.properties
-      # (see https://v2.tauri.app/distribute/sign/android/). The documented
-      # format uses a single `password` field for the keystore; `keyPassword`
-      # is written defensively in case the key password differs from the
-      # store password — VERIFY against your @tauri-apps/cli version whether
-      # it's honored, since Tauri's own CI example only uses one password.
-      # This step never logs the decoded keystore or password values.
+      # Only the keystore file touches disk (owner-only, outside the
+      # workspace). The passwords go to the build step alone as env vars,
+      # which the Gradle signing patch reads, so no other step can see them.
+      # This step never logs the decoded keystore.
       - name: Configure Android signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          umask 077
           KEYSTORE_PATH="$RUNNER_TEMP/pos-release.keystore.jks"
           base64 --decode <<< "$ANDROID_KEYSTORE_BASE64" > "$KEYSTORE_PATH"
-          {
-            echo "storeFile=$KEYSTORE_PATH"
-            echo "password=$ANDROID_KEYSTORE_PASSWORD"
-            echo "keyAlias=$ANDROID_KEY_ALIAS"
-            echo "keyPassword=$ANDROID_KEY_PASSWORD"
-          } > src-tauri/gen/android/keystore.properties
           echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: Build signed Android app
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          POS_KEYSTORE_FILE: ${{ env.KEYSTORE_PATH }}
+          POS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          POS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          POS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: npm run tauri android build -- --apk --aab
 
       # Regression guard: if the Gradle signing patch above ever stops
@@ -442,7 +435,7 @@ jobs:
 
       - name: Remove decoded keystore
         if: always()
-        run: rm -f "$KEYSTORE_PATH" src-tauri/gen/android/keystore.properties
+        run: rm -f "$KEYSTORE_PATH"
 
       - name: Upload Android artifacts to the release
         env:
@@ -465,7 +458,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Undraft release
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const release_id = ${{ needs.create-release.outputs.release_id }};

@@ -4,6 +4,7 @@ import { getCsvTemplate, importItemsCsv } from "../../services/inventoryService"
 import { downloadTextFile } from "../../utils/csv";
 import type { ImportSummary } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 interface CsvImportModalProps {
   onClose: () => void;
@@ -33,19 +34,13 @@ export function CsvImportModal({ onClose, onImported }: CsvImportModalProps) {
 
   const handleFile = async (file: File) => {
     setFileName(file.name);
-    setError(null);
     setSummary(null);
-    setIsImporting(true);
-    try {
+    await runAction(setIsImporting, setError, async () => {
       const text = await file.text();
       const result = await importItemsCsv(text);
       setSummary(result);
       if (result.imported > 0) onImported();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsImporting(false);
-    }
+    });
   };
 
   return (

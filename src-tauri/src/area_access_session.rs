@@ -52,9 +52,15 @@ impl AreaAccessSession {
     /// expired-but-still-`Some` grant on read, same as
     /// `ProductOwnerSession::is_valid` — see that one's doc comment for why.
     pub fn is_valid(&self) -> bool {
+        self.is_valid_at(Instant::now())
+    }
+
+    /// `is_valid` against a given clock, so tests can move time forward
+    /// (an `Instant` in the past can't be built on a freshly booted host).
+    fn is_valid_at(&self, now: Instant) -> bool {
         let mut guard = self.granted_at.lock().expect("area access session lock poisoned");
         match *guard {
-            Some(when) if when.elapsed() < TIMEOUT => true,
+            Some(when) if now.saturating_duration_since(when) < TIMEOUT => true,
             Some(_) => {
                 *guard = None;
                 false
@@ -98,17 +104,15 @@ mod tests {
     #[test]
     fn a_grant_older_than_the_timeout_is_no_longer_valid_and_is_cleared() {
         let session = AreaAccessSession::new();
-        let stale = Instant::now().checked_sub(TIMEOUT).expect("clock far enough past boot");
-        *session.granted_at.lock().unwrap() = Some(stale);
-        assert!(!session.is_valid());
+        session.grant();
+        assert!(!session.is_valid_at(Instant::now() + TIMEOUT));
         assert!(session.granted_at.lock().unwrap().is_none(), "an expired grant is cleared on read");
     }
 
     #[test]
     fn a_grant_just_inside_the_timeout_is_still_valid() {
         let session = AreaAccessSession::new();
-        let recent = Instant::now().checked_sub(TIMEOUT - Duration::from_secs(5)).expect("clock far enough past boot");
-        *session.granted_at.lock().unwrap() = Some(recent);
-        assert!(session.is_valid());
+        session.grant();
+        assert!(session.is_valid_at(Instant::now() + TIMEOUT - Duration::from_secs(5)));
     }
 }

@@ -120,23 +120,23 @@ export function ProductWiseSalesTable({
         ) : (
           <>
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-line bg-surface-2/50 text-[10px] uppercase tracking-wider text-fg-muted">
+              <thead className="border-b border-line bg-surface-2/50 text-xs font-semibold text-fg-2">
                 <tr>
-                  <th className="px-4 py-3 font-medium">#</th>
-                  <th className="px-4 py-3 font-medium">Item</th>
-                  <th className="px-4 py-3 font-medium">Category</th>
-                  <th className="px-4 py-3 text-right font-medium">Qty Sold</th>
-                  <th className="px-4 py-3 text-right font-medium">Revenue</th>
+                  <th className="px-4 py-3.5 font-semibold">#</th>
+                  <th className="px-4 py-3.5 font-semibold">Item</th>
+                  <th className="px-4 py-3.5 font-semibold">Category</th>
+                  <th className="px-4 py-3.5 text-right font-semibold">Qty Sold</th>
+                  <th className="px-4 py-3.5 text-right font-semibold">Revenue</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {visibleRows.map((row) => (
                   <tr key={row.itemId}>
-                    <td className="px-4 py-3 text-fg-muted">{row.rank}</td>
-                    <td className="px-4 py-3 font-medium text-fg">{row.itemName}</td>
-                    <td className="px-4 py-3 text-fg-2">{row.categoryName}</td>
-                    <td className="px-4 py-3 text-right text-fg-2">{formatQty(row.qtySold)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-fg tabular-nums">{formatMinor(row.revenueMinor, currency)}</td>
+                    <td className="px-4 py-3.5 text-fg-muted">{row.rank}</td>
+                    <td className="px-4 py-3.5 font-medium text-fg">{row.itemName}</td>
+                    <td className="px-4 py-3.5 text-fg-2">{row.categoryName}</td>
+                    <td className="px-4 py-3.5 text-right text-fg-2">{formatQty(row.qtySold)}</td>
+                    <td className="px-4 py-3.5 whitespace-nowrap text-right font-bold text-fg tabular-nums">{formatMinor(row.revenueMinor, currency)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -165,17 +165,17 @@ export function ProductWiseSalesTable({
           {showNoSales && (
             <>
               <table className="w-full border-t border-line text-left text-sm">
-                <thead className="border-b border-line bg-surface-2/50 text-[10px] uppercase tracking-wider text-fg-muted">
+                <thead className="border-b border-line bg-surface-2/50 text-xs font-semibold text-fg-2">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Item</th>
-                    <th className="px-4 py-3 font-medium">Category</th>
+                    <th className="px-4 py-3.5 font-semibold">Item</th>
+                    <th className="px-4 py-3.5 font-semibold">Category</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {visibleNoSales.map((row) => (
                     <tr key={row.itemId}>
-                      <td className="px-4 py-3 font-medium text-fg">{row.itemName}</td>
-                      <td className="px-4 py-3 text-fg-2">{row.categoryName}</td>
+                      <td className="px-4 py-3.5 font-medium text-fg">{row.itemName}</td>
+                      <td className="px-4 py-3.5 text-fg-2">{row.categoryName}</td>
                     </tr>
                   ))}
                 </tbody>

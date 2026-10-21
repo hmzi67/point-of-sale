@@ -4,6 +4,7 @@ import { addExpense } from "../../services/expensesService";
 import { decimalToMinor } from "../../utils/format";
 import type { Expense } from "../../types";
 import { todayString } from "../../utils/dateRanges";
+import { runAction } from "../../utils/runAction";
 
 interface AddExpenseFormProps {
   categories: string[];
@@ -31,9 +32,7 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
     const amountMinor = decimalToMinor(Number(amount));
     if (!resolvedCategory || !amountMinor || amountMinor <= 0 || !date) return;
 
-    setIsSaving(true);
-    setError(null);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       const expense = await addExpense(date, resolvedCategory, amountMinor, note.trim() || null);
       onAdded(expense);
       setAmount("");
@@ -43,11 +42,7 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
         setIsAddingCategory(false);
         setNewCategory("");
       }
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (

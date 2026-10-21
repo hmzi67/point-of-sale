@@ -1,28 +1,17 @@
 import { create } from "zustand";
 import { getUiPrefs, setSidebarCollapsed as persistSidebar, setTheme as persistTheme } from "../services/configService";
-import { devWarn, reportError } from "../services/logService";
-import type { Theme } from "../types";
+import { devWarn, reportWarning } from "../services/logService";
+import { IS_ANDROID } from "../services/platform";
+import type { GlassEffect, Theme } from "../types";
 
 /**
- * Display preferences for this device: colour theme and the desktop
- * sidebar's collapsed state. Both persist to `app_config` in SQLite (the
- * same place every other per-install preference lives — no localStorage,
- * nothing new) and are read in one round-trip at boot, *before* login, so
- * the login screen is themed too.
- *
- * Theme: the DOM is the thing actually being themed — every colour utility
- * resolves through `:root[data-theme=…]` in `styles.css` — so the store's
- * real job there is keeping `<html data-theme>` in sync. Dark is the
- * default: `index.html` ships `data-theme="dark"` statically, so a dark
- * install never repaints and a light one repaints once.
- *
- * Every setter applies immediately (the flip must feel instant) and then
- * persists; a failed persist is logged, not reverted — the user asked for
- * it and got it, it just won't survive a restart.
+ * Display preferences for this device: colour theme, desktop sidebar
+ * collapsed state, and glass effect.
  */
 interface UiPrefsState {
   theme: Theme;
   sidebarCollapsed: boolean;
+  glassEffect: GlassEffect;
   /** Reads the persisted preferences and applies them. Safe to call before
    * login; a failed read leaves the defaults in place rather than surfacing. */
   init: () => Promise<void>;
@@ -30,24 +19,84 @@ interface UiPrefsState {
   toggleTheme: () => Promise<void>;
   setSidebarCollapsed: (collapsed: boolean) => Promise<void>;
   toggleSidebar: () => Promise<void>;
+  setGlassEffect: (glassEffect: GlassEffect) => void;
+}
+
+function detectDefaultGlass(): GlassEffect {
+  if (IS_ANDROID) return "off";
+  if (typeof window !== "undefined") {
+    try {
+      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+        return "off";
+      }
+      const nav = navigator as any;
+      if (nav.hardwareConcurrency && nav.hardwareConcurrency <= 2) {
+        return "off";
+      }
+      if (nav.deviceMemory && nav.deviceMemory <= 2) {
+        return "off";
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return "subtle";
+}
+
+function getInitialGlassEffect(): GlassEffect {
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("pos_glass_effect");
+      if (stored === "off" || stored === "subtle") {
+        return stored;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return detectDefaultGlass();
 }
 
 function applyThemeToDocument(theme: Theme) {
-  document.documentElement.dataset.theme = theme;
+  if (typeof document !== "undefined") {
+    document.documentElement.dataset.theme = theme;
+  }
 }
+
+function applyGlassToDocument(glass: GlassEffect) {
+  if (typeof document !== "undefined") {
+    document.documentElement.dataset.glass = glass;
+  }
+}
+
+// Initialise root attribute immediately on module load
+applyGlassToDocument(getInitialGlassEffect());
 
 export const useUiPrefsStore = create<UiPrefsState>((set, get) => ({
   theme: "dark",
   sidebarCollapsed: false,
+  glassEffect: getInitialGlassEffect(),
 
   init: async () => {
     try {
+      const glass = getInitialGlassEffect();
+      applyGlassToDocument(glass);
       const prefs = await getUiPrefs();
       applyThemeToDocument(prefs.theme);
-      set({ theme: prefs.theme, sidebarCollapsed: prefs.sidebarCollapsed });
+      set({ theme: prefs.theme, sidebarCollapsed: prefs.sidebarCollapsed, glassEffect: glass });
     } catch (error) {
       devWarn("[uiPrefs] could not read persisted preferences, keeping defaults", error);
     }
+  },
+
+  setGlassEffect: (glassEffect: GlassEffect) => {
+    applyGlassToDocument(glassEffect);
+    try {
+      localStorage.setItem("pos_glass_effect", glassEffect);
+    } catch {
+      // ignore
+    }
+    set({ glassEffect });
   },
 
   setTheme: async (theme) => {
@@ -62,7 +111,7 @@ export const useUiPrefsStore = create<UiPrefsState>((set, get) => ({
     } catch (error) {
       applyThemeToDocument(previous);
       set({ theme: previous });
-      reportError(`[uiPrefs] could not persist theme: ${(error as Error).message}`);
+      reportWarning(`[uiPrefs] could not persist theme: ${(error as Error).message}`);
     }
   },
 
@@ -75,7 +124,7 @@ export const useUiPrefsStore = create<UiPrefsState>((set, get) => ({
       await persistSidebar(collapsed);
     } catch (error) {
       set({ sidebarCollapsed: previous });
-      reportError(`[uiPrefs] could not persist sidebar state: ${(error as Error).message}`);
+      reportWarning(`[uiPrefs] could not persist sidebar state: ${(error as Error).message}`);
     }
   },
 

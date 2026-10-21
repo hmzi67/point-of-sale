@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Outlet } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
 import { getVendorGateStatus, verifyVendorGate } from "../../services/vendorGateService";
+import { runAction } from "../../utils/runAction";
 
 /**
  * First-run vendor authorization gate, wrapped around the setup wizard.
@@ -47,22 +48,16 @@ export function VendorGate() {
     e.preventDefault();
     if (!password || isSubmitting) return;
 
-    setIsSubmitting(true);
-    setError(null);
-    try {
+    const ok = await runAction(setIsSubmitting, setError, async () => {
       await verifyVendorGate(password);
       setStatus({ required: true, authorized: true });
       setPassword("");
-    } catch (err) {
-      // The backend has already applied its escalating delay by the time
-      // this rejects, so there's no additional client-side throttle here —
-      // adding one would only slow an honest vendor, since a scripted
-      // attacker would not be running this code anyway.
-      setError((err as Error).message);
-      setPassword("");
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
+    // The backend has already applied its escalating delay by the time
+    // this fails, so there's no additional client-side throttle here —
+    // adding one would only slow an honest vendor, since a scripted
+    // attacker would not be running this code anyway.
+    if (!ok) setPassword("");
   };
 
   if (status === null) return null;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useBillingStore } from "../store";
 import type { Item } from "../types";
+import { findItemByCode } from "../utils/itemLookup";
 
 /**
  * Keyboard-first fast billing for the desktop Billing screen (see
@@ -53,6 +54,72 @@ import type { Item } from "../types";
  * without any special-casing here: once it's focused, `isTextEntryFocused`
  * is true and this listener gets out of the way entirely.
  */
+export type HotkeyAction =
+  | { type: "toggleHelp" }
+  | { type: "closeHelp" }
+  | { type: "placeOrder" }
+  | { type: "printToken" }
+  | { type: "clearBuffer" }
+  | { type: "moveLine"; delta: 1 | -1 }
+  | { type: "adjustQty"; delta: 1 | -1 }
+  | { type: "removeLine" }
+  | { type: "openTablePopup" }
+  | { type: "appendDigit"; digit: string }
+  | { type: "lookupBuffer" }
+  | { type: "amountEntry" };
+
+export interface HotkeyContext {
+  textEntryFocused: boolean;
+  showHelp: boolean;
+  buffer: string;
+  tablesEnabled: boolean;
+  tablePopupOpen: boolean;
+  hasActiveLine: boolean;
+}
+
+/**
+ * What one keydown means, given the screen's state — pure, so the rules in
+ * the doc comment below are unit-tested. `null` means "not ours": leave the
+ * event alone. `mod` is Ctrl, or Cmd on macOS.
+ */
+export function resolveHotkey(key: string, mod: boolean, ctx: HotkeyContext): HotkeyAction | null {
+  // "?" works even mid-buffer — a short code never contains it.
+  if (key === "?" && !ctx.textEntryFocused) return { type: "toggleHelp" };
+  // The help overlay swallows everything but Escape, so nothing edits the cart behind it.
+  if (ctx.showHelp) return key === "Escape" ? { type: "closeHelp" } : null;
+  // A real text field (search, discount, notes, the table popup's input) is never hijacked.
+  if (ctx.textEntryFocused) return null;
+
+  // Mod combos are checked before the buffer, so they are never typed into it.
+  if (key === "Enter" && mod) return { type: "placeOrder" };
+  // Ctrl+K only has a target when the Tables module mounts `OrderTypeAndTable`.
+  if ((key === "k" || key === "K") && mod) return ctx.tablesEnabled ? { type: "printToken" } : null;
+
+  switch (key) {
+    case "Escape":
+      return { type: "clearBuffer" };
+    case "ArrowUp":
+      return { type: "moveLine", delta: -1 };
+    case "ArrowDown":
+      return { type: "moveLine", delta: 1 };
+    case "ArrowRight":
+      return { type: "adjustQty", delta: 1 };
+    case "ArrowLeft":
+      return { type: "adjustQty", delta: -1 };
+    case "Delete":
+    case "Backspace":
+      return { type: "removeLine" };
+  }
+
+  if ((key === "t" || key === "T") && ctx.buffer === "" && ctx.tablesEnabled && !ctx.tablePopupOpen) {
+    return { type: "openTablePopup" };
+  }
+  if (/^[0-9]$/.test(key)) return { type: "appendDigit", digit: key };
+  if (key === "Enter" && ctx.buffer !== "") return { type: "lookupBuffer" };
+  if (key === "Enter" && ctx.hasActiveLine) return { type: "amountEntry" };
+  return null;
+}
+
 export function useFastBillingHotkeys(options: {
   enabled: boolean;
   items: Item[];
@@ -108,124 +175,73 @@ export function useFastBillingHotkeys(options: {
     }
 
     function onKeyDown(event: KeyboardEvent) {
-      // "?" toggles the help overlay from anywhere on the billing surface,
-      // even while a buffer is mid-type — it's a rare enough key that a
-      // short code would never legitimately contain it.
-      if (event.key === "?" && !isTextEntryFocused()) {
+      const action = resolveHotkey(event.key, event.metaKey || event.ctrlKey, {
+        textEntryFocused: isTextEntryFocused(),
+        showHelp,
+        buffer,
+        tablesEnabled,
+        tablePopupOpen,
+        hasActiveLine: activeLineItemId !== null,
+      });
+      if (action === null) return;
+      // Escape only clears/closes; the amount popup decides below whether Enter is consumed.
+      if (action.type !== "clearBuffer" && action.type !== "closeHelp" && action.type !== "amountEntry") {
         event.preventDefault();
-        setShowHelp((v) => !v);
-        return;
       }
 
-      // While the help overlay is open, swallow everything except the keys
-      // that close it — arrow/Delete/digit keys must not silently edit the
-      // cart behind an overlay the cashier is busy reading.
-      if (showHelp) {
-        if (event.key === "Escape") setShowHelp(false);
-        return;
-      }
-
-      if (isTextEntryFocused()) return;
-
-      // Distinct from plain Enter (which confirms/looks-up whatever is in
-      // the quick-entry buffer below) — checked first and independent of
-      // `buffer`, so it fires the same way whether the cashier has typed a
-      // code or not, and never gets swallowed into that buffer's own Enter
-      // handling.
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        onPlaceOrder();
-        return;
-      }
-
-      // Ctrl/Cmd+K: "Print Token" (KOT). Distinct combination, independent
-      // of `buffer`, same as Ctrl+Enter above. Fires for both a dine-in
-      // table and a Takeaway order — `OrderTypeAndTable` picks the right
-      // flow based on `tableId` itself. Only requires the Tables module to
-      // be enabled, since that's what decides whether `OrderTypeAndTable`
-      // (and its "Print Token" dialog) is even mounted to react to this.
-      if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
-        if (!tablesEnabled) return;
-        event.preventDefault();
-        onPrintToken();
-        return;
-      }
-
-      if (event.key === "Escape") {
-        setBuffer("");
-        return;
-      }
-
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        moveActiveLine(-1);
-        return;
-      }
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        moveActiveLine(1);
-        return;
-      }
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        adjustActiveQty(1);
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        adjustActiveQty(-1);
-        return;
-      }
-      if (event.key === "Delete" || event.key === "Backspace") {
-        event.preventDefault();
-        removeActiveLine();
-        return;
-      }
-
-      if ((event.key === "t" || event.key === "T") && buffer === "" && tablesEnabled && !tablePopupOpen) {
-        event.preventDefault();
-        setTablePopupOpen(true);
-        return;
-      }
-
-      if (/^[0-9]$/.test(event.key)) {
-        event.preventDefault();
-        setBuffer((current) => (current + event.key).slice(0, 6));
-        clearBufferSoon();
-        return;
-      }
-
-      if (event.key === "Enter" && buffer !== "") {
-        event.preventDefault();
-        const code = buffer;
-        setBuffer("");
-
-        // Same priority order the existing scan-to-add search uses: an exact
-        // barcode match first, short code only as a fallback — so a code
-        // that happens to collide with another item's barcode never steals
-        // the lookup out from under it.
-        const match = items.find((item) => item.barcode === code) ?? items.find((item) => item.shortCode === code);
-        // `addItem` itself silently no-ops for an out-of-stock item (same as
-        // the mouse "Add to Cart" path) — only move the active-line
-        // selection onto it when it actually landed in the cart.
-        if (match && match.stockQty > 0) {
-          addItem(match);
-          setActiveLine(match.id);
+      switch (action.type) {
+        case "toggleHelp":
+          setShowHelp((v) => !v);
+          return;
+        case "closeHelp":
+          setShowHelp(false);
+          return;
+        case "placeOrder":
+          onPlaceOrder();
+          return;
+        case "printToken":
+          onPrintToken();
+          return;
+        case "clearBuffer":
+          setBuffer("");
+          return;
+        case "moveLine":
+          moveActiveLine(action.delta);
+          return;
+        case "adjustQty":
+          adjustActiveQty(action.delta);
+          return;
+        case "removeLine":
+          removeActiveLine();
+          return;
+        case "openTablePopup":
+          setTablePopupOpen(true);
+          return;
+        case "appendDigit":
+          setBuffer((current) => (current + action.digit).slice(0, 6));
+          clearBufferSoon();
+          return;
+        case "lookupBuffer": {
+          const match = findItemByCode(items, buffer);
+          setBuffer("");
+          // `addItem` itself silently no-ops for an out-of-stock item (same as
+          // the mouse "Add to Cart" path) — only move the active-line
+          // selection onto it when it actually landed in the cart.
+          if (match && match.stockQty > 0) {
+            addItem(match);
+            setActiveLine(match.id);
+          }
+          return;
         }
-        return;
-      }
-
-      // Enter with an empty buffer and a soldByAmount line selected: open
-      // its amount popup. A non-soldByAmount active line (or nothing
-      // selected) leaves Enter a no-op here — there's no amount to type for
-      // a per-piece line.
-      if (event.key === "Enter" && buffer === "" && activeLineItemId !== null) {
-        const activeItem = items.find((item) => item.id === activeLineItemId);
-        if (activeItem?.soldByAmount) {
-          event.preventDefault();
-          requestAmountEntry(activeItem);
+        case "amountEntry": {
+          // Only a soldByAmount line has an amount to type; Enter is a no-op otherwise.
+          const activeItem = items.find((item) => item.id === activeLineItemId);
+          if (activeItem?.soldByAmount) {
+            event.preventDefault();
+            requestAmountEntry(activeItem);
+          }
+          return;
         }
-        return;
       }
     }
 

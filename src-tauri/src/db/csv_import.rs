@@ -33,21 +33,12 @@ pub struct ImportSummary {
     pub errors: Vec<ImportRowError>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ImportError {
+    #[error("The CSV must have a \"{0}\" column")]
     MissingColumn(&'static str),
+    #[error("Could not read the CSV: {0}")]
     Csv(String),
-}
-
-impl std::fmt::Display for ImportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ImportError::MissingColumn(name) => {
-                write!(f, "The CSV must have a \"{}\" column", name)
-            }
-            ImportError::Csv(msg) => write!(f, "Could not read the CSV: {}", msg),
-        }
-    }
 }
 
 /// A ready-to-download example file, so a shop owner knows exactly what
@@ -234,6 +225,14 @@ Bulk Flour 10kg,,Grocery,not-a-price,900,20,2
             .query_row("SELECT price_minor FROM items WHERE name = 'Bulk Rice 25kg'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stored, 450_000, "\"4500\" must be parsed as a decimal amount, minor units");
+    }
+
+    #[test]
+    fn a_leading_utf8_bom_from_excel_does_not_hide_the_first_column() {
+        let conn = test_conn();
+        let summary = import_csv(&conn, "\u{feff}name,price\nBom Tea,250\n").unwrap();
+        assert_eq!(summary.imported, 1);
+        assert!(summary.errors.is_empty());
     }
 
     #[test]

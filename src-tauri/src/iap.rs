@@ -144,15 +144,23 @@ struct SignInResponse {
 }
 
 /// Whether redeeming a transaction should replace the licence currently on
-/// this device.
-#[cfg(target_os = "ios")]
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// this device. Not iOS-only (unlike `redeem`), so `should_activate` is
+/// tested on every platform.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 enum Activate {
     /// An explicit purchase or restore: the user asked for this licence.
     Always,
     /// A background sweep: record and finish it, but never swap out a
     /// licence that is already working.
     IfNotLicensed,
+}
+
+/// `redeem`'s decision: an explicit purchase/restore always activates; a
+/// background sweep only fills in when nothing is licensed for billing.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn should_activate(activate: Activate, current_allows_billing: bool) -> bool {
+    activate == Activate::Always || !current_allows_billing
 }
 
 /// Products to show on the purchase screen, as the App Store prices them for
@@ -373,7 +381,7 @@ async fn redeem(
     .await
     .map_err(|e| e.to_string())?;
 
-    let state = if activate == Activate::Always || !license.current().allows_billing() {
+    let state = if should_activate(activate, license.current().allows_billing()) {
         license.activate(app, db, &verified.license_key).await.map_err(|e| e.to_string())?
     } else {
         license.current()
@@ -423,4 +431,35 @@ async fn authenticate(app: &AppHandle) -> Result<Option<AppleSession>, String> {
         app_account_token: response.app_account_token,
         email: response.email,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_purchase_or_restore_always_activates_but_a_sweep_never_replaces_a_working_licence() {
+        assert!(should_activate(Activate::Always, true));
+        assert!(should_activate(Activate::Always, false));
+        assert!(!should_activate(Activate::IfNotLicensed, true));
+        assert!(should_activate(Activate::IfNotLicensed, false));
+    }
+
+    #[test]
+    fn the_apple_account_is_memory_only_and_sign_out_clears_it() {
+        let account = AppleAccount::new();
+        assert!(account.info().is_none());
+
+        account.set(Some(AppleSession {
+            app_token: "t".into(),
+            app_account_token: "a".into(),
+            email: Some("x@privaterelay.appleid.com".into()),
+        }));
+        assert_eq!(account.info().unwrap().email.as_deref(), Some("x@privaterelay.appleid.com"));
+        assert_eq!(account.get().unwrap().app_token, "t");
+
+        account.sign_out();
+        assert!(account.info().is_none());
+        assert!(account.get().is_none());
+    }
 }

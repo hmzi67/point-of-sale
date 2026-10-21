@@ -13,6 +13,7 @@ import { useAuthStore, useInventoryStore } from "../store";
 import { minorToDecimal } from "../utils/format";
 import { isModuleReadOnlyFor } from "../utils/permissions";
 import type { Item } from "../types";
+import { runAction } from "../utils/runAction";
 
 export function InventoryPage() {
   const role = useAuthStore((state) => state.user?.role ?? "cashier");
@@ -84,9 +85,7 @@ export function InventoryPage() {
 
   const confirmDelete = async () => {
     if (!deletingItem) return;
-    setIsDeleting(true);
-    setDeleteError(null);
-    try {
+    await runAction(setIsDeleting, setDeleteError, async () => {
       const outcome = await deleteItem(deletingItem.id);
       setToast(
         outcome === "archived"
@@ -94,11 +93,7 @@ export function InventoryPage() {
           : `${deletingItem.name} was deleted.`,
       );
       setDeletingItem(null);
-    } catch (e) {
-      setDeleteError((e as Error).message);
-    } finally {
-      setIsDeleting(false);
-    }
+    });
   };
 
   const toggleSelect = (id: number) => {
@@ -117,9 +112,7 @@ export function InventoryPage() {
   };
 
   const confirmBulkDelete = async () => {
-    setIsBulkDeleting(true);
-    setBulkDeleteError(null);
-    try {
+    await runAction(setIsBulkDeleting, setBulkDeleteError, async () => {
       const ids = [...selectedIds];
       const { deleted, archived, failed } = await deleteItems(ids);
       const parts = [];
@@ -129,11 +122,7 @@ export function InventoryPage() {
       setToast(parts.join(", ") + ".");
       setSelectedIds(new Set());
       setIsConfirmingBulkDelete(false);
-    } catch (e) {
-      setBulkDeleteError((e as Error).message);
-    } finally {
-      setIsBulkDeleting(false);
-    }
+    });
   };
 
   return (

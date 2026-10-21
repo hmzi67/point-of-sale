@@ -73,13 +73,13 @@ export function AttendanceLogTable() {
 
       <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
         <table className="min-w-full divide-y divide-line text-sm">
-          <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+          <thead className="bg-surface-2/60 text-left text-xs font-semibold text-fg-2">
             <tr>
-              <th className="px-4 py-3.5">Date</th>
-              <th className="px-4 py-3.5">Employee</th>
-              <th className="px-4 py-3.5">Check in</th>
-              <th className="px-4 py-3.5">Check out</th>
-              <th className="px-4 py-3.5 text-right">Hours</th>
+              <th className="px-4 py-3.5 font-semibold">Date</th>
+              <th className="px-4 py-3.5 font-semibold">Employee</th>
+              <th className="px-4 py-3.5 font-semibold">Check in</th>
+              <th className="px-4 py-3.5 font-semibold">Check out</th>
+              <th className="px-4 py-3.5 text-right font-semibold">Hours</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">

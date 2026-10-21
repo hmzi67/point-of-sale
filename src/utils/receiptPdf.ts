@@ -95,10 +95,34 @@ function drawReceiptContent(
   // Sale identity: number + timestamp on one line, cashier + order type on
   // the next — the same two-line data block the thermal path prints.
   y = drawMonoRow(doc, y, `Sale #${sale.id}`, sale.createdAt);
-  const orderLabel = sale.tableName ? "Table" : "Type";
-  const orderValue = sale.tableName ?? (tablesEnabled ? "Takeaway" : "Counter Sale");
-  y = drawMonoRow(doc, y, `Cashier: ${sale.cashierName ?? "—"}`, `${orderLabel}: ${orderValue}`);
+  y = drawMonoRow(doc, y, `Cashier: ${sale.cashierName ?? "—"}`, receiptOrderField(sale, tablesEnabled));
   y += 1;
+
+  if (sale.orderType === "delivery") {
+    if (sale.customerPhone || sale.customerName) {
+      const custVal = `${sale.customerName ?? ""}${sale.customerPhone ? ` (${sale.customerPhone})` : ""}`.trim();
+      y = drawMonoRow(doc, y, "Customer:", custVal);
+    }
+    if (sale.deliveryAddress) {
+      doc.setFont("courier", "normal");
+      doc.setFontSize(8);
+      const splitAddr = doc.splitTextToSize(`Address: ${sale.deliveryAddress}`, 68);
+      doc.text(splitAddr, MARGIN_MM, y);
+      y += splitAddr.length * 3.5;
+    }
+    if (sale.deliveryRiderName) {
+      y = drawMonoRow(doc, y, "Rider:", riderText(sale.deliveryRiderName, sale.deliveryRiderPhone));
+    }
+    y += 1;
+  } else if (sale.orderType === "third_party_delivery") {
+    if (sale.platformOrderRef) {
+      y = drawMonoRow(doc, y, "Platform Ref:", `#${sale.platformOrderRef}`);
+    }
+    if (sale.deliveryRiderName) {
+      y = drawMonoRow(doc, y, "Rider:", riderText(sale.deliveryRiderName, sale.deliveryRiderPhone));
+    }
+    y += 1;
+  }
 
   y = drawRuledItemTable(
     doc,
@@ -122,6 +146,9 @@ function drawReceiptContent(
   if (sale.taxMinor > 0) {
     y = drawMonoRow(doc, y, "Tax:", formatMinor(sale.taxMinor, config.currency));
   }
+  if (sale.deliveryChargeMinor && sale.deliveryChargeMinor > 0) {
+    y = drawMonoRow(doc, y, "Delivery Fee:", formatMinor(sale.deliveryChargeMinor, config.currency));
+  }
   y = drawRule(doc, y - 2.4);
   y = drawMonoRow(doc, y + 0.6, "TOTAL:", formatMinor(sale.totalMinor, config.currency), {
     bold: true,
@@ -132,7 +159,15 @@ function drawReceiptContent(
   doc.setFont("courier", "bold");
   doc.setFontSize(8.5);
   doc.text(`Paid by: ${sale.paymentMethod}`, MARGIN_MM, y + 1.4);
-  y += 8;
+  y += 5;
+  if (sale.paymentMethod === "cash" && sale.tenderedMinor != null) {
+    const change = sale.changeMinor ?? Math.max(0, sale.tenderedMinor - sale.totalMinor);
+    y = drawMonoRow(doc, y, "Cash Received:", formatMinor(sale.tenderedMinor, config.currency));
+    y = drawMonoRow(doc, y, "Change to Return:", formatMinor(change, config.currency), { bold: true });
+    y += 3;
+  } else {
+    y += 3;
+  }
 
   if (config.receiptFooter.trim()) {
     y = drawMonoCentered(doc, y, config.receiptFooter.trim());
@@ -173,6 +208,7 @@ function estimatedHeightMm(sale: Sale, config: AppConfig, hasLogo: boolean): num
     (12 + sale.items.length * 4.6) +
     totalsRowCount * 4.8 +
     16 +
+    (sale.paymentMethod === "cash" && sale.tenderedMinor != null ? 10 : 0) +
     (config.receiptFooter.trim() ? 5 : 0) +
     // the closing rule plus the two- or three-line developer credit
     18
@@ -189,6 +225,33 @@ function estimatedHeightMm(sale: Sale, config: AppConfig, hasLogo: boolean): num
  * one), "Counter Sale" if the `tables` module isn't in use for this
  * installation — mirrors the same fallback on the ESC/POS side.
  */
+/**
+ * The "Table: …" / "Type: …" field beside the cashier. Must match the thermal
+ * receipt (`printer::escpos::build_receipt_bytes`) exactly; an order with no
+ * known type is a counter sale, called "Takeaway" when tables are in use.
+ */
+export function receiptOrderField(
+  sale: Pick<Sale, "tableName" | "orderType" | "deliveryPlatformName" | "orderNo">,
+  tablesEnabled: boolean,
+): string {
+  let label = "Type";
+  let value: string;
+  if (sale.tableName) {
+    label = "Table";
+    value = sale.tableName;
+  } else if (sale.orderType === "delivery") value = "Delivery";
+  else if (sale.orderType === "third_party_delivery") value = sale.deliveryPlatformName ?? "3rd-Party";
+  else if (sale.orderType === "takeaway") value = "Takeaway";
+  else if (sale.orderType === "dine_in") value = "Dine-In";
+  else value = tablesEnabled ? "Takeaway" : "Counter Sale";
+  return sale.orderNo ? `${label}: ${value} (#${sale.orderNo})` : `${label}: ${value}`;
+}
+
+/** "Name (phone)", or just the name when there's no phone. */
+export function riderText(name: string, phone?: string | null): string {
+  return phone ? `${name} (${phone})` : name;
+}
+
 export async function buildReceiptPdf(sale: Sale, config: AppConfig, tablesEnabled: boolean): Promise<jsPDF> {
   const logo = await resolveLogo(config.logoPath);
   const doc = newReceiptDoc(estimatedHeightMm(sale, config, logo !== null));

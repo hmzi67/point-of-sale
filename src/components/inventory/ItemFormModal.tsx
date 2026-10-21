@@ -7,6 +7,7 @@ import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import { readImageFile } from "../../utils/image";
 import type { Item, ItemInput } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 interface ItemFormModalProps {
   /** Omit to add a new item; pass an item to edit it. */
@@ -207,19 +208,14 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
       counterId: form.counterId,
     };
 
-    setIsSaving(true);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       if (item) {
         await updateItem(item.id, input);
       } else {
         await addItem(input);
       }
       onClose();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (

@@ -14,12 +14,12 @@ export function ExpenseList({ expenses, currency, isLoading }: ExpenseListProps)
   return (
     <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
       <table className="min-w-full divide-y divide-line text-sm">
-        <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+        <thead className="bg-surface-2/60 text-left text-xs font-semibold text-fg-2">
           <tr>
-            <th className="px-4 py-3.5">Date</th>
-            <th className="px-4 py-3.5">Category</th>
-            <th className="px-4 py-3.5">Note</th>
-            <th className="px-4 py-3.5 text-right">Amount</th>
+            <th className="px-4 py-3.5 font-semibold">Date</th>
+            <th className="px-4 py-3.5 font-semibold">Category</th>
+            <th className="px-4 py-3.5 font-semibold">Note</th>
+            <th className="px-4 py-3.5 text-right font-semibold">Amount</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
@@ -45,7 +45,7 @@ export function ExpenseList({ expenses, currency, isLoading }: ExpenseListProps)
                   </span>
                 </td>
                 <td className="px-4 py-3.5 text-fg-muted">{expense.note ?? "—"}</td>
-                <td className="px-4 py-3.5 whitespace-nowrap text-right font-semibold text-fg tabular-nums">
+                <td className="px-4 py-3.5 whitespace-nowrap text-right font-bold text-fg tabular-nums">
                   {formatMinor(expense.amountMinor, currency)}
                 </td>
               </tr>
@@ -55,10 +55,10 @@ export function ExpenseList({ expenses, currency, isLoading }: ExpenseListProps)
         {expenses.length > 0 && (
           <tfoot className="border-t border-line bg-surface-2">
             <tr>
-              <td colSpan={3} className="px-4 py-3.5 text-right text-xs font-medium uppercase tracking-wide text-fg-muted">
+              <td colSpan={3} className="px-4 py-3.5 text-right text-xs font-semibold text-fg-2">
                 Total
               </td>
-              <td className="px-4 py-3.5 text-right font-semibold text-fg">
+              <td className="px-4 py-3.5 text-right font-bold tabular-nums text-fg">
                 {formatMinor(
                   expenses.reduce((sum, e) => sum + e.amountMinor, 0),
                   currency,

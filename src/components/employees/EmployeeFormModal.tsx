@@ -4,6 +4,7 @@ import { addEmployee, updateEmployee } from "../../services/attendanceService";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import type { ManagedEmployee } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 /** A short list of common roles for a fast pick — the field stays free text
  * (a `<datalist>`, not a `<select>`) since a shop's actual staff titles
@@ -37,9 +38,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
     e.preventDefault();
     if (!name.trim()) return;
 
-    setIsSaving(true);
-    setError(null);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       const salaryMinor = baseSalary.trim() ? decimalToMinor(Number(baseSalary)) : 0;
       if (isEditing) {
         await updateEmployee(employee.id, name.trim(), role, contact.trim() || null, salaryMinor);
@@ -47,11 +46,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
         await addEmployee(name.trim(), role, contact.trim() || null, salaryMinor);
       }
       onSaved();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (

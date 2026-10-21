@@ -4,6 +4,7 @@ import { useLogoDataUrl } from "../../hooks/useLogoDataUrl";
 import { useAppStore } from "../../store";
 import { readLogoFile } from "../../utils/image";
 import type { AppConfig } from "../../types";
+import { runAction } from "../../utils/runAction";
 
 interface StoreIdentitySectionProps {
   config: AppConfig;
@@ -52,15 +53,11 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
       setNameDraft(config.businessName); // revert an empty/unchanged edit
       return;
     }
-    setIsSavingName(true);
-    setNameError(null);
-    try {
+    const ok = await runAction(setIsSavingName, setNameError, async () => {
       await save({ businessName: trimmed });
-    } catch (e) {
-      setNameError((e as Error).message);
+    });
+    if (!ok) {
       setNameDraft(config.businessName);
-    } finally {
-      setIsSavingName(false);
     }
   };
 
@@ -71,19 +68,15 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
       setPhoneDraft(current);
       return;
     }
-    setIsSavingPhone(true);
-    setPhoneError(null);
-    try {
+    const ok = await runAction(setIsSavingPhone, setPhoneError, async () => {
       // An empty value is saved as "" (not omitted) so clearing a
       // previously-set number actually clears it — `AppConfigUpdate`'s
       // COALESCE-based patch treats `null`/omitted as "leave as-is", so
       // there's no other way to unset this field once set.
       await save({ phone: trimmed });
-    } catch (e) {
-      setPhoneError((e as Error).message);
+    });
+    if (!ok) {
       setPhoneDraft(current);
-    } finally {
-      setIsSavingPhone(false);
     }
   };
 
@@ -94,17 +87,13 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
       setDeliveryDraft(current);
       return;
     }
-    setIsSavingDelivery(true);
-    setDeliveryError(null);
-    try {
+    const ok = await runAction(setIsSavingDelivery, setDeliveryError, async () => {
       // Empty is saved as "" (not omitted) so clearing it actually clears
       // it — same reasoning as `savePhoneIfChanged` above.
       await save({ deliveryNumber: trimmed });
-    } catch (e) {
-      setDeliveryError((e as Error).message);
+    });
+    if (!ok) {
       setDeliveryDraft(current);
-    } finally {
-      setIsSavingDelivery(false);
     }
   };
 

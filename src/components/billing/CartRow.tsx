@@ -1,6 +1,7 @@
 import { Minus, NotebookPen, Plus, Trash2 } from "lucide-react";
 import { useBillingStore } from "../../store";
 import { formatMinor, formatQty } from "../../utils/format";
+import { lineTotalMinor } from "../../utils/billingTotals";
 import { ItemImage } from "./ItemImage";
 
 interface CartRowProps {
@@ -27,7 +28,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
   // server's per-line rounding — an amount-entered line's qty is carried at
   // full precision, so the raw product is fractional (9999.999999999998 for
   // a typed 100.00) and must not be shown or summed as-is.
-  const lineTotalMinor = Math.round(entry.priceMinor * entry.qty);
+  const lineMinor = lineTotalMinor(entry.priceMinor, entry.qty);
 
   return (
     <li
@@ -51,17 +52,17 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
       // padding, border and rounded corner cut off, leaving the thumbnail
       // flush against the clipped edge whenever the row was active.
       className={[
-        "flex cursor-pointer items-center gap-2 rounded-xl border px-2 py-3 transition-colors",
+        "flex cursor-pointer items-center gap-2 rounded-xl border px-2.5 py-2 transition-colors",
         isActive
           ? "border-accent/40 bg-accent-soft"
           : "border-line bg-surface-2/40 hover:border-line-strong",
       ].join(" ")}
     >
-      <ItemImage imagePath={entry.imagePath} alt={entry.name} className="h-12 w-12 shrink-0 rounded-xl" />
+      <ItemImage imagePath={entry.imagePath} alt={entry.name} className="h-10 w-10 shrink-0 rounded-lg sm:h-11 sm:w-11" />
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-fg">{entry.name}</p>
-        <p className="text-xs text-fg-muted">{formatMinor(entry.priceMinor, currency)}</p>
+        <p className="truncate text-sm sm:text-base font-semibold text-fg">{entry.name}</p>
+        <p className="text-xs sm:text-sm font-semibold tabular-nums text-fg-2">{formatMinor(entry.priceMinor, currency)}</p>
       </div>
 
       <button
@@ -95,7 +96,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
         >
           <Minus className="h-3 w-3" />
         </button>
-        <span className="min-w-5 text-center text-sm font-medium text-fg">
+        <span className="min-w-5 text-center text-sm font-semibold tabular-nums text-fg">
           {formatQty(entry.qty, entry.unit)}
         </span>
         <button
@@ -109,6 +110,12 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
         </button>
       </div>
 
+      <div className="shrink-0 text-right min-w-16">
+        <span className="text-sm sm:text-base font-bold tabular-nums text-fg">
+          {formatMinor(lineMinor, currency)}
+        </span>
+      </div>
+
       <button
         type="button"
         onClick={() => removeItem(itemId)}
@@ -117,8 +124,6 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>
-
-      <span className="sr-only">{formatMinor(lineTotalMinor, currency)} line total</span>
     </li>
   );
 }

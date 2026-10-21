@@ -1,4 +1,5 @@
 import {
+  Bike,
   Boxes,
   CalendarCheck,
   Clock,
@@ -39,6 +40,7 @@ export const MODULE_NAV: Record<ModuleKey, NavItem> = {
   employees: { key: "employees", path: "/employees", icon: IdCard },
   users: { key: "users", path: "/users", icon: Users },
   settings: { key: "settings", path: "/settings", icon: Settings },
+  delivery: { key: "delivery", path: "/billing", icon: Bike },
 };
 
 export function pathForModule(key: ModuleKey): string {

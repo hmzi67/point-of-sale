@@ -1,12 +1,23 @@
 import type { CartEntry, DiscountMode } from "../store/billingStore";
 import { decimalToMinor } from "./format";
 
+/**
+ * One line's money: price × qty rounded back to whole minor units, exactly as
+ * the server does it (`(price_minor as f64 * qty).round()`). A fractional qty
+ * (weighed / amount-entered items) makes the raw product non-integer, which
+ * must never be shown, summed or sent as minor units.
+ */
+export function lineTotalMinor(priceMinor: number, qty: number): number {
+  return Math.round(priceMinor * qty);
+}
+
 export interface CartTotals {
   subtotalMinor: number;
   discountMinor: number;
   taxMinor: number;
   /** subtotal - discount, i.e. what tax is calculated on. */
   taxableMinor: number;
+  deliveryChargeMinor: number;
   totalMinor: number;
 }
 
@@ -24,6 +35,7 @@ export function computeCartTotals(
   discountMode: DiscountMode,
   discountValue: number,
   taxPercent: number,
+  deliveryChargeMinor = 0,
 ): CartTotals {
   // Rounded per line, not once over the sum — this mirrors `db::sales::
   // create_sale`'s `(price_minor as f64 * line.qty).round()` exactly, so the
@@ -35,7 +47,7 @@ export function computeCartTotals(
   // product is something like 9999.999999999998, and letting that flow on
   // would put a fractional value into fields that are integer minor units
   // everywhere else.
-  const subtotalMinor = cart.reduce((sum, line) => sum + Math.round(line.priceMinor * line.qty), 0);
+  const subtotalMinor = cart.reduce((sum, line) => sum + lineTotalMinor(line.priceMinor, line.qty), 0);
 
   const rawDiscountMinor =
     discountMode === "percent"
@@ -45,7 +57,7 @@ export function computeCartTotals(
 
   const taxableMinor = subtotalMinor - discountMinor;
   const taxMinor = Math.round((taxableMinor * taxPercent) / 100);
-  const totalMinor = taxableMinor + taxMinor;
+  const totalMinor = taxableMinor + taxMinor + deliveryChargeMinor;
 
-  return { subtotalMinor, discountMinor, taxMinor, taxableMinor, totalMinor };
+  return { subtotalMinor, discountMinor, taxMinor, taxableMinor, deliveryChargeMinor, totalMinor };
 }

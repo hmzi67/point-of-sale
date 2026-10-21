@@ -70,7 +70,7 @@ export function DropdownSelect<T extends string | number>({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl bg-surface p-1.5 shadow-soft-lg ring-1 ring-line">
+        <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl bg-surface glass p-1.5 shadow-soft-lg ring-1 ring-line">
           <ul className="max-h-64 divide-y divide-line overflow-y-auto">
             {options.map((option) => {
               const isSelected = option.value === value;

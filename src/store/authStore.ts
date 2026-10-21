@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { login as loginCommand, logout as logoutCommand } from "../services/authService";
-import { reportError } from "../services/logService";
+import { reportWarning } from "../services/logService";
 import type { User } from "../types";
 
 /**
@@ -40,7 +40,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ user: null, error: null });
     logoutCommand()
       .catch(() => logoutCommand())
-      .catch((error: Error) => reportError(`[auth] sign-out did not reach the backend: ${error.message}`));
+      .catch((error: Error) => reportWarning(`[auth] sign-out did not reach the backend: ${error.message}`));
   },
   clearError: () => set({ error: null }),
 }));

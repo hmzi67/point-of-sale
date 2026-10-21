@@ -61,10 +61,10 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
       {/* Padded, tinted mount for the photo instead of an edge-to-edge crop —
        * reads as a framed thumbnail floating on a soft neutral surface,
        * inset within the card, not filling its whole top edge. */}
-      <div className="p-2.5 pb-0">
+      <div className="p-2 sm:p-2.5 pb-0">
         <div className="relative overflow-hidden rounded-xl bg-surface-2">
-          <ItemImage imagePath={item.imagePath} alt={item.name} className="h-28 w-full"
-            fallback={<span aria-hidden="true" className={`flex h-16 w-16 items-center justify-center rounded-2xl border border-current/10 ${color.bg} ${color.text}`}><CategoryIcon className="h-8 w-8" strokeWidth={1.25} /></span>} />
+          <ItemImage imagePath={item.imagePath} alt={item.name} className="h-24 sm:h-28 w-full"
+            fallback={<span aria-hidden="true" className={`flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl border border-current/10 ${color.bg} ${color.text}`}><CategoryIcon className="h-7 w-7 sm:h-8 sm:w-8" strokeWidth={1.25} /></span>} />
           <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
             {item.shortCode && (
               <span
@@ -95,17 +95,17 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
       {/* Name is the anchor; category pill + price share one row below it,
        * consistent padding all round so image → name → row reads as one
        * block instead of separately-spaced pieces. */}
-      <div className="flex flex-1 flex-col gap-2 p-3.5">
-        <p title={item.name} className="line-clamp-2 min-h-10 text-sm font-semibold leading-5 text-fg">{item.name}</p>
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-1 flex-col gap-1.5 p-2.5 sm:gap-2 sm:p-3">
+        <p title={item.name} className="line-clamp-2 min-h-9 text-xs sm:text-sm font-semibold leading-snug text-fg">{item.name}</p>
+        <div className="flex flex-wrap items-center justify-between gap-1.5">
           {item.categoryName ? (
-            <span className={`truncate rounded-full px-2 py-0.5 text-[10.5px] font-medium ${color.bg} ${color.text}`}>
+            <span className={`truncate rounded-full px-2 py-0.5 text-[10px] sm:text-[10.5px] font-medium ${color.bg} ${color.text}`}>
               {item.categoryName}
             </span>
           ) : (
             <span />
           )}
-          <span className="shrink-0 text-base font-extrabold tracking-tight text-fg">
+          <span className="shrink-0 text-sm sm:text-base font-extrabold tracking-tight text-fg">
             {formatMinor(item.priceMinor, currency)}
           </span>
         </div>
@@ -115,17 +115,17 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
             <button
               type="button"
               onClick={decrement}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2"
+              className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2"
               aria-label={`Decrease quantity of ${item.name}`}
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
-            <span className="text-sm font-semibold text-fg">{formatQty(qty, item.unit)}</span>
+            <span className="text-xs sm:text-sm font-semibold text-fg">{formatQty(qty, item.unit)}</span>
             <button
               type="button"
               onClick={increment}
               disabled={qty >= item.stockQty}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
               aria-label={`Increase quantity of ${item.name}`}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -139,7 +139,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
               if (!outOfStock) addItem(item);
             }}
             disabled={outOfStock}
-            className="mt-auto flex min-h-10 items-center justify-center gap-2 rounded-xl border border-accent/20 bg-accent-soft py-2 text-xs font-semibold text-accent-text transition-colors hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
+            className="mt-auto flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-accent/20 bg-accent-soft py-1.5 sm:py-2 text-xs font-semibold text-accent-text transition-colors hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
           >
             <Plus className="h-3.5 w-3.5" /> Add to cart
           </button>

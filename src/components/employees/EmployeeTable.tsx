@@ -18,13 +18,13 @@ export function EmployeeTable({ employees, currency, isLoading, busyId, onEdit, 
   return (
     <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
       <table className="min-w-full divide-y divide-line text-sm">
-        <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+        <thead className="bg-surface-2/60 text-left text-xs font-semibold text-fg-2">
           <tr>
-            <th className="px-4 py-3.5">Name</th>
-            <th className="px-4 py-3.5">Role</th>
-            <th className="px-4 py-3.5">Contact</th>
-            <th className="px-4 py-3.5 text-right">Base salary</th>
-            <th className="px-4 py-3.5">Status</th>
+            <th className="px-4 py-3.5 font-semibold">Name</th>
+            <th className="px-4 py-3.5 font-semibold">Role</th>
+            <th className="px-4 py-3.5 font-semibold">Contact</th>
+            <th className="px-4 py-3.5 text-right font-semibold">Base salary</th>
+            <th className="px-4 py-3.5 font-semibold">Status</th>
             <th className="px-4 py-3.5" />
           </tr>
         </thead>
@@ -49,7 +49,7 @@ export function EmployeeTable({ employees, currency, isLoading, busyId, onEdit, 
                   <td className="px-4 py-3.5 font-medium text-fg"><span className="flex items-center gap-3"><PersonAvatar name={employee.name} />{employee.name}</span></td>
                   <td className="px-4 py-3.5 text-fg-2">{employee.role}</td>
                   <td className="px-4 py-3.5 text-fg-muted">{employee.contact ?? "—"}</td>
-                  <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
+                  <td className="px-4 py-3.5 whitespace-nowrap text-right font-bold text-fg tabular-nums">
                     {formatMinor(employee.baseSalaryMinor, currency)}
                   </td>
                   <td className="px-4 py-3.5 text-fg-muted"><ActiveBadge active={employee.isActive} /></td>

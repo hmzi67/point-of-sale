@@ -40,7 +40,7 @@ export function TopBar({ onOpenNav }: TopBarProps) {
     // enableEdgeToEdge()), so without this the bar's own 56px content row
     // renders partially under the status bar/notch instead of below it. A
     // fixed height would clip that padding instead of growing to fit it.
-    <header className="flex min-h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 pt-[env(safe-area-inset-top)]">
+    <header className="flex min-h-14 shrink-0 items-center justify-between border-b border-line bg-surface glass px-4 pt-[env(safe-area-inset-top)]">
       <div className="flex items-center gap-2">
         {onOpenNav && (
           <button

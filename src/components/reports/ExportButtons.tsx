@@ -15,7 +15,7 @@ import { downloadReportCsv } from "../../utils/reportCsv";
 import type { AppConfig, DailySales, SalesSummary, TopItem, TopItemSort } from "../../types";
 import { runAction } from "../../utils/runAction";
 
-type View = "overview" | "products" | "tables" | "refunds";
+type View = "overview" | "products" | "tables" | "refunds" | "delivery";
 
 interface ExportButtonsProps {
   view: View;
@@ -155,6 +155,34 @@ export function ExportButtons({
           const report = await getTableSalesSummary(startDate, endDate);
           const { downloadTableSalesPdf } = await import("../../utils/tableSalesPdf");
           await downloadTableSalesPdf(report, config);
+        } else if (view === "delivery") {
+          const { getDeliveryReport } = await import("../../services/deliveryService");
+          const report = await getDeliveryReport(startDate, endDate);
+          const { buildCsv, downloadTextFile } = await import("../../utils/csv");
+          const { minorToDecimal } = await import("../../utils/format");
+          const rows = [
+            ["Delivery Report", `${report.startDate} to ${report.endDate}`],
+            ["Total Orders", report.totalOrders.toString()],
+            ["In-House Orders", report.inHouseOrders.toString()],
+            ["3rd-Party Orders", report.thirdPartyOrders.toString()],
+            ["Total Sales", minorToDecimal(report.totalSalesMinor).toFixed(2)],
+            ["Total Delivery Charges", minorToDecimal(report.totalDeliveryChargesMinor).toFixed(2)],
+            [],
+            ["Order #", "Type", "Status", "Platform", "Rider", "Customer", "Phone", "Address", "Delivery Charge", "Total"],
+            ...report.orders.map((o) => [
+              o.orderNo.toString(),
+              o.orderType,
+              o.deliveryStatus || "placed",
+              o.platformName || "",
+              o.riderName || "",
+              o.customerName || "",
+              o.customerPhone || "",
+              o.deliveryAddress || "",
+              minorToDecimal(o.deliveryChargeMinor).toFixed(2),
+              minorToDecimal(o.totalMinor).toFixed(2),
+            ]),
+          ];
+          await downloadTextFile(buildCsv(rows), `delivery-report-${startDate}-to-${endDate}.csv`);
         } else {
           const report = await getRefundsSummary(startDate, endDate);
           const { downloadRefundsSummaryPdf } = await import("../../utils/refundsSummaryPdf");
@@ -184,8 +212,7 @@ export function ExportButtons({
 
   const printCategorySales = () => runExport(setIsPrintingCategory, () => printCategorySalesThermal(startDate, endDate));
 
-  // --- Generate Full Report — one consolidated document, distinct from
-  // every per-report action above. ---------------------------------------
+  // --- Overall Sales Report — consolidated sales summary document ---
   const downloadFullReport = () =>
     runExport(
       setIsDownloadingFull,
@@ -194,7 +221,7 @@ export function ExportButtons({
         const { downloadFullReportPdf } = await import("../../utils/fullReportPdf");
         await downloadFullReportPdf(report, config);
       },
-      "Could not prepare the Full Report",
+      "Could not prepare the Overall Sales Report",
     );
 
   const printFullReport = () => runExport(setIsPrintingFull, () => printFullReportThermal(startDate, endDate));
@@ -206,7 +233,9 @@ export function ExportButtons({
         ? "Product Wise Sales"
         : view === "tables"
           ? "Table Wise Sales"
-          : "Refunds";
+          : view === "delivery"
+            ? "Deliveries (CSV)"
+            : "Refunds";
 
   // Table Wise Sales' thermal print needs `tables` enabled; Refunds' print
   // has no such module gate (refunds aren't a toggleable module).
@@ -234,7 +263,7 @@ export function ExportButtons({
         />
 
         <ActionCard
-          title="Generate Full Report"
+          title="Overall Sales Report"
           icon={Layers}
           onDownload={() => void downloadFullReport()}
           isDownloading={disabled || isDownloadingFull}

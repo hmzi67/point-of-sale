@@ -2,8 +2,8 @@
 //! shared sensitive-area PIN, and the product-owner password.
 //!
 //! Staff and area PINs are only 4–6 digits, so without a limit a script
-//! calling the command over IPC (`withGlobalTauri` makes that a devtools
-//! one-liner) could walk the whole space in minutes. After
+//! calling the command over IPC (a devtools one-liner via
+//! `__TAURI_INTERNALS__`) could walk the whole space in minutes. After
 //! [`FREE_ATTEMPTS`] consecutive failures on a key, further attempts on it
 //! are refused outright — without even checking the credential — until a
 //! lockout that doubles with every further failure has passed.

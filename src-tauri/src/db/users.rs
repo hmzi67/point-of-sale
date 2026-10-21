@@ -18,6 +18,7 @@ pub enum Role {
     Owner,
     Admin,
     Cashier,
+    Delivery,
 }
 
 impl Role {
@@ -26,6 +27,7 @@ impl Role {
             Role::Owner => "owner",
             Role::Admin => "admin",
             Role::Cashier => "cashier",
+            Role::Delivery => "delivery",
         }
     }
 
@@ -34,6 +36,7 @@ impl Role {
             "owner" => Some(Role::Owner),
             "admin" => Some(Role::Admin),
             "cashier" => Some(Role::Cashier),
+            "delivery" => Some(Role::Delivery),
             _ => None,
         }
     }
@@ -60,56 +63,35 @@ pub struct ManagedUser {
     pub is_active: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AuthError {
+    #[error("Incorrect PIN")]
     InvalidPin,
     /// PIN is not 4–6 digits.
+    #[error("PIN must be {}-{} digits", MIN_PIN_LEN, MAX_PIN_LEN)]
     MalformedPin,
+    #[error("That user no longer exists")]
     UnknownUser,
+    #[error("A user named {0} already exists")]
     DuplicateName(String),
+    #[error("Name cannot be empty")]
     EmptyName,
     /// Refused: there is exactly one Owner account per installation (the one
     /// seeded at first run, see `db::schema::seed_owner`) — this path is
     /// never a legitimate way to create or promote one. Kept here as a
     /// second line of defense; the actual gate a normal caller hits is the
     /// role-assignment check in `commands::users_create`/`users_update`.
+    #[error("Only one Owner account is allowed on this installation")]
     OwnerRoleNotAssignable,
     /// Refused: the Owner account can never be deactivated, by anyone,
     /// including itself — there being exactly one means there is no other
     /// account left who could create a new one.
+    #[error("The Owner account can't be deactivated")]
     OwnerCannotBeDeactivated,
+    #[error("Could not process PIN: {0}")]
     Hash(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for AuthError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AuthError::InvalidPin => write!(f, "Incorrect PIN"),
-            AuthError::MalformedPin => write!(
-                f,
-                "PIN must be {}-{} digits",
-                MIN_PIN_LEN, MAX_PIN_LEN
-            ),
-            AuthError::UnknownUser => write!(f, "That user no longer exists"),
-            AuthError::DuplicateName(name) => write!(f, "A user named {} already exists", name),
-            AuthError::EmptyName => write!(f, "Name cannot be empty"),
-            AuthError::OwnerRoleNotAssignable => {
-                write!(f, "Only one Owner account is allowed on this installation")
-            }
-            AuthError::OwnerCannotBeDeactivated => {
-                write!(f, "The Owner account can't be deactivated")
-            }
-            AuthError::Hash(msg) => write!(f, "Could not process PIN: {}", msg),
-            AuthError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for AuthError {
-    fn from(err: rusqlite::Error) -> Self {
-        AuthError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 /// `pub(crate)` rather than private — `db::security_pin` (the shared

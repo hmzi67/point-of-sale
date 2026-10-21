@@ -16,29 +16,16 @@ pub struct Counter {
     pub is_active: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum CounterError {
+    #[error("Counter not found")]
     NotFound,
+    #[error("Counter name cannot be empty")]
     EmptyName,
+    #[error("A counter named \"{0}\" already exists")]
     DuplicateName(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for CounterError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CounterError::NotFound => write!(f, "Counter not found"),
-            CounterError::EmptyName => write!(f, "Counter name cannot be empty"),
-            CounterError::DuplicateName(name) => write!(f, "A counter named \"{}\" already exists", name),
-            CounterError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for CounterError {
-    fn from(err: rusqlite::Error) -> Self {
-        CounterError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 fn from_row(row: &Row<'_>) -> Result<Counter, rusqlite::Error> {

@@ -1,10 +1,13 @@
-import { ArrowRight, ShoppingBag, X } from "lucide-react";
+import { ArrowRight, Pause, ShoppingBag, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ActiveOrdersDrawer } from "../components/billing/ActiveOrdersDrawer";
 import { BillingHeader } from "../components/billing/BillingHeader";
 import { CartPanel } from "../components/billing/CartPanel";
+import { CashTenderControl } from "../components/billing/CashTenderControl";
 import { CategoryPills } from "../components/billing/CategoryPills";
 import { DiscountControl } from "../components/billing/DiscountControl";
 import { EditNoteModal } from "../components/billing/EditNoteModal";
+import { HoldOrderModal } from "../components/billing/HoldOrderModal";
 import { ItemAmountEntryModal } from "../components/billing/ItemAmountEntryModal";
 import { ItemGrid } from "../components/billing/ItemGrid";
 import { ItemSearchBar } from "../components/billing/ItemSearchBar";
@@ -19,14 +22,17 @@ import { useBestSellerIds } from "../hooks/useBestSellerIds";
 import { useFastBillingHotkeys } from "../hooks/useFastBillingHotkeys";
 import { useModuleEnabled } from "../hooks/useModules";
 import { createSale } from "../services/billingService";
+import { getOrder, listActiveOrders, payOrder, transitionOrder } from "../services/ordersService";
 import { getCategories, getItems } from "../services/inventoryService";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useBillingStore, useShiftStore } from "../store";
 import { IS_ANDROID } from "../services/platform";
 import { computeCartTotals } from "../utils/billingTotals";
-import { formatMinor } from "../utils/format";
+import { decimalToMinor, formatMinor } from "../utils/format";
+import { reportWarning } from "../services/logService";
 import type { Category, Item, Sale } from "../types";
 import { runAction } from "../utils/runAction";
+import { isDeliveryOrder } from "../utils/orderType";
 
 export function BillingPage() {
   const { config } = useAppConfig();
@@ -96,6 +102,11 @@ export function BillingPage() {
   const clearCart = useBillingStore((state) => state.clearCart);
   const updateLine = useBillingStore((state) => state.updateLine);
   const amountEntryItem = useBillingStore((state) => state.amountEntryItem);
+  const activeOrderId = useBillingStore((state) => state.activeOrderId);
+  const customerName = useBillingStore((state) => state.customerName);
+  const tenderedAmount = useBillingStore((state) => state.tenderedAmount);
+  const orderType = useBillingStore((state) => state.orderType);
+  const deliveryDetails = useBillingStore((state) => state.deliveryDetails);
 
   const editingEntry = editingItemId !== null ? cart[editingItemId] : undefined;
 
@@ -116,6 +127,34 @@ export function BillingPage() {
   // without burying the grid below a scroll.
   const [isCartOpen, setIsCartOpen] = useState(false);
 
+  // Active / Held Orders drawer & Hold Order modal
+  const [activeOrdersCount, setActiveOrdersCount] = useState(0);
+  const [hasLateOrders, setHasLateOrders] = useState(false);
+  const [isOpenActiveOrders, setIsOpenActiveOrders] = useState(false);
+  const [showHoldModal, setShowHoldModal] = useState(false);
+
+  const refreshActiveOrdersCount = async () => {
+    try {
+      const active = await listActiveOrders();
+      setActiveOrdersCount(active.length);
+      const currTime = Date.now();
+      const anyLate = active.some((o) => {
+        const created = new Date(o.createdAt).getTime();
+        const elapsed = (currTime - created) / 60000;
+        return elapsed > (o.estimatedPrepMinutes || 15);
+      });
+      setHasLateOrders(anyLate);
+    } catch {
+      // quiet fallback
+    }
+  };
+
+  useEffect(() => {
+    void refreshActiveOrdersCount();
+    const timer = window.setInterval(refreshActiveOrdersCount, 15000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // Keyboard fast billing (desktop only — Android stays touch-first) is
   // disabled while any modal already has the cashier's attention, so arrow
   // keys/Delete/quick-entry never fight with a field inside one of them.
@@ -124,7 +163,9 @@ export function BillingPage() {
     editingItemId === null &&
     completedSale === null &&
     amountEntryItem === null &&
-    !isTokenDialogOpen;
+    !isTokenDialogOpen &&
+    !showHoldModal &&
+    !isOpenActiveOrders;
   const fastBilling = useFastBillingHotkeys({
     enabled: fastBillingEnabled,
     items,
@@ -138,31 +179,96 @@ export function BillingPage() {
   });
 
   const cartLines = cartOrder.map((id) => cart[id]);
-  const totals = computeCartTotals(cartLines, discountMode, discountValue, config.taxPercent);
+  const deliveryChargeMinor =
+    orderType === "delivery" && deliveryDetails?.deliveryChargeMinor
+      ? deliveryDetails.deliveryChargeMinor
+      : 0;
+  const totals = computeCartTotals(
+    cartLines,
+    discountMode,
+    discountValue,
+    config.taxPercent,
+    deliveryChargeMinor,
+  );
 
   const completeSale = async () => {
     if (cartOrder.length === 0) return;
-    await runAction(setIsSubmitting, setError, async () => {
-      const sale = await createSale({
-        items: cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty, notes: cart[id].notes || undefined })),
-        discountMinor: totals.discountMinor,
-        taxMinor: totals.taxMinor,
-        paymentMethod,
-        tableId,
-      });
+    // Set when the payment went through but a follow-up step didn't — shown after runAction clears the error line.
+    let followUpError: string | null = null;
+    const ok = await runAction(setIsSubmitting, setError, async () => {
+      let sale: Sale;
+      let tenderedMinor: number | null = null;
+      let changeMinor: number | null = null;
+      if (paymentMethod === "cash") {
+        const tenderedVal = tenderedAmount !== null && tenderedAmount > 0
+          ? decimalToMinor(tenderedAmount)
+          : totals.totalMinor;
+        tenderedMinor = tenderedVal;
+        changeMinor = Math.max(0, tenderedVal - totals.totalMinor);
+      }
+
+      if (activeOrderId != null) {
+        // Resumed active order settlement
+        const currentOrder = await getOrder(activeOrderId);
+        const unpaidActiveItemIds = currentOrder.lines
+          .filter((l) => l.status === "active" && l.saleId === null)
+          .map((l) => l.id);
+
+        const paidResult = await payOrder({
+          orderId: activeOrderId,
+          version: currentOrder.version,
+          orderItemIds: unpaidActiveItemIds,
+          paymentMethod,
+          discountMinor: totals.discountMinor,
+          taxMinor: totals.taxMinor,
+          tenderedMinor,
+          changeMinor,
+        });
+
+        sale = paidResult.sale;
+
+        // Transition order to served (handed over) for takeaway / counter orders so they immediately complete
+        if (!isDeliveryOrder(paidResult.order.orderType)) {
+          if (paidResult.order.status !== "served" && !paidResult.order.completedAt) {
+            try {
+              await transitionOrder(paidResult.order.id, paidResult.order.version, "served");
+            } catch (tErr) {
+              followUpError = `Payment recorded, but order #${paidResult.order.orderNo} couldn't be marked served (${(tErr as Error).message}). Mark it served from Active Orders.`;
+              reportWarning(`billing: transition to served failed for order ${paidResult.order.id}: ${(tErr as Error).message}`);
+            }
+          }
+        }
+      } else {
+        sale = await createSale({
+          items: cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty, notes: cart[id].notes || undefined })),
+          discountMinor: totals.discountMinor,
+          taxMinor: totals.taxMinor,
+          paymentMethod,
+          tableId,
+          tenderedMinor,
+          changeMinor,
+        });
+      }
       setCompletedSale(sale);
       clearCart();
       setIsCartOpen(false);
       loadCatalog(); // stock just changed — the grid should reflect it
       reloadBestSellers(); // this sale may have moved the best-sellers ranking
+      void refreshActiveOrdersCount();
     });
+    if (ok && followUpError) setError(followUpError);
   };
 
   return (
-    <div className="flex h-full flex-col gap-4 lg:flex-row lg:gap-6">
+    <div className="flex h-full flex-col gap-3.5 md:flex-row md:gap-4 lg:gap-5">
       {/* Browsing column */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 pb-20 lg:pb-0">
-        <BillingHeader onRefunded={loadCatalog} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:gap-3.5 pb-20 md:pb-0 lg:pb-0">
+        <BillingHeader
+          onRefunded={loadCatalog}
+          onOpenActiveOrders={() => setIsOpenActiveOrders(true)}
+          activeOrdersCount={activeOrdersCount}
+          hasLateOrders={hasLateOrders}
+        />
         {IS_ANDROID ? (
           <MobileCategoryChips categories={categories} selected={selectedCategoryId} onSelect={setSelectedCategoryId} />
         ) : (
@@ -210,7 +316,7 @@ export function BillingPage() {
         className={
           IS_ANDROID
             ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] w-full flex-col gap-4 overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-soft-lg"
-            : "flex w-full shrink-0 flex-col gap-4 overflow-y-auto rounded-2xl border border-line bg-surface p-5 shadow-soft lg:w-96 xl:w-100 2xl:w-110"
+            : "flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-hidden rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-80 lg:w-84 xl:w-92 2xl:w-100 h-full min-h-0"
         }
       >
         {IS_ANDROID && (
@@ -227,6 +333,25 @@ export function BillingPage() {
           </div>
         )}
         <OrderSummaryHeader />
+
+        {activeOrderId && (
+          <div className="flex items-center justify-between rounded-xl border border-accent/30 bg-accent-soft px-3.5 py-2 text-xs font-medium text-accent-text">
+            <span className="flex items-center gap-1.5">
+              <ShoppingBag className="h-3.5 w-3.5" />
+              Settling Active Order {customerName ? `(${customerName})` : `#${activeOrderId}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                clearCart();
+                void refreshActiveOrdersCount();
+              }}
+              className="text-[11px] font-semibold underline opacity-80 hover:opacity-100"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
 
         {tablesEnabled && (
           <OrderTypeAndTable
@@ -249,7 +374,7 @@ export function BillingPage() {
          * cart size, instead of trailing right under a short item list. */}
         <CartPanel currency={config.currency} onEditLine={setEditingItemId} />
 
-        <dl className="space-y-2 rounded-xl border border-line bg-surface-2/40 p-4 text-sm tabular-nums">
+        <dl className="space-y-1.5 sm:space-y-2 rounded-xl border border-line bg-surface-2/40 p-2.5 sm:p-3 text-xs sm:text-sm tabular-nums">
           <div className="flex justify-between text-fg-muted">
             <dt>Subtotal</dt>
             <dd>{formatMinor(totals.subtotalMinor, config.currency)}</dd>
@@ -266,28 +391,50 @@ export function BillingPage() {
               <dd>-{formatMinor(totals.discountMinor, config.currency)}</dd>
             </div>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-line-strong pt-3 text-lg font-bold text-fg">
-            <dt className="text-sm font-semibold">Total amount</dt>
-            <dd>{formatMinor(totals.totalMinor, config.currency)}</dd>
+          {totals.deliveryChargeMinor > 0 && (
+            <div className="flex justify-between text-fg-muted">
+              <dt>Delivery fee</dt>
+              <dd>{formatMinor(totals.deliveryChargeMinor, config.currency)}</dd>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-line-strong pt-2 text-base sm:text-lg font-bold text-fg">
+            <dt className="text-sm sm:text-base font-semibold text-fg">Total amount</dt>
+            <dd className="text-xl sm:text-2xl font-bold tabular-nums text-fg">{formatMinor(totals.totalMinor, config.currency)}</dd>
           </div>
         </dl>
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2.5 sm:gap-3">
           <DiscountControl />
           <PaymentMethodSelector />
+          {paymentMethod === "cash" && (
+            <CashTenderControl currency={config.currency} totalMinor={totals.totalMinor} />
+          )}
         </div>
 
         {error && <p className="rounded-2xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
-        <button
-          type="button"
-          onClick={() => void completeSale()}
-          disabled={cartOrder.length === 0 || isSubmitting}
-          className="flex items-center justify-between gap-3 rounded-xl bg-accent px-4 py-4 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
-        >
-          <span>{isSubmitting ? "Placing order…" : "Place order"}</span>
-          <span className="flex items-center gap-2 tabular-nums">{formatMinor(totals.totalMinor, config.currency)} <ArrowRight className="h-4 w-4" /></span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowHoldModal(true)}
+            disabled={cartOrder.length === 0 || isSubmitting}
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-fg hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Hold order with custom preparation time & clear cart for next customer"
+          >
+            <Pause className="h-4 w-4 text-accent-text" />
+            <span>Hold</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void completeSale()}
+            disabled={cartOrder.length === 0 || isSubmitting}
+            className="flex flex-1 items-center justify-between gap-3 rounded-xl bg-accent px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
+          >
+            <span>{isSubmitting ? "Placing order…" : "Place order"}</span>
+            <span className="flex items-center gap-2 tabular-nums">{formatMinor(totals.totalMinor, config.currency)} <ArrowRight className="h-4 w-4" /></span>
+          </button>
+        </div>
       </div>
       )}
 
@@ -361,6 +508,34 @@ export function BillingPage() {
       {fastBilling.showHelp && (
         <ShortcutsHelpOverlay tablesEnabled={tablesEnabled} onClose={fastBilling.closeHelp} />
       )}
+
+      {showHoldModal && (
+        <HoldOrderModal
+          currency={config.currency}
+          totalMinor={totals.totalMinor}
+          onClose={() => setShowHoldModal(false)}
+          onOrderHeld={(order, tokenError) => {
+            setNotice(`Order #${order.orderNo} held (${order.estimatedPrepMinutes}m target). Cart cleared.`);
+            window.setTimeout(() => setNotice(null), 5000);
+            if (tokenError) setError(`Kitchen token for order #${order.orderNo} didn't print (${tokenError}). Reprint it from Active Orders.`);
+            void refreshActiveOrdersCount();
+          }}
+        />
+      )}
+
+      <ActiveOrdersDrawer
+        isOpen={isOpenActiveOrders}
+        onClose={() => {
+          setIsOpenActiveOrders(false);
+          void refreshActiveOrdersCount();
+        }}
+        currency={config.currency}
+        onOrderResumed={(order) => {
+          setNotice(`Resumed order #${order.orderNo} into cart.`);
+          window.setTimeout(() => setNotice(null), 4000);
+          void refreshActiveOrdersCount();
+        }}
+      />
     </div>
   );
 }

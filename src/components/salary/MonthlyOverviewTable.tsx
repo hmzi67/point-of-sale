@@ -29,13 +29,13 @@ export function MonthlyOverviewTable({ rows, currency, isLoading, onRecordPaymen
   return (
     <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
       <table className="min-w-full divide-y divide-line text-sm">
-        <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+        <thead className="bg-surface-2/60 text-left text-xs font-semibold text-fg-2">
           <tr>
-            <th className="px-4 py-3.5">Employee</th>
-            <th className="px-4 py-3.5 text-right">Days present</th>
-            <th className="px-4 py-3.5 text-right">Calculated</th>
-            <th className="px-4 py-3.5 text-right">Paid</th>
-            <th className="px-4 py-3.5">Status</th>
+            <th className="px-4 py-3.5 font-semibold">Employee</th>
+            <th className="px-4 py-3.5 text-right font-semibold">Days present</th>
+            <th className="px-4 py-3.5 text-right font-semibold">Calculated</th>
+            <th className="px-4 py-3.5 text-right font-semibold">Paid</th>
+            <th className="px-4 py-3.5 font-semibold">Status</th>
             <th className="px-4 py-3.5" />
           </tr>
         </thead>
@@ -59,10 +59,10 @@ export function MonthlyOverviewTable({ rows, currency, isLoading, onRecordPaymen
                 <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
                   {row.daysPresent} / {row.workingDaysInMonth}
                 </td>
-                <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
+                <td className="px-4 py-3.5 whitespace-nowrap text-right font-bold text-fg tabular-nums">
                   {formatMinor(row.calculatedAmountMinor, currency)}
                 </td>
-                <td className="px-4 py-3.5 whitespace-nowrap text-right text-fg-2 tabular-nums">
+                <td className="px-4 py-3.5 whitespace-nowrap text-right font-bold text-fg tabular-nums">
                   {formatMinor(row.paidAmountMinor, currency)}
                 </td>
                 <td className="px-4 py-3.5">

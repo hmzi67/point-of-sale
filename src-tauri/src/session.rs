@@ -43,13 +43,16 @@ impl Default for Session {
     }
 }
 
+/// What every guard returns when nobody is signed in.
+pub const NOT_SIGNED_IN: &str = "Not signed in";
+
 /// Fails a command unless someone is signed in *and* holds one of `allowed`'s
 /// roles — checked against the session Rust itself set during `auth_login`, never
 /// against a value the JS side passed in. Returns the caller so a command
 /// that needs to know who's acting (e.g. "only an Owner may create another
 /// Owner") doesn't have to look the session up a second time.
 pub fn require_role(session: &Session, allowed: &[Role]) -> Result<User, String> {
-    let user = session.current().ok_or_else(|| "Not signed in".to_string())?;
+    let user = session.current().ok_or_else(|| NOT_SIGNED_IN.to_string())?;
     if allowed.contains(&user.role) {
         Ok(user)
     } else {
@@ -59,7 +62,7 @@ pub fn require_role(session: &Session, allowed: &[Role]) -> Result<User, String>
 
 /// Fails a command unless someone — any role — is signed in.
 pub fn require_signed_in(session: &Session) -> Result<User, String> {
-    session.current().ok_or_else(|| "Not signed in".to_string())
+    session.current().ok_or_else(|| NOT_SIGNED_IN.to_string())
 }
 
 #[cfg(test)]

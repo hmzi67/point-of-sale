@@ -61,7 +61,13 @@ fn append(path: &Path, line: &str) {
     if std::fs::metadata(path).is_ok_and(|m| m.len() >= MAX_LOG_BYTES) {
         let _ = std::fs::rename(path, path.with_file_name(ROTATED_FILE_NAME));
     }
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    // Owner-only: before `set_log_dir` this lives in the temp dir, which is
+    // shared between users on Linux. (Windows' and macOS' temp dirs are per-user.)
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    if let Ok(mut file) = options.open(path) {
         let _ = writeln!(file, "{line}");
         let _ = file.flush();
     }
@@ -112,9 +118,10 @@ pub fn debug(message: &str) {
     }
 }
 
-/// Shortens text that came from outside the app before it is logged.
+/// Shortens text that came from outside the app before it is logged, and
+/// flattens control characters so it can't forge extra log lines.
 pub fn clip(text: &str) -> String {
-    let mut chars = text.chars();
+    let mut chars = text.chars().map(|c| if c.is_control() { ' ' } else { c });
     let clipped: String = chars.by_ref().take(MAX_EXTERNAL_TEXT_CHARS).collect();
     if chars.next().is_some() { format!("{clipped}…") } else { clipped }
 }
@@ -130,5 +137,6 @@ mod tests {
         let clipped = clip(&long);
         assert_eq!(clipped.chars().count(), MAX_EXTERNAL_TEXT_CHARS + 1);
         assert!(clipped.ends_with('…'));
+        assert_eq!(clip("a\n[ERROR] forged\r"), "a [ERROR] forged ");
     }
 }

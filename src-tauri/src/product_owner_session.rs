@@ -54,9 +54,15 @@ impl ProductOwnerSession {
     /// next successful `grant()`) always reflects the real timeout, not
     /// just whatever the last read happened to see.
     pub fn is_valid(&self) -> bool {
+        self.is_valid_at(Instant::now())
+    }
+
+    /// `is_valid` against a given clock, so tests can move time forward
+    /// (an `Instant` in the past can't be built on a freshly booted host).
+    fn is_valid_at(&self, now: Instant) -> bool {
         let mut guard = self.granted_at.lock().expect("product owner session lock poisoned");
         match *guard {
-            Some(when) if when.elapsed() < TIMEOUT => true,
+            Some(when) if now.saturating_duration_since(when) < TIMEOUT => true,
             Some(_) => {
                 *guard = None;
                 false
@@ -115,8 +121,10 @@ mod tests {
 
     #[test]
     fn a_grant_older_than_the_timeout_is_no_longer_valid() {
-        let session = ProductOwnerSession { granted_at: Mutex::new(Some(Instant::now() - TIMEOUT - Duration::from_secs(1))) };
-        assert!(!session.is_valid());
+        let session = ProductOwnerSession::new();
+        session.grant();
+        assert!(!session.is_valid_at(Instant::now() + TIMEOUT + Duration::from_secs(1)));
+        // The expired grant was cleared, so the guard refuses too.
         assert!(require_product_owner(&session).is_err());
     }
 

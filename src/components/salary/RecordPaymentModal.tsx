@@ -5,6 +5,7 @@ import { decimalToMinor, formatMinor, minorToDecimal } from "../../utils/format"
 import type { SalaryCalculation } from "../../types";
 import { todayString } from "../../utils/dateRanges";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 interface RecordPaymentModalProps {
   row: SalaryCalculation;
@@ -28,16 +29,10 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
     const amountMinor = decimalToMinor(Number(amount));
     if (!amountMinor || amountMinor <= 0 || !date) return;
 
-    setIsSaving(true);
-    setError(null);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       const updated = await recordPayment(row.employeeId, row.month, amountMinor, date);
       onSaved(updated);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (

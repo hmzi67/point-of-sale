@@ -43,52 +43,27 @@ pub struct RefundableSale {
     pub items: Vec<RefundableLine>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RefundError {
+    #[error("Sale {0} not found")]
     SaleNotFound(i64),
+    #[error("Select at least one item to refund")]
     EmptyRefund,
+    #[error("Sale line {0} no longer exists")]
     SaleItemNotFound(i64),
     /// `sale_item_id` exists but belongs to a different sale than the one
     /// the refund claims to be against — never trust the client to have
     /// paired them correctly.
+    #[error("Sale line {sale_item_id} does not belong to sale {expected_sale_id}")]
     SaleItemMismatch { sale_item_id: i64, expected_sale_id: i64 },
+    #[error("Refund quantity must be at least 1")]
     InvalidQuantity,
+    #[error("Only {refundable} left refundable on line {sale_item_id}, but {requested} requested")]
     OverRefund { sale_item_id: i64, refundable: f64, requested: f64 },
+    #[error("Refund amount for line {sale_item_id} cannot exceed {max_allowed_minor} (requested {requested_minor})")]
     InvalidAmount { sale_item_id: i64, max_allowed_minor: i64, requested_minor: i64 },
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for RefundError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RefundError::SaleNotFound(id) => write!(f, "Sale {} not found", id),
-            RefundError::EmptyRefund => write!(f, "Select at least one item to refund"),
-            RefundError::SaleItemNotFound(id) => write!(f, "Sale line {} no longer exists", id),
-            RefundError::SaleItemMismatch { sale_item_id, expected_sale_id } => write!(
-                f,
-                "Sale line {} does not belong to sale {}",
-                sale_item_id, expected_sale_id
-            ),
-            RefundError::InvalidQuantity => write!(f, "Refund quantity must be at least 1"),
-            RefundError::OverRefund { sale_item_id, refundable, requested } => write!(
-                f,
-                "Only {} left refundable on line {}, but {} requested",
-                refundable, sale_item_id, requested
-            ),
-            RefundError::InvalidAmount { sale_item_id, max_allowed_minor, requested_minor } => write!(
-                f,
-                "Refund amount for line {} cannot exceed {} (requested {})",
-                sale_item_id, max_allowed_minor, requested_minor
-            ),
-            RefundError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for RefundError {
-    fn from(err: rusqlite::Error) -> Self {
-        RefundError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 /// Sums already-refunded qty per `sale_item_id`, for the running "how much
@@ -259,7 +234,7 @@ pub fn create_refund(tx: &Transaction, input: CreateRefundInput) -> Result<Refun
 
         // Same round-trip-to-whole-minor-units rounding `create_sale` uses
         // for a fractional qty × integer price.
-        let max_allowed_minor = (price_at_sale_minor as f64 * line.qty).round() as i64;
+        let max_allowed_minor = super::sales::line_total_minor(price_at_sale_minor, line.qty);
         if line.amount_minor < 0 || line.amount_minor > max_allowed_minor {
             return Err(RefundError::InvalidAmount {
                 sale_item_id: line.sale_item_id,

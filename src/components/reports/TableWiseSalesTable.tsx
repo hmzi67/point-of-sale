@@ -28,19 +28,19 @@ export function TableWiseSalesTable({ data, currency, isLoading }: TableWiseSale
         <p className="px-4 py-10 text-center text-sm text-fg-muted">No sales in this range</p>
       ) : (
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-line bg-surface-2/50 text-[10px] uppercase tracking-wider text-fg-muted">
+          <thead className="border-b border-line bg-surface-2/50 text-xs font-semibold text-fg-2">
             <tr>
-              <th className="px-4 py-3 font-medium">Table / Counter</th>
-              <th className="px-4 py-3 text-right font-medium">Transactions</th>
-              <th className="px-4 py-3 text-right font-medium">Amount</th>
+              <th className="px-4 py-3.5 font-semibold">Table / Counter</th>
+              <th className="px-4 py-3.5 text-right font-semibold">Transactions</th>
+              <th className="px-4 py-3.5 text-right font-semibold">Amount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {data.rows.map((row) => (
               <tr key={row.tableId ?? "counter"}>
-                <td className="px-4 py-3 font-medium text-fg">{row.label}</td>
-                <td className="px-4 py-3 text-right text-fg-2">{row.transactionCount}</td>
-                <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-fg tabular-nums">{formatMinor(row.totalMinor, currency)}</td>
+                <td className="px-4 py-3.5 font-medium text-fg">{row.label}</td>
+                <td className="px-4 py-3.5 text-right text-fg-2 tabular-nums">{row.transactionCount}</td>
+                <td className="px-4 py-3.5 whitespace-nowrap text-right font-bold text-fg tabular-nums">{formatMinor(row.totalMinor, currency)}</td>
               </tr>
             ))}
           </tbody>
@@ -48,7 +48,7 @@ export function TableWiseSalesTable({ data, currency, isLoading }: TableWiseSale
             <tr className="border-t-2 border-line-strong bg-surface-2">
               <td className="px-4 py-3.5 text-sm font-bold text-fg">Grand Total</td>
               <td />
-              <td className="px-4 py-3.5 text-right text-sm font-bold text-fg">
+              <td className="px-4 py-3.5 text-right text-sm font-bold tabular-nums text-fg">
                 {formatMinor(data.grandTotalMinor, currency)}
               </td>
             </tr>

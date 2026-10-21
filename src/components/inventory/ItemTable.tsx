@@ -49,10 +49,10 @@ export function ItemTable({
   return (
     <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
       <table className="w-full min-w-[860px] text-left text-sm">
-        <thead className="border-b border-line bg-surface-2/60 text-[10px] uppercase tracking-wider text-fg-muted">
+        <thead className="border-b border-line bg-surface-2/60 text-xs font-semibold text-fg-2">
           <tr>
             {canSelect && (
-              <th className="w-10 px-4 py-3" aria-hidden="false">
+              <th className="w-10 px-4 py-3.5" aria-hidden="false">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -65,14 +65,14 @@ export function ItemTable({
                 />
               </th>
             )}
-            <th className="px-4 py-3 font-medium">Product</th>
-            <th className="px-4 py-3 font-medium">Barcode</th>
-            <th className="px-4 py-3 font-medium">Category</th>
-            <th className="px-4 py-3 text-right font-medium">Selling price</th>
-            <th className="px-4 py-3 text-right font-medium">Cost</th>
-            <th className="px-4 py-3 text-right font-medium">Stock</th>
-            <th className="px-4 py-3 font-medium">Availability</th>
-            {!isReadOnly && <th className="px-4 py-3 text-right font-medium">Actions</th>}
+            <th className="px-4 py-3.5 font-semibold">Product</th>
+            <th className="px-4 py-3.5 font-semibold">Barcode</th>
+            <th className="px-4 py-3.5 font-semibold">Category</th>
+            <th className="px-4 py-3.5 text-right font-semibold">Selling price</th>
+            <th className="px-4 py-3.5 text-right font-semibold">Cost</th>
+            <th className="px-4 py-3.5 text-right font-semibold">Stock</th>
+            <th className="px-4 py-3.5 font-semibold">Availability</th>
+            {!isReadOnly && <th className="px-4 py-3.5 text-right font-semibold">Actions</th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
@@ -82,7 +82,7 @@ export function ItemTable({
             return (
               <tr key={item.id} className={`transition-colors ${isSelected ? "bg-accent-soft" : "hover:bg-surface-2/60"}`}>
                 {canSelect && (
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3.5">
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -92,7 +92,7 @@ export function ItemTable({
                     />
                   </td>
                 )}
-                <td className="px-4 py-4 font-medium text-fg">
+                <td className="px-4 py-3.5 font-medium text-fg">
                   <div className="flex items-center gap-3">
                     <ItemThumbnail imagePath={item.imagePath} name={item.name} size={44} />
                     <span className="inline-flex max-w-72 items-center gap-2 leading-relaxed">
@@ -105,14 +105,14 @@ export function ItemTable({
                     </span>
                   </div>
                 </td>
-                <td className="px-4 py-3 font-mono text-xs text-fg-muted">{item.barcode ?? "—"}</td>
-                <td className="px-4 py-3 text-fg-2"><span className={`inline-block rounded-lg px-2.5 py-1 text-[11px] font-medium ${color.bg} ${color.text}`}>{item.categoryName ?? "Uncategorized"}</span></td>
-                <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-fg tabular-nums">{formatMinor(item.priceMinor, currency)}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-right text-fg-muted tabular-nums">{formatMinor(item.costMinor, currency)}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-right font-medium text-fg tabular-nums">
+                <td className="px-4 py-3.5 font-mono text-xs text-fg-muted">{item.barcode ?? "—"}</td>
+                <td className="px-4 py-3.5 text-fg-2"><span className={`inline-block rounded-lg px-2.5 py-1 text-xs font-semibold ${color.bg} ${color.text}`}>{item.categoryName ?? "Uncategorized"}</span></td>
+                <td className="whitespace-nowrap px-4 py-3.5 text-right font-bold text-fg tabular-nums">{formatMinor(item.priceMinor, currency)}</td>
+                <td className="whitespace-nowrap px-4 py-3.5 text-right text-fg-muted tabular-nums">{formatMinor(item.costMinor, currency)}</td>
+                <td className="whitespace-nowrap px-4 py-3.5 text-right font-semibold text-fg tabular-nums">
                   {formatQty(item.stockQty, item.unit)}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3.5">
                   <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-medium ${item.stockQty <= 0 ? "bg-danger-soft text-danger-text" : item.isLowStock ? "bg-warning-soft text-warning-text" : "bg-success-soft text-success-text"}`}>
                     <span className="h-1.5 w-1.5 rounded-full bg-current" />
                     {item.stockQty <= 0 ? "Out of stock" : item.isLowStock ? "Low stock" : "In stock"}

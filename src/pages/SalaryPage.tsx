@@ -9,6 +9,7 @@ import { useAppConfig } from "../hooks/useAppConfig";
 import { getMonthlyOverview, printMonthlyReportThermal } from "../services/salaryService";
 import type { SalaryCalculation } from "../types";
 import { currentMonth } from "../utils/dateRanges";
+import { runAction } from "../utils/runAction";
 
 type Tab = "overview" | "history";
 
@@ -30,28 +31,16 @@ export function SalaryPage() {
   const [reportError, setReportError] = useState<string | null>(null);
 
   const downloadReport = async () => {
-    setIsDownloadingReport(true);
-    setReportError(null);
-    try {
+    await runAction(setIsDownloadingReport, setReportError, async () => {
       const { downloadEmployeeReportPdf } = await import("../utils/employeeReportPdf");
       await downloadEmployeeReportPdf(rows, month, config);
-    } catch (e) {
-      setReportError((e as Error).message);
-    } finally {
-      setIsDownloadingReport(false);
-    }
+    });
   };
 
   const printReport = async () => {
-    setIsPrintingReport(true);
-    setReportError(null);
-    try {
+    await runAction(setIsPrintingReport, setReportError, async () => {
       await printMonthlyReportThermal(month);
-    } catch (e) {
-      setReportError((e as Error).message);
-    } finally {
-      setIsPrintingReport(false);
-    }
+    });
   };
 
   const reload = () => {

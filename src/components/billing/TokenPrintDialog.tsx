@@ -93,10 +93,8 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
 
   const handlePrint = async () => {
     if (selected.size === 0) return;
-    setIsPrinting(true);
-    setError(null);
     setResults(null);
-    try {
+    await runAction(setIsPrinting, setError, async () => {
       if (source.kind === "table") {
         const outcome = await printTokens(source.tableOrderId, Array.from(selected));
         setResults(outcome);
@@ -115,11 +113,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
         setPending((current) => current.filter((g) => !printedCounterIds.has(g.counterId)));
         setSelected((current) => new Set(Array.from(current).filter((id) => !printedCounterIds.has(id))));
       }
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsPrinting(false);
-    }
+    });
   };
 
   // Same pattern as `ReceiptModal`: plain Enter is this dialog's "do the

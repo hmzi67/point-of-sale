@@ -70,28 +70,21 @@ pub fn api_base() -> String {
 /// as offline and retried on the next tick.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ClientError {
     /// Couldn't reach the server, or it didn't answer in time. The caller
     /// keeps whatever it already has — this is the "offline" path and is
     /// never surfaced as a licence problem.
+    #[error("Could not reach the licence server ({0})")]
     Offline(String),
     /// The server answered with a deliberate refusal (4xx) and a message.
+    #[error("{message}")]
     Refused { status: u16, message: String },
     /// The server answered but the body wasn't what this build expects
     /// (5xx, HTML from a misconfigured host, malformed JSON). Treated like
     /// offline by callers — it's the server's problem, not the licence's.
+    #[error("The licence server returned an unexpected response ({0})")]
     Server(String),
-}
-
-impl std::fmt::Display for ClientError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ClientError::Offline(msg) => write!(f, "Could not reach the licence server ({msg})"),
-            ClientError::Refused { message, .. } => write!(f, "{message}"),
-            ClientError::Server(msg) => write!(f, "The licence server returned an unexpected response ({msg})"),
-        }
-    }
 }
 
 /// `license-status.php`'s successful body, verbatim. The payload and
@@ -151,6 +144,15 @@ fn with_bundled_roots(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder
 pub(crate) async fn post<T: serde::de::DeserializeOwned>(path: &str, body: &serde_json::Value) -> Result<T, ClientError> {
     let url = format!("{}/{path}", api_base());
     send(client()?.post(&url).json(body)).await
+}
+
+pub(crate) async fn post_with_timeout<T: serde::de::DeserializeOwned>(
+    path: &str,
+    body: &serde_json::Value,
+    timeout: Duration,
+) -> Result<T, ClientError> {
+    let url = format!("{}/{path}", api_base());
+    send(client()?.post(&url).timeout(timeout).json(body)).await
 }
 
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))] // only the App Store flow GETs
@@ -315,15 +317,21 @@ mod tests {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let fp = "ab".repeat(32);
         let result = rt.block_on(fetch_status("DIWAN-ZZZZ-ZZZZ-ZZZZ-ZZZZ", &fp));
-        assert_eq!(
-            result.map(|_| ()),
-            Err(ClientError::Refused { status: 403, message: "That licence key is not valid.".into() })
-        );
+        // The status, not the server's wording, is the contract.
+        assert!(matches!(result, Err(ClientError::Refused { status: 403, .. })), "{result:?}");
         let result = rt.block_on(activate("DIWAN-ZZZZ-ZZZZ-ZZZZ-ZZZZ", &fp));
         assert!(matches!(result, Err(ClientError::Refused { status: 403, .. })), "{result:?}");
         // and a dead port is Offline, not Refused
+        let previous = std::env::var("DIWAN_LICENSE_API_BASE").ok();
         std::env::set_var("DIWAN_LICENSE_API_BASE", "http://127.0.0.1:9");
-        assert!(matches!(rt.block_on(fetch_status("X", &fp)), Err(ClientError::Offline(_))));
+        let offline = rt.block_on(fetch_status("X", &fp));
+        // Restore before asserting, so a failure can't leak the dead port
+        // into other tests in this process.
+        match previous {
+            Some(value) => std::env::set_var("DIWAN_LICENSE_API_BASE", value),
+            None => std::env::remove_var("DIWAN_LICENSE_API_BASE"),
+        }
+        assert!(matches!(offline, Err(ClientError::Offline(_))), "{offline:?}");
     }
 
     /// The Android TLS setup against the real production server —

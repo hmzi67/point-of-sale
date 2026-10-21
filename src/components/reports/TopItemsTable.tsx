@@ -50,12 +50,12 @@ export function TopItemsTable({ items, currency, isLoading }: TopItemsTableProps
         <p className="px-4 py-10 text-center text-sm text-fg-muted">No sales in this range</p>
       ) : (
         <table className="w-full min-w-[520px] text-left text-sm">
-          <thead className="border-b border-line bg-surface-2/50 text-[10px] uppercase tracking-wider text-fg-muted">
+          <thead className="border-b border-line bg-surface-2/50 text-xs font-semibold text-fg-2">
             <tr>
-              <th className="px-5 py-3.5 font-medium">#</th>
-              <th className="px-5 py-3.5 font-medium">Item</th>
-              <th className="px-5 py-3.5 text-right font-medium">Qty sold</th>
-              <th className="px-5 py-3.5 text-right font-medium">Revenue</th>
+              <th className="px-5 py-3.5 font-semibold">#</th>
+              <th className="px-5 py-3.5 font-semibold">Item</th>
+              <th className="px-5 py-3.5 text-right font-semibold">Qty sold</th>
+              <th className="px-5 py-3.5 text-right font-semibold">Revenue</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -64,7 +64,7 @@ export function TopItemsTable({ items, currency, isLoading }: TopItemsTableProps
                 <td className="px-5 py-3.5 text-fg-muted"><span className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold ${index === 0 ? "bg-warning-soft text-warning-text" : "bg-surface-3 text-fg-muted"}`}>{index + 1}</span></td>
                 <td className="px-5 py-3.5 font-medium text-fg">{item.itemName}</td>
                 <td className="px-5 py-3.5 text-right text-fg-2">{formatQty(item.qtySold)}</td>
-                <td className="px-5 py-3.5 whitespace-nowrap text-right font-semibold text-fg tabular-nums">{formatMinor(item.revenueMinor, currency)}</td>
+                <td className="px-5 py-3.5 whitespace-nowrap text-right font-bold text-fg tabular-nums">{formatMinor(item.revenueMinor, currency)}</td>
               </tr>
             ))}
           </tbody>

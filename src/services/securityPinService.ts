@@ -36,3 +36,9 @@ export function setAreaPin(oldPin: string, newPin: string): Promise<void> {
 export function getDefaultCredentials(): Promise<DefaultCredentials> {
   return call<DefaultCredentials>("security_get_default_credentials", {});
 }
+
+/** Replaces whichever shipped PINs are still at their default — the forced
+ * change in `DefaultPinBanner`. The Owner PIN only by the Owner. */
+export function replaceDefaultPins(ownerPin: string | null, areaPin: string | null): Promise<void> {
+  return call<void>("security_replace_default_pins", { ownerPin, areaPin });
+}

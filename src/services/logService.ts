@@ -13,6 +13,13 @@ export function reportError(message: string): void {
   call<void>("app_log_frontend_error", { message }).catch(() => undefined);
 }
 
+/** A failure the app recovered from (rolled back, retried) — written to the
+ * persistent log at WARN, not ERROR. Never throws. */
+export function reportWarning(message: string): void {
+  if (import.meta.env.DEV) console.warn(message);
+  call<void>("app_log_frontend_warning", { message }).catch(() => undefined);
+}
+
 /** A recoverable hiccup worth seeing while developing only. */
 export function devWarn(message: string, error?: unknown): void {
   if (import.meta.env.DEV) console.warn(message, error);

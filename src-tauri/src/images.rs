@@ -33,32 +33,18 @@ const ITEM_ALLOWED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
 pub const MAX_LOGO_BYTES: usize = 2 * 1024 * 1024;
 const LOGO_ALLOWED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "svg"];
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ImageError {
+    #[error("Unsupported image format \"{0}\" — use JPG, PNG, WEBP or GIF")]
     UnsupportedFormat(String),
+    #[error("Image is {:.1} MB, which is over the {:.0} MB limit", *.bytes as f64 / 1_048_576.0, *.max as f64 / 1_048_576.0)]
     TooLarge { bytes: usize, max: usize },
+    #[error("Could not read image data: {0}")]
     InvalidBase64(String),
+    #[error("Invalid image file name: {0}")]
     InvalidFileName(String),
+    #[error("Could not save image: {0}")]
     Io(String),
-}
-
-impl std::fmt::Display for ImageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ImageError::UnsupportedFormat(ext) => {
-                write!(f, "Unsupported image format \"{}\" — use JPG, PNG, WEBP or GIF", ext)
-            }
-            ImageError::TooLarge { bytes, max } => write!(
-                f,
-                "Image is {:.1} MB, which is over the {:.0} MB limit",
-                *bytes as f64 / 1_048_576.0,
-                *max as f64 / 1_048_576.0
-            ),
-            ImageError::InvalidBase64(msg) => write!(f, "Could not read image data: {}", msg),
-            ImageError::InvalidFileName(name) => write!(f, "Invalid image file name: {}", name),
-            ImageError::Io(msg) => write!(f, "Could not save image: {}", msg),
-        }
-    }
 }
 
 fn mime_for_extension(extension: &str) -> &'static str {

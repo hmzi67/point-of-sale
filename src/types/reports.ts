@@ -112,7 +112,23 @@ export interface ProductSalesSummaryReport {
   noSalesItems: ProductSalesNoSaleRow[];
 }
 
-/** The "Generate Full Report" consolidated document — see
+export interface PaymentMethodBreakdown {
+  cashMinor: number;
+  cashCount: number;
+  cardMinor: number;
+  cardCount: number;
+  otherMinor: number;
+  otherCount: number;
+}
+
+export interface SalesMetrics {
+  totalDiscountMinor: number;
+  totalTaxMinor: number;
+  netSalesMinor: number;
+  totalItemsSold: number;
+}
+
+/** The "Overall Sales Report" consolidated document — see
  * `src-tauri/src/db/full_report.rs`. `tableSales` is `null` when the
  * `tables` module is disabled for this installation/platform, same
  * "not tracked, not a zero" convention `DashboardSummary` uses. */
@@ -121,6 +137,8 @@ export interface FullReport {
   endDate: string;
   overview: DashboardSummary;
   averageSaleMinor: number;
+  paymentMethods: PaymentMethodBreakdown;
+  salesMetrics: SalesMetrics;
   /** Itemized refunds for the period, plus a grand total — never
    * module-gated, so always present, unlike `tableSales` below. */
   refunds: RefundsSummary;
@@ -134,4 +152,53 @@ export type DateRangePreset = "today" | "thisWeek" | "thisMonth" | "custom";
 export interface DateRange {
   startDate: string;
   endDate: string;
+}
+
+export interface PlatformSummary {
+  platformId: number | null;
+  platformName: string;
+  orderCount: number;
+  totalSalesMinor: number;
+}
+
+export interface RiderSummary {
+  riderKey: string;
+  riderName: string;
+  riderPhone: string | null;
+  riderSource: string;
+  orderCount: number;
+  deliveredCount: number;
+  totalSalesMinor: number;
+  deliveryChargesMinor: number;
+}
+
+export interface DeliveryOrderRow {
+  id: number;
+  orderNo: number;
+  orderType: string;
+  deliveryStatus: string | null;
+  platformName: string | null;
+  riderName: string | null;
+  riderPhone: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  deliveryAddress: string | null;
+  deliveryChargeMinor: number;
+  totalMinor: number;
+  createdAt: string;
+}
+
+export interface DeliveryReport {
+  startDate: string;
+  endDate: string;
+  totalOrders: number;
+  inHouseOrders: number;
+  thirdPartyOrders: number;
+  totalSalesMinor: number;
+  inHouseSalesMinor: number;
+  thirdPartySalesMinor: number;
+  totalDeliveryChargesMinor: number;
+  platforms: PlatformSummary[];
+  riders: RiderSummary[];
+  orders: DeliveryOrderRow[];
 }

@@ -14,7 +14,7 @@
 //! parameters) used for staff PINs and the product-owner credential.
 //!
 //! Verification lives here, in Rust, and never in the frontend: the app
-//! runs with `withGlobalTauri: true`, so anything the JS bundle can decide
+//! exposes IPC to devtools (`__TAURI_INTERNALS__`), so anything the JS bundle can decide
 //! on its own can be re-decided from a devtools console. The gate's real
 //! teeth are in `commands::config_update`, which refuses to flip
 //! `onboarding_completed` to true without a grant recorded here — a route
@@ -41,8 +41,9 @@ use argon2::Argon2;
 /// records and is deliberately not recoverable from this repository or from
 /// any binary built out of it.
 ///
-/// Rotating it means generating a new hash the same way and replacing this
-/// constant — there is no runtime path that changes it, on purpose: a
+/// Rotating it (or raising its cost — the current m=19456,t=2 is only the
+/// OWASP minimum) means generating a new hash with the ignored
+/// `tests::print_vendor_password_hash` and replacing this constant — there is no runtime path that changes it, on purpose: a
 /// client-side "change the vendor password" flow would hand the gate's own
 /// key to the person it gates.
 const VENDOR_PASSWORD_HASH: &str =
@@ -63,27 +64,20 @@ const DEBUG_VENDOR_PASSWORD: &str = "diwan-dev-master";
 const FAILURE_DELAY_STEP: Duration = Duration::from_millis(1200);
 const MAX_FAILURE_DELAY: Duration = Duration::from_secs(10);
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum VendorGateError {
     /// The entered password did not match. Deliberately the only failure
     /// the caller can distinguish — nothing here reports *why*, hints at
     /// the password's shape, or says whether a previous attempt was closer.
+    // Intentionally generic: no hint about the password, no contact
+    // route, no "forgot password" affordance.
+    #[error("Incorrect authorization password")]
     Incorrect,
     /// The compiled-in hash could not be parsed. Only reachable if
     /// [`VENDOR_PASSWORD_HASH`] were edited into something malformed, which
     /// the test below exists to catch before a build ships.
+    #[error("Authorization is unavailable in this build")]
     Malformed,
-}
-
-impl std::fmt::Display for VendorGateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            // Intentionally generic: no hint about the password, no contact
-            // route, no "forgot password" affordance.
-            VendorGateError::Incorrect => write!(f, "Incorrect authorization password"),
-            VendorGateError::Malformed => write!(f, "Authorization is unavailable in this build"),
-        }
-    }
 }
 
 /// Whether this process has cleared the vendor gate, plus the consecutive
@@ -175,6 +169,26 @@ pub fn setup_is_blocked(completing_onboarding: bool, already_onboarded: bool, au
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Prints a hash for a new (or re-costed) vendor password. The vendor runs
+    /// `DIWAN_VENDOR_PASSWORD='…' cargo test print_vendor_password_hash -- --ignored --nocapture`
+    /// and pastes the output into [`VENDOR_PASSWORD_HASH`]. Costlier than the
+    /// staff-PIN default because this hash ships in every binary and can be
+    /// attacked offline; `verify` reads the cost from the hash, so nothing else changes.
+    #[test]
+    #[ignore]
+    fn print_vendor_password_hash() {
+        use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
+        use argon2::{Algorithm, Params, Version};
+        let password = std::env::var("DIWAN_VENDOR_PASSWORD").expect("set DIWAN_VENDOR_PASSWORD");
+        let hash = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::new(65536, 4, 1, None).unwrap())
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let parsed = PasswordHash::new(&hash).unwrap();
+        assert!(Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok());
+        println!("{hash}");
+    }
 
     /// The compiled-in constant must be a parseable argon2 hash. Without
     /// this, a typo in the constant would ship a build where *no* password

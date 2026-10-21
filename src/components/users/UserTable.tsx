@@ -2,13 +2,19 @@ import { ActiveBadge, PersonAvatar } from "../ui/ManagementSummary";
 import { roleCanManageAccount } from "../../utils/permissions";
 import type { ManagedUser, Role } from "../../types";
 
-const ROLE_LABEL: Record<Role, string> = { owner: "Owner", admin: "Admin", cashier: "Cashier" };
+const ROLE_LABEL: Record<Role, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  cashier: "Cashier",
+  delivery: "Delivery Rider",
+};
 const ROLE_STYLES: Record<Role, string> = {
   // Hue-categorical (see `utils/categoryColor.ts` for why these use raw
   // hues + `dark:` rather than the semantic tokens).
   owner: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
   admin: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
   cashier: "bg-surface-3 text-fg-2",
+  delivery: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
 };
 
 interface UserTableProps {
@@ -46,11 +52,11 @@ export function UserTable({
   return (
     <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
       <table className="min-w-full divide-y divide-line text-sm">
-        <thead className="bg-surface-2/60 text-left text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+        <thead className="bg-surface-2/60 text-left text-xs font-semibold text-fg-2">
           <tr>
-            <th className="px-4 py-3.5">Name</th>
-            <th className="px-4 py-3.5">Role</th>
-            <th className="px-4 py-3.5">Status</th>
+            <th className="px-4 py-3.5 font-semibold">Name</th>
+            <th className="px-4 py-3.5 font-semibold">Role</th>
+            <th className="px-4 py-3.5 font-semibold">Status</th>
             <th className="px-4 py-3.5" />
           </tr>
         </thead>

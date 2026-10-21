@@ -6,6 +6,7 @@ import { formatMinor, formatQty } from "../../utils/format";
 import type { AppConfig, Refund, RefundableLine, RefundableSale, SaleListItem } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { runAction } from "../../utils/runAction";
+import { lineTotalMinor } from "../../utils/billingTotals";
 
 interface RefundModalProps {
   config: AppConfig;
@@ -73,7 +74,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
         .filter(({ qty }) => qty > 0)
     : [];
   const totalRefundMinor = linesToRefund.reduce(
-    (sum, { line, qty }) => sum + qty * line.priceAtSaleMinor,
+    (sum, { line, qty }) => sum + lineTotalMinor(qty, line.priceAtSaleMinor),
     0,
   );
 
@@ -85,7 +86,7 @@ export function RefundModal({ config, onClose, onRefunded }: RefundModalProps) {
         linesToRefund.map(({ line, qty }) => ({
           saleItemId: line.saleItemId,
           qty,
-          amountMinor: qty * line.priceAtSaleMinor,
+          amountMinor: lineTotalMinor(qty, line.priceAtSaleMinor),
         })),
         reason.trim() || null,
       );

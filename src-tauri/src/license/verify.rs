@@ -82,33 +82,22 @@ pub struct LicensePayload {
     pub max_offline_days: u32,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum VerifyError {
     /// Base64 or JSON that couldn't be read at all. Carries no detail on
     /// purpose beyond what's needed to debug a genuine server bug.
+    #[error("Licence data is malformed ({0})")]
     Malformed(&'static str),
     /// The payload names a key id this build doesn't ship.
+    #[error("Licence was signed with a key this version of the app does not recognise ({0}) — please update the app")]
     UnknownKeyId(String),
     /// The bytes do not verify under the named key. The one error that
     /// means "someone changed something".
+    #[error("Licence data failed verification")]
     BadSignature,
     /// Signature is fine, but the shape is newer than this build reads.
+    #[error("Licence data is in a newer format (v{0}) than this version of the app understands — please update the app")]
     UnsupportedVersion(u32),
-}
-
-impl std::fmt::Display for VerifyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VerifyError::Malformed(what) => write!(f, "Licence data is malformed ({what})"),
-            VerifyError::UnknownKeyId(kid) => {
-                write!(f, "Licence was signed with a key this version of the app does not recognise ({kid}) — please update the app")
-            }
-            VerifyError::BadSignature => write!(f, "Licence data failed verification"),
-            VerifyError::UnsupportedVersion(v) => {
-                write!(f, "Licence data is in a newer format (v{v}) than this version of the app understands — please update the app")
-            }
-        }
-    }
 }
 
 /// Verifies a payload from `api/license-status.php` (or the local cache of

@@ -16,9 +16,12 @@ const A4_SECTION_BREAK_MM = 250;
 
 /** Dark header band, a compact body and the bold light-grey totals row
  * every A4 report table shares. */
+/** Slate-800: the dark header band every printed table uses. */
+export const TABLE_HEAD_FILL: [number, number, number] = [30, 41, 59];
+
 export const A4_TABLE_STYLES = {
   styles: { fontSize: 8, cellPadding: 1.8 },
-  headStyles: { fillColor: [30, 41, 59] },
+  headStyles: { fillColor: TABLE_HEAD_FILL },
   footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
 } satisfies Pick<UserOptions, "styles" | "headStyles" | "footStyles">;
 

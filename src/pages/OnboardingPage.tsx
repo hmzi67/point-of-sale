@@ -4,6 +4,7 @@ import { BadgeCheck, Store } from "lucide-react";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useAppStore, useLicenseStore, useModuleStore } from "../store";
 import type { BusinessType } from "../types";
+import { runAction } from "../utils/runAction";
 
 const CURRENCY_SUGGESTIONS = ["PKR", "USD", "INR", "AED", "GBP", "EUR"];
 
@@ -67,30 +68,24 @@ export function OnboardingPage() {
     e.preventDefault();
     if (!businessName.trim() || !currency.trim() || !licenseOk) return;
 
-    setIsSaving(true);
-    setError(null);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       await save({
         businessName: businessName.trim(),
         businessType,
         currency: currency.trim().toUpperCase(),
         taxPercent: Number(taxPercent) || 0,
         onboardingCompleted: true,
-      });
+    });
 
-      // Suggested default, not a hard rule — restaurants get dine-in tables
-      // on out of the box; everyone else starts with it off and can flip it
-      // on the very next screen if they turn out to need it.
-      if (businessType === "restaurant") {
-        await toggleModule("tables", true);
-      }
-
-      navigate("/settings", { replace: true });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsSaving(false);
+    // Suggested default, not a hard rule — restaurants get dine-in tables
+    // on out of the box; everyone else starts with it off and can flip it
+    // on the very next screen if they turn out to need it.
+    if (businessType === "restaurant") {
+      await toggleModule("tables", true);
     }
+
+    navigate("/settings", { replace: true });
+    });
   };
 
   return (

@@ -4,6 +4,7 @@ import { printReceiptThermal } from "../../services/billingService";
 import { formatMinor, formatQty } from "../../utils/format";
 import type { AppConfig, Sale } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 interface ReceiptModalProps {
   sale: Sale;
@@ -29,16 +30,10 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
   const [isSavingPdf, setIsSavingPdf] = useState(false);
 
   const printThermal = async () => {
-    setIsPrinting(true);
-    setPrintStatus(null);
-    try {
+    await runAction(setIsPrinting, setPrintStatus, async () => {
       await printReceiptThermal(sale.id);
       setPrintStatus("Sent to thermal printer.");
-    } catch (e) {
-      setPrintStatus((e as Error).message);
-    } finally {
-      setIsPrinting(false);
-    }
+    });
   };
 
   // Plain Enter is this dialog's "do the obvious thing": send the receipt to
@@ -71,17 +66,11 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
   }, [isPrinting, onClose]);
 
   const savePdf = async () => {
-    setIsSavingPdf(true);
-    setPrintStatus(null);
-    try {
+    await runAction(setIsSavingPdf, setPrintStatus, async () => {
       const { downloadReceiptPdf } = await import("../../utils/receiptPdf");
       const saved = await downloadReceiptPdf(sale, config, tablesEnabled);
       setPrintStatus(saved ? "Receipt PDF saved." : null);
-    } catch (e) {
-      setPrintStatus((e as Error).message);
-    } finally {
-      setIsSavingPdf(false);
-    }
+    });
   };
 
   return (
@@ -107,6 +96,11 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
           <p className="text-center text-xs text-fg-muted">
             Sale #{sale.id} · {sale.createdAt}
           </p>
+          {sale.orderNo && (
+            <p className="mt-1 text-center text-xs font-semibold text-accent-text">
+              Order / Token #{sale.orderNo}
+            </p>
+          )}
 
           <ul className="mt-4 divide-y divide-line border-y border-line text-sm">
             {sale.items.map((line) => (
@@ -140,6 +134,23 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
               <dt>Total</dt>
               <dd>{formatMinor(sale.totalMinor, config.currency)}</dd>
             </div>
+            {sale.paymentMethod === "cash" && sale.tenderedMinor != null && (
+              <div className="space-y-1 border-t border-line pt-2 text-xs">
+                <div className="flex justify-between text-fg-muted">
+                  <dt>Cash Received</dt>
+                  <dd>{formatMinor(sale.tenderedMinor, config.currency)}</dd>
+                </div>
+                <div className="flex justify-between font-semibold text-success-text">
+                  <dt>Change to Return</dt>
+                  <dd>
+                    {formatMinor(
+                      sale.changeMinor ?? Math.max(0, sale.tenderedMinor - sale.totalMinor),
+                      config.currency,
+                    )}
+                  </dd>
+                </div>
+              </div>
+            )}
           </dl>
 
           <p className="mt-3 text-center text-xs text-fg-muted">

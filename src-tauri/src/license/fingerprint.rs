@@ -36,17 +36,10 @@ const KEYCHAIN_SERVICE: &str = "com.diwan.pos.license";
 #[cfg(target_os = "ios")]
 const KEYCHAIN_ACCOUNT: &str = "device-id";
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FingerprintError {
+    #[error("Could not identify this device: {0}")]
     Unavailable(String),
-}
-
-impl std::fmt::Display for FingerprintError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FingerprintError::Unavailable(msg) => write!(f, "Could not identify this device: {msg}"),
-        }
-    }
 }
 
 /// `hex(sha256(machine id))` — 64 lowercase hex chars, exactly what

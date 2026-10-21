@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { KeyRound } from "lucide-react";
 import { setAreaPin } from "../../services/securityPinService";
+import { runAction } from "../../utils/runAction";
 
 /**
  * Changes the shared "sensitive area" PIN (`AreaPinGate`/`db::security_pin`)
@@ -23,20 +24,14 @@ export function AreaPinSection() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
-    setIsSaving(true);
-    setError(null);
     setSuccess(false);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       await setAreaPin(oldPin, newPin);
       setOldPin("");
       setNewPin("");
       setConfirmPin("");
       setSuccess(true);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { useAppConfig } from "../../hooks/useAppConfig";
-import { decimalToMinor, formatMinor, formatQty } from "../../utils/format";
+import { decimalToMinor, formatMinor, formatQty, roundQty } from "../../utils/format";
 import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface EditNoteModalProps {
@@ -56,7 +56,7 @@ export function EditNoteModal({ itemName, initialNotes, onClose, onSave, amountE
   })();
 
   const addedQty =
-    amountEntry && amountMinor > 0 ? Math.round((amountMinor / amountEntry.priceMinor) * 100) / 100 : 0;
+    amountEntry && amountMinor > 0 ? roundQty(amountMinor / amountEntry.priceMinor) : 0;
 
   const combinedQty = amountEntry
     ? Math.min(amountEntry.qty + addedQty, amountEntry.stockQty)

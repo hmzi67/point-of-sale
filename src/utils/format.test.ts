@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  decimalToMinor,
-  formatCompactTick,
-  formatHours,
-  formatMinor,
-  formatQty,
-  formatTime,
-  minorToDecimal,
-  parseLocalDateString,
-} from "./format";
+import { decimalToMinor, formatCompactTick, formatHours, formatMinor, formatQty, formatTime, minorToDecimal, parseLocalDateString, roundQty } from "./format";
 
 describe("money conversion", () => {
   it("converts a decimal amount to whole minor units, absorbing float error", () => {
@@ -78,5 +69,13 @@ describe("formatHours", () => {
 
   it("rolls 60 rounded minutes over into the next hour", () => {
     expect(formatHours(1.999)).toBe("2h");
+  });
+});
+
+describe("roundQty", () => {
+  it("rounds to 2 decimals and strips float noise", () => {
+    expect(roundQty(12.499999999999998)).toBe(12.5);
+    expect(roundQty(0.333)).toBe(0.33);
+    expect(roundQty(2)).toBe(2);
   });
 });

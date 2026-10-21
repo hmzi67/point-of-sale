@@ -23,31 +23,18 @@ use crate::db::dates;
 
 use crate::db::attendance;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SalaryError {
+    #[error("Employee not found")]
     EmployeeNotFound,
+    #[error("{0}")]
     InvalidMonth(String),
+    #[error("Payment amount must be greater than zero")]
     InvalidAmount,
+    #[error("{0}")]
     InvalidDate(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for SalaryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SalaryError::EmployeeNotFound => write!(f, "Employee not found"),
-            SalaryError::InvalidMonth(msg) => write!(f, "{}", msg),
-            SalaryError::InvalidAmount => write!(f, "Payment amount must be greater than zero"),
-            SalaryError::InvalidDate(msg) => write!(f, "{}", msg),
-            SalaryError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for SalaryError {
-    fn from(err: rusqlite::Error) -> Self {
-        SalaryError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -269,12 +256,8 @@ pub fn get_payment_history(conn: &Connection, employee_id: i64) -> Result<Vec<Sa
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::employee_id;
     use crate::db::schema::test_conn;
-
-    fn employee_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM employees WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
-    }
 
     fn this_month() -> String {
         chrono::Local::now().format("%Y-%m").to_string()

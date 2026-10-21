@@ -7,6 +7,7 @@ import {
   updateCounter,
 } from "../../services/countersService";
 import type { Counter } from "../../types";
+import { runAction } from "../../utils/runAction";
 
 /**
  * Owner/Admin management of kitchen/prep counters for the KOT token
@@ -27,16 +28,11 @@ export function CountersSection() {
   const [pendingId, setPendingId] = useState<number | null>(null);
 
   const load = async () => {
-    setIsLoading(true);
-    try {
+    await runAction(setIsLoading, setError, async () => {
       const list = await getCounters(true);
       setCounters(list);
       setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
   useEffect(() => {
@@ -45,16 +41,11 @@ export function CountersSection() {
 
   const submitNewCounter = async () => {
     if (!newName.trim()) return;
-    setIsAdding(true);
-    try {
+    await runAction(setIsAdding, setError, async () => {
       await addCounter(newName.trim());
       setNewName("");
       await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsAdding(false);
-    }
+    });
   };
 
   const submitRename = async (id: number) => {

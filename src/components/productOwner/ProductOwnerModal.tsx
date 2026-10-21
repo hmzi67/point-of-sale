@@ -9,7 +9,9 @@ import {
   setup as setupProductOwner,
 } from "../../services/productOwnerService";
 import { useModuleStore } from "../../store";
+import { reportError } from "../../services/logService";
 import type { ModuleState } from "../../types";
+import { runAction } from "../../utils/runAction";
 
 interface ProductOwnerModalProps {
   onClose: () => void;
@@ -68,38 +70,25 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
       setError("Passwords don't match");
       return;
     }
-    setIsSubmitting(true);
-    try {
+    await runAction(setIsSubmitting, setError, async () => {
       await setupProductOwner(vendorPassword, password);
       setVendorPassword("");
       setPassword("");
       setConfirmPassword("");
       loadModules();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   const submitLogin = async () => {
-    setError(null);
-    setIsSubmitting(true);
-    try {
+    await runAction(setIsSubmitting, setError, async () => {
       await productOwnerLogin(password);
       setPassword("");
       loadModules();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   const setModule = async (moduleKey: string, platform: "desktop" | "android", patch: { enabled?: boolean; locked?: boolean }) => {
-    setError(null);
-    setIsUpdating(true);
-    try {
+    await runAction(setIsUpdating, setError, async () => {
       const list = await setProductOwnerModule(
         moduleKey,
         platform,
@@ -110,15 +99,15 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
       // Re-read this platform's view through the store's own action rather
       // than re-deriving the enabled/locked mapping here.
       void useModuleStore.getState().load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setIsUpdating(false);
-    }
+    });
   };
 
   const endSession = async () => {
-    await productOwnerLogout().catch(() => undefined);
+    // A failed logout would leave the Rust vendor session elevated: retry
+    // once, then log it (same as staff sign-out in authStore).
+    await productOwnerLogout()
+      .catch(() => productOwnerLogout())
+      .catch((error: Error) => reportError(`[product-owner] logout did not reach the backend: ${error.message}`));
     onClose();
   };
 

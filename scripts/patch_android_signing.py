@@ -39,18 +39,19 @@ MARKER = "// >>> pos: keystore.properties signing config (scripts/patch_android_
 # below, since either one could already be present.
 REQUIRED_IMPORTS = ["java.util.Properties", "java.io.FileInputStream"]
 
-# Reads the same keystore.properties fields that release.yml's "Configure
-# Android signing" step writes (storeFile, password, keyAlias, keyPassword —
-# "password" doubles as the store password, matching that step).
+# Each signing value comes from an env var when set (CI: POS_KEYSTORE_FILE,
+# POS_KEYSTORE_PASSWORD, POS_KEY_ALIAS, POS_KEY_PASSWORD, given to the build
+# step only, so no password is ever written to disk), else from
+# keystore.properties (storeFile, password, keyAlias, keyPassword — local
+# release builds; POS_KEYSTORE_PROPERTIES can point at it elsewhere).
 #
-# The `signingConfigs`/`buildTypes.release` block is guarded by the same
-# `keystorePropertiesFile.exists()` check as the load above it, not just the
-# load — Gradle evaluates the whole `android {}` DSL block for *every* task
+# The `signingConfigs`/`buildTypes.release` block only runs when a store
+# file is configured — Gradle evaluates the whole `android {}` DSL block for *every* task
 # in the project, debug builds included, not only when a release variant is
 # actually being assembled. An earlier version of this patch left that block
-# unconditional: on any machine without `keystore.properties` (e.g. local
-# dev that's never touched release signing), the `keystoreProperties["..."]
-# as String` casts hit `null` and threw `null cannot be cast to non-null
+# unconditional: on any machine without signing config (e.g. local
+# dev that's never touched release signing), the property lookups hit
+# `null` and threw `null cannot be cast to non-null
 # type kotlin.String`, failing even a plain `tauri android build -- --debug`.
 #
 # The release signingConfig is assigned through the `buildTypes.getByName`
@@ -62,19 +63,23 @@ REQUIRED_IMPORTS = ["java.util.Properties", "java.io.FileInputStream"]
 # build type implicitly, so getByName is safe this early in `android {}`.
 SIGNING_PATCH = f"""
     {MARKER}
-    val keystorePropertiesFile = rootProject.file("keystore.properties")
+    val keystorePropertiesFile = System.getenv("POS_KEYSTORE_PROPERTIES")?.let {{ file(it) }}
+        ?: rootProject.file("keystore.properties")
     val keystoreProperties = Properties()
     if (keystorePropertiesFile.exists()) {{
         keystoreProperties.load(FileInputStream(keystorePropertiesFile))
     }}
+    // CI passes these as env vars to the build step only, so no password is written to disk.
+    val signingValue = {{ key: String, env: String -> System.getenv(env) ?: keystoreProperties.getProperty(key) }}
+    val releaseStoreFile = signingValue("storeFile", "POS_KEYSTORE_FILE")
 
-    if (keystorePropertiesFile.exists()) {{
+    if (releaseStoreFile != null) {{
         signingConfigs {{
             create("release") {{
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
-                storeFile = file(keystoreProperties["storeFile"] as String)
-                storePassword = keystoreProperties["password"] as String
+                keyAlias = signingValue("keyAlias", "POS_KEY_ALIAS")!!
+                keyPassword = signingValue("keyPassword", "POS_KEY_PASSWORD")!!
+                storeFile = file(releaseStoreFile)
+                storePassword = signingValue("password", "POS_KEYSTORE_PASSWORD")!!
             }}
         }}
 

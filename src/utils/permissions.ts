@@ -104,8 +104,8 @@ export function isModuleReadOnlyFor(role: Role, key: ModuleKey): boolean {
  * only keeps the "Add/edit staff account" dropdown from offering a choice
  * the server would reject. */
 export function assignableRoles(actingRole: Role): Role[] {
-  if (actingRole === "owner") return ["admin", "cashier"];
-  if (actingRole === "admin") return ["cashier"];
+  if (actingRole === "owner") return ["admin", "cashier", "delivery"];
+  if (actingRole === "admin") return ["cashier", "delivery"];
   return [];
 }
 
@@ -121,6 +121,6 @@ export function roleCanManageAccount(actorRole: Role, targetRole: Role, isSelf: 
   if (targetRole === "owner") return isSelf && actorRole === "owner";
   if (isSelf) return true;
   if (actorRole === "owner") return true;
-  if (actorRole === "admin") return targetRole === "cashier";
+  if (actorRole === "admin") return targetRole === "cashier" || targetRole === "delivery";
   return false;
 }

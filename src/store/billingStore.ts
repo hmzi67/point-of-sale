@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import type { Item, ParkedCartLine, PaymentMethod } from "../types";
-import { minorToDecimal } from "../utils/format";
+import type { DeliveryDetails, Item, ParkedCartLine, PaymentMethod } from "../types";
+import { minorToDecimal, roundQty } from "../utils/format";
 
 export interface CartEntry {
   itemId: number;
@@ -65,6 +65,9 @@ interface BillingState {
   discountValue: number;
 
   paymentMethod: PaymentMethod;
+  /** Cash tendered / given by customer when paymentMethod is 'cash'. Null means exact/default. */
+  tenderedAmount: number | null;
+  setTenderedAmount: (amount: number | null) => void;
   /** Selected dine-in table, or `null` for a counter sale. Only meaningful
    * when the `tables` module is enabled. */
   tableId: number | null;
@@ -74,6 +77,10 @@ interface BillingState {
    * UI — there's no customer-management table behind this, it's just a
    * label attached to this one draft order. */
   customerName: string;
+  /** If current cart was resumed from an active order (takeaway or table order). */
+  activeOrderId: number | null;
+  activeOrderVersion: number | null;
+  setActiveOrder: (orderId: number | null, version: number | null) => void;
   /** A local, session-only counter — not a real order/sale id (we don't have
    * one until `billing_create_sale` actually returns a `Sale`). Increments
    * every time the current draft is cleared (completed, parked, or reset),
@@ -123,6 +130,10 @@ interface BillingState {
   setPaymentMethod: (method: PaymentMethod) => void;
   setTableId: (tableId: number | null) => void;
   setCustomerName: (name: string) => void;
+  orderType: "dine_in" | "takeaway" | "delivery" | "third_party_delivery";
+  setOrderType: (orderType: "dine_in" | "takeaway" | "delivery" | "third_party_delivery") => void;
+  deliveryDetails: DeliveryDetails | null;
+  setDeliveryDetails: (details: DeliveryDetails | null) => void;
   /** Replaces the cart with a resumed table order's lines. */
   loadParkedCart: (lines: ParkedCartLine[], discountMinor: number, resolveItem: (id: number) => Item | undefined) => void;
   clearCart: () => void;
@@ -148,6 +159,11 @@ const initialCartState = {
   discountValue: 0,
   tableId: null as number | null,
   customerName: "",
+  orderType: "takeaway" as "dine_in" | "takeaway" | "delivery" | "third_party_delivery",
+  deliveryDetails: null as DeliveryDetails | null,
+  activeOrderId: null as number | null,
+  activeOrderVersion: null as number | null,
+  tenderedAmount: null as number | null,
 };
 
 export const useBillingStore = create<BillingState>((set) => ({
@@ -155,6 +171,9 @@ export const useBillingStore = create<BillingState>((set) => ({
   paymentMethod: "cash",
   draftOrderNumber: 1,
   amountEntryItem: null,
+  setActiveOrder: (activeOrderId, activeOrderVersion) => set({ activeOrderId, activeOrderVersion }),
+  setOrderType: (orderType) => set({ orderType }),
+  setDeliveryDetails: (deliveryDetails) => set({ deliveryDetails }),
 
   addItem: (item) => {
     if (item.stockQty <= 0) return;
@@ -297,7 +316,7 @@ export const useBillingStore = create<BillingState>((set) => ({
       if (!entry) return state;
 
       const step = qtyStep();
-      const nextQty = Math.round((entry.qty + direction * step) * 100) / 100;
+      const nextQty = roundQty(entry.qty + direction * step);
 
       // Same floor behavior as the mouse stepper (CartRow/ItemCard): dropping
       // at or below the minimum removes the line outright rather than
@@ -331,6 +350,7 @@ export const useBillingStore = create<BillingState>((set) => ({
   setDiscountMode: (discountMode) => set({ discountMode, discountValue: 0 }),
   setDiscountValue: (discountValue) => set({ discountValue: Math.max(0, discountValue) }),
   setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
+  setTenderedAmount: (tenderedAmount) => set({ tenderedAmount }),
   setTableId: (tableId) => set({ tableId }),
   setCustomerName: (customerName) => set({ customerName }),
 

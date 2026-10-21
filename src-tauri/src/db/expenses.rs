@@ -14,31 +14,18 @@ use rusqlite::{params, Connection};
 use serde::Serialize;
 use crate::db::dates;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExpenseError {
+    #[error("{0}")]
     InvalidDate(String),
+    #[error("{0}")]
     InvalidDateRange(String),
+    #[error("Category cannot be empty")]
     EmptyCategory,
+    #[error("Amount must be greater than zero")]
     InvalidAmount,
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for ExpenseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExpenseError::InvalidDate(msg) => write!(f, "{}", msg),
-            ExpenseError::InvalidDateRange(msg) => write!(f, "{}", msg),
-            ExpenseError::EmptyCategory => write!(f, "Category cannot be empty"),
-            ExpenseError::InvalidAmount => write!(f, "Amount must be greater than zero"),
-            ExpenseError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for ExpenseError {
-    fn from(err: rusqlite::Error) -> Self {
-        ExpenseError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 #[derive(Debug, Clone, Serialize)]

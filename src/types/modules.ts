@@ -17,7 +17,8 @@ export type ModuleKey =
   | "shifts"
   | "employees"
   | "users"
-  | "settings";
+  | "settings"
+  | "delivery";
 
 export type Platform = "desktop" | "android";
 

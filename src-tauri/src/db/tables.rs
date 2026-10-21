@@ -64,62 +64,42 @@ pub struct ParkedOrder {
     pub discount_minor: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum TableError {
+    #[error("Table not found")]
     TableNotFound,
+    #[error("Cart is empty")]
     EmptyCart,
+    #[error("Table name cannot be empty")]
     EmptyName,
+    #[error("A table named \"{0}\" already exists")]
     DuplicateName(String),
+    #[error("Seats must be at least 1")]
     InvalidSeats,
+    #[error("Unknown table status: {0}")]
     InvalidStatus(String),
+    #[error("Could not read the parked order: {0}")]
     Corrupt(String),
-    Sqlite(rusqlite::Error),
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
     /// Shift-table source: `from_table_id` has no open order to move — either
     /// genuinely free, or `occupied` with no order behind it (possible via
     /// `update_table_status` setting status by hand — see its doc comment).
+    #[error("{0} doesn't have an active order to shift")]
     NoActiveOrder(String),
     /// Shift-table destination: `to_table_id` isn't `free` (name, its actual
     /// status) — merging two tables' orders into one is a different, bigger
     /// feature, so this is a hard reject, never a silent merge/overwrite.
+    #[error("{0} is already {1} — choose a free table")]
     DestinationNotFree(String, String),
     /// Shift-table: `from_table_id == to_table_id` — nothing to move.
+    #[error("Choose a different table to shift the order to")]
     SameTable,
     /// Delete: the table has an `open` order parked on it — refused rather
     /// than silently discarding an in-progress cart. Clear (or bill) the
     /// table first, then delete it.
+    #[error("{0} has an order in progress — clear or bill it before deleting the table")]
     HasOpenOrder(String),
-}
-
-impl std::fmt::Display for TableError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TableError::TableNotFound => write!(f, "Table not found"),
-            TableError::EmptyCart => write!(f, "Cart is empty"),
-            TableError::EmptyName => write!(f, "Table name cannot be empty"),
-            TableError::DuplicateName(name) => write!(f, "A table named \"{}\" already exists", name),
-            TableError::InvalidSeats => write!(f, "Seats must be at least 1"),
-            TableError::InvalidStatus(status) => write!(f, "Unknown table status: {}", status),
-            TableError::Corrupt(msg) => write!(f, "Could not read the parked order: {}", msg),
-            TableError::Sqlite(err) => write!(f, "database error: {}", err),
-            TableError::NoActiveOrder(name) => write!(f, "{} doesn't have an active order to shift", name),
-            TableError::DestinationNotFree(name, status) => {
-                write!(f, "{} is already {} — choose a free table", name, status)
-            }
-            TableError::SameTable => write!(f, "Choose a different table to shift the order to"),
-            TableError::HasOpenOrder(name) => {
-                write!(f, "{} has an order in progress — clear or bill it before deleting the table", name)
-            }
-        }
-    }
-}
-
-impl From<rusqlite::Error> for TableError {
-    fn from(err: rusqlite::Error) -> Self {
-        // SQLite reports a UNIQUE violation with this code; the caller (name
-        // insert) already knows which name triggered it, so this fallback is
-        // only reached from call sites that don't map it themselves.
-        TableError::Sqlite(err)
-    }
 }
 
 /// The SELECT every `TableSummary` read uses, in `table_from_row`'s column
@@ -151,6 +131,17 @@ fn load_table(conn: &Connection, table_id: i64) -> Result<TableSummary, TableErr
 
 /// Every table with its status and whether one already has a cart parked on
 /// it — the floor view, and the billing screen's table picker.
+/// The table's open (parked) `table_orders` row, if any — at most one, since
+/// `upsert_open_order` reuses it.
+fn open_order_id(conn: &Connection, table_id: i64) -> Result<Option<i64>, rusqlite::Error> {
+    conn.query_row(
+        "SELECT id FROM table_orders WHERE table_id = ?1 AND status = 'open'",
+        params![table_id],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
 pub fn list_tables(conn: &Connection) -> Result<Vec<TableSummary>, rusqlite::Error> {
     let mut stmt = conn.prepare(&format!("{TABLE_SELECT} ORDER BY t.name"))?;
     let rows = stmt.query_map([], table_from_row)?;
@@ -272,13 +263,7 @@ pub fn attach_cart_to_table(
 }
 
 fn upsert_open_order(conn: &Connection, table_id: i64, cart_json: &str) -> Result<(), rusqlite::Error> {
-    let existing_order_id: Option<i64> = conn
-        .query_row(
-            "SELECT id FROM table_orders WHERE table_id = ?1 AND status = 'open'",
-            params![table_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let existing_order_id = open_order_id(conn, table_id)?;
 
     match existing_order_id {
         Some(order_id) => {
@@ -311,12 +296,7 @@ pub fn start_table_order(conn: &Connection, table_id: i64) -> Result<TableSummar
         return Err(TableError::TableNotFound);
     }
 
-    let has_open: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM table_orders WHERE table_id = ?1 AND status = 'open')",
-        params![table_id],
-        |row| row.get(0),
-    )?;
-    if !has_open {
+    if open_order_id(conn, table_id)?.is_none() {
         let empty_cart = serde_json::to_string(&ParkedCart { items: Vec::new(), discount_minor: 0 })
             .map_err(|e| TableError::Corrupt(e.to_string()))?;
         upsert_open_order(conn, table_id, &empty_cart)?;
@@ -466,13 +446,7 @@ pub fn shift_table_order(
 /// table: any still-open parked order for that table is closed out against
 /// the new sale, and the table is freed for the next customers.
 pub fn close_table_order_for_sale(tx: &Transaction, table_id: i64, sale_id: i64) -> Result<(), rusqlite::Error> {
-    let existing_order_id: Option<i64> = tx
-        .query_row(
-            "SELECT id FROM table_orders WHERE table_id = ?1 AND status = 'open'",
-            params![table_id],
-            |row| row.get(0),
-        )
-        .optional()?;
+    let existing_order_id = open_order_id(tx, table_id)?;
 
     match existing_order_id {
         Some(order_id) => {
@@ -766,6 +740,8 @@ mod tests {
                 cashier_id: None,
                 table_id: Some(t2),
                 shift_id: None,
+                tendered_minor: None,
+                change_minor: None,
             },
         )
         .unwrap();
@@ -907,6 +883,8 @@ mod tests {
                 cashier_id: None,
                 table_id: Some(t2),
                 shift_id: None,
+                tendered_minor: None,
+                change_minor: None,
             },
         )
         .unwrap();
@@ -932,6 +910,8 @@ mod tests {
             cashier_id: None,
             table_id: Some(t1),
             shift_id: None,
+            tendered_minor: None,
+            change_minor: None,
         };
         let sale = sales::create_sale(&tx, input).unwrap();
         tx.commit().unwrap();

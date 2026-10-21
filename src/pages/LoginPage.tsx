@@ -22,6 +22,7 @@ const ROLE_TONE: Record<Role, string> = {
   owner: "bg-warning-soft text-warning-text",
   admin: "bg-accent-soft text-accent-text",
   cashier: "bg-surface-3 text-fg-2",
+  delivery: "bg-success-soft text-success-text",
 };
 
 /**

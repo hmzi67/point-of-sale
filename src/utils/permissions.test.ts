@@ -10,13 +10,14 @@ import {
   roleCanManageUsers,
 } from "./permissions";
 
-const ROLES: Role[] = ["owner", "admin", "cashier"];
+const ROLES: Role[] = ["owner", "admin", "cashier", "delivery"];
 
 describe("assignableRoles (mirrors commands::assignable_roles)", () => {
   it("never offers Owner, and offers less the lower the role", () => {
-    expect(assignableRoles("owner")).toEqual(["admin", "cashier"]);
-    expect(assignableRoles("admin")).toEqual(["cashier"]);
+    expect(assignableRoles("owner")).toEqual(["admin", "cashier", "delivery"]);
+    expect(assignableRoles("admin")).toEqual(["cashier", "delivery"]);
     expect(assignableRoles("cashier")).toEqual([]);
+    expect(assignableRoles("delivery")).toEqual([]);
     for (const role of ROLES) expect(assignableRoles(role)).not.toContain("owner");
   });
 });
@@ -28,8 +29,9 @@ describe("roleCanManageAccount (mirrors commands::caller_may_manage)", () => {
     expect(roleCanManageAccount("admin", "owner", true)).toBe(false);
   });
 
-  it("lets an Admin manage cashiers but not other admins", () => {
+  it("lets an Admin manage cashiers and delivery riders but not other admins", () => {
     expect(roleCanManageAccount("admin", "cashier", false)).toBe(true);
+    expect(roleCanManageAccount("admin", "delivery", false)).toBe(true);
     expect(roleCanManageAccount("admin", "admin", false)).toBe(false);
     expect(roleCanManageAccount("admin", "admin", true)).toBe(true);
   });
@@ -76,6 +78,7 @@ describe("Settings and Users screens", () => {
       expect(check("owner")).toBe(true);
       expect(check("admin")).toBe(true);
       expect(check("cashier")).toBe(false);
+      expect(check("delivery")).toBe(false);
     }
   });
 });

@@ -30,6 +30,7 @@
 
 use rusqlite::{params, Connection};
 
+use crate::db::modules::key;
 use crate::db::users;
 
 const SCHEMA_SQL: &str = include_str!("schema.sql");
@@ -47,6 +48,7 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "users",
     "product_owner_account",
     "license_status",
+    "pos_sync_meta",
     // Phase 2 — operations
     "categories",
     "counters",
@@ -67,6 +69,7 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "attendance",
     "salary_payments",
     "expenses",
+    "delivery_platforms",
 ];
 
 /// Default PIN for the seeded owner account. Surfaced on the login screen on
@@ -81,20 +84,21 @@ pub const DEFAULT_OWNER_PIN: &str = "1234";
 /// from Settings once the client is live, same as the owner login PIN.
 pub const DEFAULT_AREA_PIN: &str = "0000";
 
-/// The fixed module catalogue: (key, display name, is_core, sort_order, android default).
+/// The fixed module catalogue: (key, display name, is_core, sort_order, desktop default, android default).
 ///
 /// Billing is the only core module — the minimum viable POS — and can never be
 /// switched off. Android defaults follow the product goals: billing, dashboard
 /// and reports are the mobile-relevant screens; the rest are desktop tasks.
-const MODULE_CATALOGUE: &[(&str, &str, bool, i64, bool)] = &[
-    ("dashboard", "Dashboard", false, 1, true),
-    ("billing", "Billing", true, 2, true),
-    ("inventory", "Inventory", false, 3, false),
-    ("reports", "Reports", false, 4, true),
-    ("tables", "Tables", false, 5, false),
-    ("attendance", "Attendance", false, 6, false),
-    ("expenses", "Expenses", false, 7, false),
-    ("salary", "Salary", false, 8, false),
+/// Delivery is disabled by default across all platforms.
+const MODULE_CATALOGUE: &[(&str, &str, bool, i64, bool, bool)] = &[
+    (key::DASHBOARD, "Dashboard", false, 1, true, true),
+    (key::BILLING, "Billing", true, 2, true, true),
+    (key::INVENTORY, "Inventory", false, 3, true, false),
+    (key::REPORTS, "Reports", false, 4, true, true),
+    (key::TABLES, "Tables", false, 5, true, false),
+    (key::ATTENDANCE, "Attendance", false, 6, true, false),
+    (key::EXPENSES, "Expenses", false, 7, true, false),
+    (key::SALARY, "Salary", false, 8, true, false),
     // Cash-drawer reconciliation is genuinely optional — a small
     // single-cashier shop may never want the "declare your cash count"
     // step, so this is toggleable like everything else non-core, not
@@ -102,10 +106,11 @@ const MODULE_CATALOGUE: &[(&str, &str, bool, i64, bool)] = &[
     // (Owner/Admin, like Reports) — the inline Open/Close Shift controls in
     // Billing check this same flag directly, the same way `tables` gates
     // its inline billing-screen UI without needing its own role tier.
-    ("shifts", "Shifts", false, 9, false),
-    ("employees", "Employees", false, 10, true),
-    ("users", "Users", false, 11, true),
-    ("settings", "Settings", false, 12, true),
+    (key::SHIFTS, "Shifts", false, 9, true, false),
+    (key::EMPLOYEES, "Employees", false, 10, true, true),
+    (key::USERS, "Users", false, 11, true, true),
+    (key::SETTINGS, "Settings", false, 12, true, true),
+    (key::DELIVERY, "Delivery", false, 13, false, false),
 ];
 
 /// User tables currently present, in name order (SQLite internals excluded).
@@ -157,6 +162,9 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     add_missing_columns(conn)?;
     crate::startup_log::log("db: added-columns migration applied");
 
+    add_delivery_support(conn)?;
+    crate::startup_log::log("db: v11->v12 delivery support migration checked");
+
     // If this ever trips, `schema.sql` and EXPECTED_TABLES have drifted apart.
     let missing_after = missing_tables(conn)?;
     if !missing_after.is_empty() {
@@ -176,6 +184,7 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     seed_app_config(conn)?;
     seed_area_pin(conn)?;
     seed_modules(conn)?;
+    seed_delivery_platforms(conn)?;
     seed_owner(conn)?;
     crate::startup_log::log("db: app_config/modules/owner seeded (or already present)");
     crate::db::seed::seed_demo_data(conn)?;
@@ -295,6 +304,14 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ),
     ("tokens", "ready_at", "TEXT"),
     ("token_items", "order_item_id", "INTEGER REFERENCES order_items (id) ON DELETE SET NULL"),
+    // Added to `order_items` after v12 reached origin/main (1f542e7, never
+    // tagged), so a database first opened by that commit gets it here.
+    ("order_items", "sent_at", "TEXT"),
+    ("orders", "estimated_prep_minutes", "INTEGER NOT NULL DEFAULT 15"),
+    ("sales", "tendered_minor", "INTEGER"),
+    ("sales", "change_minor", "INTEGER"),
+    ("orders", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
+    ("tokens", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs
@@ -312,6 +329,8 @@ const ADDED_COLUMN_INDEXES: &[(&str, &str, &str)] = &[
     ("idx_sales_order", "sales", "order_id"),
     ("idx_tokens_order", "tokens", "order_id"),
     ("idx_token_items_order_item", "token_items", "order_item_id"),
+    ("idx_orders_shift", "orders", "shift_id"),
+    ("idx_tokens_shift", "tokens", "shift_id"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -347,6 +366,13 @@ fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
     // SQLite's UNIQUE index already allows any number of NULLs, matching
     // `barcode`'s same nullable-but-unique convention.
     conn.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS idx_items_short_code ON items (short_code)")?;
+
+    // Drop old unconditional idx_orders_day_no if present and ensure shift/day unique constraints
+    conn.execute_batch(
+        "DROP INDEX IF EXISTS idx_orders_day_no;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shift_no ON orders (shift_id, order_no) WHERE shift_id IS NOT NULL;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_day_no ON orders (date(created_at), order_no) WHERE shift_id IS NULL;",
+    )?;
 
     Ok(())
 }
@@ -414,8 +440,189 @@ fn relax_tokens_table_order_id(conn: &Connection) -> Result<(), rusqlite::Error>
     result
 }
 
+/// v11 -> v12: Adds delivery support. Rebuilds `users` table to add 'delivery'
+/// role to CHECK constraint, rebuilds `orders` table to add 'third_party_delivery'
+/// to order_type CHECK constraint, adds all delivery-related columns to
+/// `orders`, and rebuilds `sales` table to add 'platform' to payment_method CHECK.
+/// Creates `delivery_platforms` table if missing. Idempotent and safe on existing data.
+fn add_delivery_support(conn: &Connection) -> Result<(), rusqlite::Error> {
+    // Check if orders table exists and whether it already has delivery_status column
+    let orders_exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'orders'",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if orders_exists > 0 {
+        let mut stmt = conn.prepare("PRAGMA table_info(orders)")?;
+        let has_delivery_status = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .any(|col| col == "delivery_status");
+
+        if has_delivery_status {
+            // Already migrated
+            return Ok(());
+        }
+    } else {
+        // Fresh install: SCHEMA_SQL creates the tables with latest schema
+        return Ok(());
+    }
+
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
+
+    let result = (|| -> Result<(), rusqlite::Error> {
+        // 1. Create delivery_platforms table if not exists
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS delivery_platforms (
+                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name       TEXT    NOT NULL UNIQUE,
+                 is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+                 created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+             );
+             INSERT OR IGNORE INTO delivery_platforms (id, name) VALUES (1, 'Foodpanda');",
+        )?;
+
+        // 2. Rebuild users table with 'delivery' role
+        let users_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'users'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if users_exists > 0 {
+            conn.execute_batch(
+                "CREATE TABLE users_v12 (
+                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                     name       TEXT    NOT NULL UNIQUE,
+                     pin_hash   TEXT    NOT NULL,
+                     role       TEXT    NOT NULL CHECK (role IN ('owner', 'admin', 'cashier', 'delivery')),
+                     is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+                     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+                 );
+                 INSERT INTO users_v12 (id, name, pin_hash, role, is_active, created_at)
+                     SELECT id, name, pin_hash, role, is_active, created_at FROM users;
+                 DROP TABLE users;
+                 ALTER TABLE users_v12 RENAME TO users;
+                 CREATE INDEX idx_users_active ON users (is_active);",
+            )?;
+        }
+
+        // 3. Rebuild orders table with delivery columns and third_party_delivery
+        conn.execute_batch(
+            "CREATE TABLE orders_v12 (
+                 id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                 order_no                INTEGER NOT NULL CHECK (order_no > 0),
+                 order_type              TEXT    NOT NULL
+                                         CHECK (order_type IN ('dine_in', 'takeaway', 'delivery', 'third_party_delivery')),
+                 table_id                INTEGER REFERENCES tables (id) ON DELETE SET NULL,
+                 status                  TEXT    NOT NULL DEFAULT 'draft'
+                                         CHECK (status IN ('draft', 'sent', 'preparing', 'ready',
+                                                           'served', 'held', 'cancelled')),
+                 held_from_status        TEXT    CHECK (held_from_status IN ('draft', 'sent', 'preparing',
+                                                                              'ready', 'served')),
+                 version                 INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+                 client_ref              TEXT    NOT NULL UNIQUE,
+                 customer_name           TEXT,
+                 notes                   TEXT,
+                 estimated_prep_minutes  INTEGER NOT NULL DEFAULT 15,
+                 created_by              INTEGER REFERENCES users (id) ON DELETE SET NULL,
+                 shift_id                INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
+                 created_at              TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+                 sent_at                 TEXT,
+                 ready_at                TEXT,
+                 served_at               TEXT,
+                 completed_at            TEXT,
+                 cancelled_at            TEXT,
+                 cancel_reason           TEXT,
+                 delivery_rider_id       INTEGER REFERENCES users (id) ON DELETE SET NULL,
+                 rider_source            TEXT    CHECK (rider_source IN ('user', 'manual')),
+                 delivery_rider_name     TEXT,
+                 delivery_rider_phone    TEXT,
+                 delivery_platform_id    INTEGER REFERENCES delivery_platforms (id) ON DELETE SET NULL,
+                 delivery_platform_name  TEXT,
+                 customer_phone          TEXT,
+                 delivery_address        TEXT,
+                 delivery_charge_minor   INTEGER NOT NULL DEFAULT 0,
+                 delivery_status         TEXT    CHECK (delivery_status IN ('placed', 'dispatched', 'delivered', 'cancelled')),
+                 platform_order_ref      TEXT
+             );
+             INSERT INTO orders_v12 (
+                 id, order_no, order_type, table_id, status, held_from_status, version,
+                 client_ref, customer_name, notes, estimated_prep_minutes, created_by,
+                 shift_id, created_at, sent_at, ready_at, served_at, completed_at,
+                 cancelled_at, cancel_reason
+             )
+             SELECT 
+                 id, order_no, order_type, table_id, status, held_from_status, version,
+                 client_ref, customer_name, notes, estimated_prep_minutes, created_by,
+                 shift_id, created_at, sent_at, ready_at, served_at, completed_at,
+                 cancelled_at, cancel_reason
+             FROM orders;
+             DROP TABLE orders;
+             ALTER TABLE orders_v12 RENAME TO orders;
+             CREATE INDEX idx_orders_status     ON orders (status);
+             CREATE INDEX idx_orders_table      ON orders (table_id);
+             CREATE INDEX idx_orders_created_at ON orders (created_at);
+             CREATE INDEX idx_orders_shift      ON orders (shift_id);
+             CREATE UNIQUE INDEX idx_orders_shift_no ON orders (shift_id, order_no) WHERE shift_id IS NOT NULL;
+             CREATE UNIQUE INDEX idx_orders_day_no   ON orders (date(created_at), order_no) WHERE shift_id IS NULL;",
+        )?;
+
+        // 4. Rebuild sales table to add 'platform' to payment_method CHECK constraint
+        let sales_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sales'",
+            [],
+            |row| row.get(0),
+        )?;
+        if sales_exists > 0 {
+            conn.execute_batch(
+                "CREATE TABLE sales_v12 (
+                     id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                     total_minor    INTEGER NOT NULL CHECK (total_minor >= 0),
+                     discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
+                     tax_minor      INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
+                     payment_method TEXT    NOT NULL DEFAULT 'cash'
+                                            CHECK (payment_method IN ('cash', 'card', 'other', 'platform')),
+                     cashier_id     INTEGER REFERENCES users (id) ON DELETE SET NULL,
+                     table_id       INTEGER REFERENCES tables (id) ON DELETE SET NULL,
+                     shift_id       INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
+                     order_id       INTEGER REFERENCES orders (id) ON DELETE SET NULL,
+                     tendered_minor INTEGER,
+                     change_minor   INTEGER,
+                     created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+                 );
+                 INSERT INTO sales_v12 (id, total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id, shift_id, order_id, tendered_minor, change_minor, created_at)
+                     SELECT id, total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id, shift_id, order_id, tendered_minor, change_minor, created_at FROM sales;
+                 DROP TABLE sales;
+                 ALTER TABLE sales_v12 RENAME TO sales;
+                 CREATE INDEX idx_sales_created_at ON sales (created_at);
+                 CREATE INDEX idx_sales_cashier    ON sales (cashier_id);
+                 CREATE INDEX idx_sales_table      ON sales (table_id);
+                 CREATE INDEX idx_sales_shift      ON sales (shift_id);
+                 CREATE INDEX idx_sales_order      ON sales (order_id);",
+            )?;
+        }
+
+        Ok(())
+    })();
+
+    // Always restore foreign keys
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    result
+}
+
 fn seed_app_config(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute("INSERT OR IGNORE INTO app_config (id) VALUES (1)", [])?;
+    Ok(())
+}
+
+fn seed_delivery_platforms(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR IGNORE INTO delivery_platforms (id, name) VALUES (1, 'Foodpanda')",
+        [],
+    )?;
     Ok(())
 }
 
@@ -423,7 +630,7 @@ fn seed_app_config(conn: &Connection) -> Result<(), rusqlite::Error> {
 /// default per-platform visibility. Existing rows — and any toggles the client
 /// has already made — are left untouched.
 fn seed_modules(conn: &Connection) -> Result<(), rusqlite::Error> {
-    for (key, name, is_core, sort_order, android_default) in MODULE_CATALOGUE {
+    for (key, name, is_core, sort_order, desktop_default, android_default) in MODULE_CATALOGUE {
         conn.execute(
             "INSERT INTO modules (key, name, is_core, sort_order)
              VALUES (?1, ?2, ?3, ?4)
@@ -435,8 +642,8 @@ fn seed_modules(conn: &Connection) -> Result<(), rusqlite::Error> {
 
         conn.execute(
             "INSERT OR IGNORE INTO enabled_modules (module_id, desktop_enabled, android_enabled)
-             SELECT id, 1, ?2 FROM modules WHERE key = ?1",
-            params![key, *android_default as i64],
+             SELECT id, ?2, ?3 FROM modules WHERE key = ?1",
+            params![key, *desktop_default as i64, *android_default as i64],
         )?;
     }
 
@@ -498,6 +705,7 @@ pub(crate) fn test_conn() -> Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::count;
 
     #[test]
     fn relax_tokens_table_order_id_upgrades_a_v9_install_and_preserves_existing_rows() {
@@ -559,6 +767,152 @@ mod tests {
         relax_tokens_table_order_id(&conn).unwrap();
     }
 
+    #[test]
+    fn delivery_support_migration_upgrades_populated_v11_install_and_preserves_data() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        // Setup a pre-v12 schema with populated users, tables, orders, order_items, sales
+        conn.execute_batch(
+            "CREATE TABLE users (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name TEXT NOT NULL UNIQUE,
+                 pin_hash TEXT NOT NULL,
+                 role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'cashier')),
+                 is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             CREATE TABLE tables (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name TEXT NOT NULL UNIQUE,
+                 seats INTEGER NOT NULL DEFAULT 4,
+                 status TEXT NOT NULL DEFAULT 'free',
+                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             CREATE TABLE shifts (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 cashier_id INTEGER REFERENCES users (id),
+                 opened_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 closed_at TEXT
+             );
+             CREATE TABLE orders (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 order_no INTEGER NOT NULL,
+                 order_type TEXT NOT NULL CHECK (order_type IN ('dine_in', 'takeaway', 'delivery')),
+                 table_id INTEGER REFERENCES tables (id),
+                 status TEXT NOT NULL DEFAULT 'draft',
+                 held_from_status TEXT,
+                 version INTEGER NOT NULL DEFAULT 1,
+                 client_ref TEXT NOT NULL UNIQUE,
+                 customer_name TEXT,
+                 notes TEXT,
+                 estimated_prep_minutes INTEGER NOT NULL DEFAULT 15,
+                 created_by INTEGER REFERENCES users (id),
+                 shift_id INTEGER,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 sent_at TEXT,
+                 ready_at TEXT,
+                 served_at TEXT,
+                 completed_at TEXT,
+                 cancelled_at TEXT,
+                 cancel_reason TEXT
+             );
+             CREATE TABLE order_items (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 order_id INTEGER NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+                 item_id INTEGER NOT NULL,
+                 qty REAL NOT NULL,
+                 price_at_order_minor INTEGER NOT NULL,
+                 notes TEXT,
+                 sent_at TEXT,
+                 status TEXT NOT NULL DEFAULT 'active',
+                 voided_by INTEGER,
+                 void_reason TEXT,
+                 voided_at TEXT,
+                 sale_id INTEGER,
+                 added_by INTEGER,
+                 added_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             CREATE TABLE sales (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 total_minor INTEGER NOT NULL,
+                 discount_minor INTEGER NOT NULL DEFAULT 0,
+                 tax_minor INTEGER NOT NULL DEFAULT 0,
+                 payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'card', 'other')),
+                 cashier_id INTEGER REFERENCES users (id),
+                 table_id INTEGER REFERENCES tables (id),
+                 shift_id INTEGER,
+                 order_id INTEGER REFERENCES orders (id),
+                 tendered_minor INTEGER,
+                 change_minor INTEGER,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );
+             INSERT INTO users (id, name, pin_hash, role) VALUES (1, 'Admin', 'hash1', 'admin');
+             INSERT INTO users (id, name, pin_hash, role) VALUES (2, 'Cashier 1', 'hash2', 'cashier');
+             INSERT INTO tables (id, name) VALUES (1, 'Table 1');
+             INSERT INTO orders (id, order_no, order_type, table_id, client_ref, customer_name)
+                 VALUES (1, 101, 'dine_in', 1, 'ref-101', 'Alice');
+             INSERT INTO order_items (id, order_id, item_id, qty, price_at_order_minor)
+                 VALUES (1, 1, 10, 2.0, 500);
+             INSERT INTO sales (id, total_minor, payment_method, cashier_id, order_id)
+                 VALUES (1, 1000, 'cash', 2, 1);"
+        )
+        .unwrap();
+
+        // Run migration
+        add_delivery_support(&conn).unwrap();
+
+        // 1. Verify foreign key check passes
+        let fk_errors: Vec<String> = conn
+            .prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .query_map([], |row| {
+                Ok(format!(
+                    "table: {}, rowid: {}, parent: {}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?
+                ))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(fk_errors.is_empty(), "Foreign key check failed: {:?}", fk_errors);
+
+        // 2. Existing users preserved and new 'delivery' role works
+        let user_count: i64 = conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap();
+        assert_eq!(user_count, 2);
+        conn.execute("INSERT INTO users (name, pin_hash, role) VALUES ('Rider 1', 'hash3', 'delivery')", [])
+            .expect("users table must now accept 'delivery' role");
+
+        // 3. Existing orders preserved, new columns present, and third_party_delivery works
+        let (order_no, cust_name): (i64, Option<String>) = conn
+            .query_row("SELECT order_no, customer_name FROM orders WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(order_no, 101);
+        assert_eq!(cust_name, Some("Alice".to_string()));
+
+        conn.execute(
+            "INSERT INTO orders (order_no, order_type, client_ref, delivery_status, delivery_rider_name)
+             VALUES (102, 'third_party_delivery', 'ref-102', 'dispatched', 'Bob Rider')",
+            [],
+        )
+        .expect("orders table must now accept 'third_party_delivery' and delivery columns");
+
+        // 4. Existing sales preserved and 'platform' payment method works
+        let sale_total: i64 = conn.query_row("SELECT total_minor FROM sales WHERE id = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(sale_total, 1000);
+        conn.execute("INSERT INTO sales (total_minor, payment_method) VALUES (1500, 'platform')", [])
+            .expect("sales table must now accept 'platform' payment method");
+
+        // 5. delivery_platforms table exists and seeded
+        let platform_name: String = conn.query_row("SELECT name FROM delivery_platforms WHERE id = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(platform_name, "Foodpanda");
+
+        // 6. Idempotent — running again is a no-op
+        add_delivery_support(&conn).unwrap();
+    }
+
     fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
         conn.query_row(
             "SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name = ?2",
@@ -567,10 +921,6 @@ mod tests {
         )
         .unwrap()
             == 1
-    }
-
-    fn count(conn: &Connection, sql: &str) -> i64 {
-        conn.query_row(sql, [], |row| row.get(0)).unwrap()
     }
 
     /// Inserts a takeaway order and returns its id.

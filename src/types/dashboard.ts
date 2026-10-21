@@ -23,6 +23,14 @@ export interface DashboardSummary {
   /** `null` when the `tables` module is disabled, or when it's enabled but
    * no table-attributed sale happened in the range. */
   topTableBySales: TopTable | null;
+
+  /** `null` when the `delivery` module is disabled for this installation. */
+  deliveryStats: DeliveryDashboardStats | null;
+}
+
+export interface DeliveryDashboardStats {
+  orderCount: number;
+  salesMinor: number;
 }
 
 export interface TopTable {

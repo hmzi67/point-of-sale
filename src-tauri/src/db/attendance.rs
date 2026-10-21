@@ -16,35 +16,20 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use crate::db::dates;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AttendanceError {
+    #[error("Employee not found")]
     EmployeeNotFound,
+    #[error("This employee has not checked in today")]
     NotCheckedIn,
+    #[error("{0}")]
     InvalidMonth(String),
+    #[error("{0}")]
     InvalidDateRange(String),
+    #[error("Name cannot be empty")]
     EmptyName,
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for AttendanceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AttendanceError::EmployeeNotFound => write!(f, "Employee not found"),
-            AttendanceError::NotCheckedIn => {
-                write!(f, "This employee has not checked in today")
-            }
-            AttendanceError::InvalidMonth(msg) => write!(f, "{}", msg),
-            AttendanceError::InvalidDateRange(msg) => write!(f, "{}", msg),
-            AttendanceError::EmptyName => write!(f, "Name cannot be empty"),
-            AttendanceError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for AttendanceError {
-    fn from(err: rusqlite::Error) -> Self {
-        AttendanceError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -469,12 +454,8 @@ pub fn get_monthly_summary(conn: &Connection, month: &str) -> Result<Vec<Monthly
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_support::employee_id;
     use crate::db::schema::test_conn;
-
-    fn employee_id(conn: &Connection, name: &str) -> i64 {
-        conn.query_row("SELECT id FROM employees WHERE name = ?1", params![name], |row| row.get(0))
-            .unwrap()
-    }
 
     /// The demo seed gives every employee a shift for today (see
     /// `db/seed.rs`), so a test that wants to start from "hasn't clocked in

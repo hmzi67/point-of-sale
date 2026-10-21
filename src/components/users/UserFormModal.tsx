@@ -4,8 +4,14 @@ import { createUser, setUserPin, updateUser } from "../../services/authService";
 import { assignableRoles } from "../../utils/permissions";
 import type { ManagedUser, Role } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
-const ROLE_LABEL: Record<Role, string> = { owner: "Owner", admin: "Admin", cashier: "Cashier" };
+const ROLE_LABEL: Record<Role, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  cashier: "Cashier",
+  delivery: "Delivery Rider",
+};
 
 interface UserFormModalProps {
   /** `null` creates a new account; otherwise edits this one. */
@@ -50,9 +56,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
     if (!name.trim()) return;
     if (!isEditing && pin.length < 4) return;
 
-    setIsSaving(true);
-    setError(null);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       if (isEditing) {
         await updateUser(user.id, name.trim(), isOwnerAccount ? "owner" : role);
         if (pin) await setUserPin(user.id, pin);
@@ -60,11 +64,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
         await createUser(name.trim(), pin, role);
       }
       onSaved();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (

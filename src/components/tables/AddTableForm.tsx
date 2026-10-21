@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import { SeatCountField } from "./SeatCountField";
+import { runAction } from "../../utils/runAction";
 
 interface AddTableFormProps {
   onAdd: (name: string, seats: number) => Promise<void>;
@@ -18,15 +19,9 @@ export function AddTableForm({ onAdd, onCancel }: AddTableFormProps) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !Number.isSafeInteger(seats) || seats < 1) return;
-    setIsSaving(true);
-    setError(null);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       await onAdd(name.trim(), seats);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (

@@ -58,6 +58,10 @@ pub struct CreateSaleInput {
     /// session (the caller's own open shift) rather than the client.
     #[serde(default)]
     pub shift_id: Option<i64>,
+    #[serde(default)]
+    pub tendered_minor: Option<i64>,
+    #[serde(default)]
+    pub change_minor: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,53 +96,54 @@ pub struct Sale {
     pub table_id: Option<i64>,
     pub table_name: Option<String>,
     pub shift_id: Option<i64>,
+    pub tendered_minor: Option<i64>,
+    pub change_minor: Option<i64>,
+    pub order_id: Option<i64>,
+    pub order_no: Option<i64>,
     pub created_at: String,
     pub items: Vec<SaleLine>,
+    #[serde(default)]
+    pub order_type: Option<String>,
+    #[serde(default)]
+    pub customer_name: Option<String>,
+    #[serde(default)]
+    pub customer_phone: Option<String>,
+    #[serde(default)]
+    pub delivery_address: Option<String>,
+    #[serde(default)]
+    pub delivery_rider_name: Option<String>,
+    #[serde(default)]
+    pub delivery_rider_phone: Option<String>,
+    #[serde(default)]
+    pub delivery_platform_name: Option<String>,
+    #[serde(default)]
+    pub platform_order_ref: Option<String>,
+    #[serde(default)]
+    pub delivery_charge_minor: Option<i64>,
 }
 
-const PAYMENT_METHODS: &[&str] = &["cash", "card", "other"];
+const PAYMENT_METHODS: &[&str] = &["cash", "card", "other", "platform"];
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SaleError {
+    #[error("Cart is empty")]
     EmptyCart,
+    #[error("Quantity must be at least 1")]
     InvalidQuantity,
+    #[error("Item {0} no longer exists")]
     ItemNotFound(i64),
+    #[error("{0} is no longer sold and cannot be added to a sale")]
     ItemInactive(String),
+    #[error("Only {available} left of {name}, but {requested} requested")]
     InsufficientStock { name: String, available: f64, requested: f64 },
+    #[error("Discount cannot exceed the subtotal")]
     InvalidDiscount,
+    #[error("Unknown payment method: {0}")]
     InvalidPaymentMethod(String),
+    #[error("Sale not found")]
     NotFound,
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for SaleError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SaleError::EmptyCart => write!(f, "Cart is empty"),
-            SaleError::InvalidQuantity => write!(f, "Quantity must be at least 1"),
-            SaleError::ItemNotFound(id) => write!(f, "Item {} no longer exists", id),
-            SaleError::ItemInactive(name) => {
-                write!(f, "{} is no longer sold and cannot be added to a sale", name)
-            }
-            SaleError::InsufficientStock { name, available, requested } => write!(
-                f,
-                "Only {} left of {}, but {} requested",
-                available, name, requested
-            ),
-            SaleError::InvalidDiscount => write!(f, "Discount cannot exceed the subtotal"),
-            SaleError::InvalidPaymentMethod(method) => {
-                write!(f, "Unknown payment method: {}", method)
-            }
-            SaleError::NotFound => write!(f, "Sale not found"),
-            SaleError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for SaleError {
-    fn from(err: rusqlite::Error) -> Self {
-        SaleError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 /// Builds and writes a sale inside `tx`: re-prices every line against the
@@ -181,69 +186,145 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
         }
     }
 
-    let mut subtotal_minor: i64 = 0;
-    // (item_id, name, qty, price_minor, notes)
-    let mut resolved: Vec<(i64, String, f64, i64, Option<String>)> = Vec::with_capacity(merged.len());
-
+    let mut priced: Vec<PricedLine> = Vec::with_capacity(merged.len());
     for line in &merged {
-        let row: Option<(String, i64, f64, i64)> = tx
+        let row: Option<(String, i64, i64)> = tx
             .query_row(
-                "SELECT name, price_minor, stock_qty, is_active FROM items WHERE id = ?1",
+                "SELECT name, price_minor, is_active FROM items WHERE id = ?1",
                 params![line.item_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i64>(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
-        let (name, price_minor, stock_qty, is_active) =
-            row.ok_or(SaleError::ItemNotFound(line.item_id))?;
-
+        let (name, price_minor, is_active) = row.ok_or(SaleError::ItemNotFound(line.item_id))?;
         if is_active == 0 {
             return Err(SaleError::ItemInactive(name));
         }
-        if stock_qty < line.qty {
-            return Err(SaleError::InsufficientStock {
-                name,
-                available: stock_qty,
-                requested: line.qty,
-            });
-        }
-
-        // price_minor (integer) × qty (possibly fractional) rounded back to
-        // whole minor units — the same "round straight back to whole minor
-        // units" convention CLAUDE.md documents for tax-percent-derived
-        // amounts, applied here because qty can now be fractional too.
-        subtotal_minor += (price_minor as f64 * line.qty).round() as i64;
-        resolved.push((line.item_id, name, line.qty, price_minor, line.notes.clone()));
+        priced.push(PricedLine { item_id: line.item_id, qty: line.qty, price_minor, notes: line.notes.clone() });
     }
 
-    if input.discount_minor > subtotal_minor {
+    let sale = insert_priced_sale(
+        tx,
+        PricedSale {
+            lines: &priced,
+            discount_minor: input.discount_minor,
+            tax_minor: input.tax_minor,
+            payment_method: &input.payment_method,
+            cashier_id: input.cashier_id,
+            table_id: input.table_id,
+            shift_id: input.shift_id,
+            order_id: None,
+            tendered_minor: input.tendered_minor,
+            change_minor: input.change_minor,
+        },
+    )?;
+
+    if let Some(table_id) = input.table_id {
+        tables::close_table_order_for_sale(tx, table_id, sale.id)?;
+    }
+
+    Ok(sale)
+}
+
+/// One line's money: price_minor (integer) × qty (possibly fractional)
+/// rounded back to whole minor units — the same "round straight back to whole
+/// minor units" convention CLAUDE.md documents for tax-percent-derived
+/// amounts. Every sale, order, refund and token amount goes through this, and
+/// the frontend's `billingTotals.lineTotalMinor` mirrors it.
+pub fn line_total_minor(price_minor: i64, qty: f64) -> i64 {
+    (price_minor as f64 * qty).round() as i64
+}
+
+/// A sale line whose price the server has already fixed: re-read from the
+/// live item by `create_sale`, or copied from `order_items` by
+/// `orders::pay_lines` — never taken from the client.
+#[derive(Debug, Clone)]
+pub struct PricedLine {
+    pub item_id: i64,
+    pub qty: f64,
+    pub price_minor: i64,
+    pub notes: Option<String>,
+}
+
+pub struct PricedSale<'a> {
+    pub lines: &'a [PricedLine],
+    pub discount_minor: i64,
+    pub tax_minor: i64,
+    pub payment_method: &'a str,
+    pub cashier_id: Option<i64>,
+    pub table_id: Option<i64>,
+    pub shift_id: Option<i64>,
+    pub order_id: Option<i64>,
+    pub tendered_minor: Option<i64>,
+    pub change_minor: Option<i64>,
+}
+
+/// The write half of a sale, shared by `create_sale` and `orders::pay_lines`:
+/// checks stock, inserts `sales` + one `sale_items` row per line, and
+/// decrements stock. Lines are not merged — an order may bill the same item
+/// twice at two prices (a price change between rounds).
+pub fn insert_priced_sale(tx: &Transaction, sale: PricedSale) -> Result<Sale, SaleError> {
+    if sale.lines.is_empty() {
+        return Err(SaleError::EmptyCart);
+    }
+    if !PAYMENT_METHODS.contains(&sale.payment_method) {
+        return Err(SaleError::InvalidPaymentMethod(sale.payment_method.to_string()));
+    }
+    if sale.discount_minor < 0 || sale.tax_minor < 0 {
         return Err(SaleError::InvalidDiscount);
     }
 
-    let total_minor = subtotal_minor - input.discount_minor + input.tax_minor;
+    let mut subtotal_minor: i64 = 0;
+    for line in sale.lines {
+        if !line.qty.is_finite() || line.qty <= 0.0 {
+            return Err(SaleError::InvalidQuantity);
+        }
+        subtotal_minor += line_total_minor(line.price_minor, line.qty);
+    }
+
+    if sale.discount_minor > subtotal_minor {
+        return Err(SaleError::InvalidDiscount);
+    }
+
+    let total_minor = subtotal_minor - sale.discount_minor + sale.tax_minor;
 
     tx.execute(
-        "INSERT INTO sales (total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id, shift_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO sales (total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id, shift_id, order_id, tendered_minor, change_minor)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             total_minor,
-            input.discount_minor,
-            input.tax_minor,
-            input.payment_method,
-            input.cashier_id,
-            input.table_id,
-            input.shift_id
+            sale.discount_minor,
+            sale.tax_minor,
+            sale.payment_method,
+            sale.cashier_id,
+            sale.table_id,
+            sale.shift_id,
+            sale.order_id,
+            sale.tendered_minor,
+            sale.change_minor
         ],
     )?;
     let sale_id = tx.last_insert_rowid();
 
-    for (item_id, name, qty, price_minor, notes) in &resolved {
+    for line in sale.lines {
+        // Read inside the transaction, so an earlier line of the same item
+        // in this sale has already been taken off.
+        let (name, stock_qty): (String, f64) = tx
+            .query_row("SELECT name, stock_qty FROM items WHERE id = ?1", params![line.item_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .optional()?
+            .ok_or(SaleError::ItemNotFound(line.item_id))?;
+        if stock_qty < line.qty {
+            return Err(SaleError::InsufficientStock { name, available: stock_qty, requested: line.qty });
+        }
+
         // Blank notes are stored as NULL, not "", same normalization every
         // other optional text field in the schema uses.
-        let notes = notes.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let notes = line.notes.as_deref().map(str::trim).filter(|s| !s.is_empty());
         tx.execute(
             "INSERT INTO sale_items (sale_id, item_id, qty, price_at_sale_minor, notes)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![sale_id, item_id, qty, price_minor, notes],
+            params![sale_id, line.item_id, line.qty, line.price_minor, notes],
         )?;
 
         // The `stock_qty >= ?1` guard makes this a compare-and-swap: if stock
@@ -253,19 +334,11 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
         // the whole transaction rolls back, so no partial sale is ever saved.
         let changed = tx.execute(
             "UPDATE items SET stock_qty = stock_qty - ?1 WHERE id = ?2 AND stock_qty >= ?1",
-            params![qty, item_id],
+            params![line.qty, line.item_id],
         )?;
         if changed == 0 {
-            return Err(SaleError::InsufficientStock {
-                name: name.clone(),
-                available: 0.0,
-                requested: *qty,
-            });
+            return Err(SaleError::InsufficientStock { name, available: 0.0, requested: line.qty });
         }
-    }
-
-    if let Some(table_id) = input.table_id {
-        tables::close_table_order_for_sale(tx, table_id, sale_id)?;
     }
 
     load_sale(tx, sale_id)?.ok_or(SaleError::NotFound)
@@ -276,10 +349,15 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
         .query_row(
             "SELECT s.id, s.discount_minor, s.tax_minor, s.total_minor, s.payment_method,
                     s.cashier_id, u.name AS cashier_name, s.table_id, t.name AS table_name,
-                    s.shift_id, s.created_at
+                    s.shift_id, s.created_at, s.tendered_minor, s.change_minor,
+                    s.order_id, o.order_no,
+                    o.order_type, o.customer_name, o.customer_phone, o.delivery_address,
+                    o.delivery_rider_name, o.delivery_rider_phone, o.delivery_platform_name,
+                    o.platform_order_ref, o.delivery_charge_minor
                FROM sales s
                LEFT JOIN users u ON u.id = s.cashier_id
                LEFT JOIN tables t ON t.id = s.table_id
+               LEFT JOIN orders o ON o.id = s.order_id
               WHERE s.id = ?1",
             params![id],
             |row| {
@@ -300,8 +378,21 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                     table_id: row.get(7)?,
                     table_name: row.get(8)?,
                     shift_id: row.get(9)?,
+                    tendered_minor: row.get(11)?,
+                    change_minor: row.get(12)?,
+                    order_id: row.get(13)?,
+                    order_no: row.get(14)?,
                     created_at: row.get(10)?,
                     items: Vec::new(),
+                    order_type: row.get(15)?,
+                    customer_name: row.get(16)?,
+                    customer_phone: row.get(17)?,
+                    delivery_address: row.get(18)?,
+                    delivery_rider_name: row.get(19)?,
+                    delivery_rider_phone: row.get(20)?,
+                    delivery_platform_name: row.get(21)?,
+                    platform_order_ref: row.get(22)?,
+                    delivery_charge_minor: row.get(23)?,
                 })
             },
         )
@@ -326,7 +417,7 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                 qty,
                 unit: row.get(5)?,
                 price_at_sale_minor,
-                line_total_minor: (price_at_sale_minor as f64 * qty).round() as i64,
+                line_total_minor: line_total_minor(price_at_sale_minor, qty),
                 notes: row.get(4)?,
             })
         })?
@@ -377,22 +468,14 @@ pub fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<SaleListItem>, r
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::test_support::{item_id, stock};
+    use crate::db::test_support::{item_id, one_line_sale, stock};
     use crate::db::items::{self, ItemInput};
     use crate::db::schema::test_conn;
 
 
 
     fn basic_input(conn: &Connection) -> CreateSaleInput {
-        CreateSaleInput {
-            items: vec![CartLine { item_id: item_id(conn, "Cola 500ml"), qty: 2.0, notes: None }],
-            discount_minor: 0,
-            tax_minor: 0,
-            payment_method: "cash".into(),
-            cashier_id: None,
-            table_id: None,
-            shift_id: None,
-        }
+        one_line_sale(item_id(conn, "Cola 500ml"), 2.0)
     }
 
     #[test]
@@ -547,12 +630,7 @@ mod tests {
             &tx,
             CreateSaleInput {
                 items: vec![CartLine { item_id: item.id, qty, notes: None }],
-                discount_minor: 0,
-                tax_minor: 0,
-                payment_method: "cash".into(),
-                cashier_id: None,
-                table_id: None,
-                shift_id: None,
+                ..basic_input(&tx)
             },
         )
         .unwrap();
@@ -675,12 +753,7 @@ mod tests {
                     CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 1.0, notes: None },
                     CartLine { item_id: item_id(&tx, "Instant Noodles"), qty: 999.0, notes: None },
                 ],
-                discount_minor: 0,
-                tax_minor: 0,
-                payment_method: "cash".into(),
-                cashier_id: None,
-                table_id: None,
-                shift_id: None,
+                ..basic_input(&tx)
             };
             let err = create_sale(&tx, input).unwrap_err();
             assert!(matches!(err, SaleError::InsufficientStock { .. }));
@@ -788,12 +861,7 @@ mod tests {
         let tx = conn.transaction().unwrap();
         let input = CreateSaleInput {
             items: vec![CartLine { item_id: cola, qty: 1.0, notes: None }],
-            discount_minor: 0,
-            tax_minor: 0,
-            payment_method: "cash".into(),
-            cashier_id: None,
-            table_id: None,
-            shift_id: None,
+            ..basic_input(&tx)
         };
         assert!(matches!(create_sale(&tx, input), Err(SaleError::ItemInactive(_))));
     }
@@ -808,12 +876,7 @@ mod tests {
                 CartLine { item_id: cola, qty: 2.0, notes: None },
                 CartLine { item_id: cola, qty: 3.0, notes: None },
             ],
-            discount_minor: 0,
-            tax_minor: 0,
-            payment_method: "cash".into(),
-            cashier_id: None,
-            table_id: None,
-            shift_id: None,
+            ..basic_input(&tx)
         };
         let sale = create_sale(&tx, input).unwrap();
         tx.commit().unwrap();

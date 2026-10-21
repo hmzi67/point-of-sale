@@ -52,7 +52,7 @@ export function Sidebar() {
   return (
     <aside
       className={[
-        "flex h-full shrink-0 flex-col border-r border-line bg-surface transition-[width] duration-200 ease-out",
+        "flex h-full shrink-0 flex-col border-r border-line bg-surface glass transition-[width] duration-200 ease-out",
         collapsed ? WIDTH_COLLAPSED : WIDTH_EXPANDED,
       ].join(" ")}
     >

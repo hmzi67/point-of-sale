@@ -35,7 +35,7 @@ export function AppLayout() {
             is inside its expiry-warning window. */}
         <LicenseBanner />
         <DefaultPinBanner />
-        <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-2.5 sm:p-4 lg:p-5">
           {/* Replaces every module screen with the lock screen while the
               licence is not OK; Settings stays open for Owner/Admin. */}
           <LicenseLockGate />

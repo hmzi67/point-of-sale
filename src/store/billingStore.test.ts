@@ -200,3 +200,43 @@ describe("clearCart", () => {
     expect(store().draftOrderNumber).toBe(before + 1);
   });
 });
+
+describe("orderType and deliveryDetails", () => {
+  it("sets orderType and resets/sets delivery details correctly", () => {
+    store().setOrderType("delivery");
+    expect(store().orderType).toBe("delivery");
+
+    store().setDeliveryDetails({
+      customerPhone: "03001234567",
+      deliveryAddress: "House 1, Street 2",
+      deliveryChargeMinor: 15000,
+      deliveryRiderName: "Hamza",
+      riderSource: "manual",
+    });
+
+    expect(store().deliveryDetails?.customerPhone).toBe("03001234567");
+    expect(store().deliveryDetails?.deliveryChargeMinor).toBe(15000);
+
+    // Switching to dine-in
+    store().setOrderType("dine_in");
+    store().setTableId(5);
+    expect(store().orderType).toBe("dine_in");
+    expect(store().tableId).toBe(5);
+
+    // clearCart resets delivery details and tableId
+    store().clearCart();
+    expect(store().deliveryDetails).toBeNull();
+    expect(store().tableId).toBeNull();
+    expect(store().activeOrderId).toBeNull();
+  });
+
+  it("handles active order resumption and tracks activeOrderId", () => {
+    store().setActiveOrder(42, 3);
+    expect(store().activeOrderId).toBe(42);
+    expect(store().activeOrderVersion).toBe(3);
+
+    store().clearCart();
+    expect(store().activeOrderId).toBeNull();
+    expect(store().activeOrderVersion).toBeNull();
+  });
+});

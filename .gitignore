@@ -37,6 +37,14 @@ docs/
 keystore.properties
 key.properties
 service-account*.json
+# Apple / Firebase credentials (src-tauri/gen/apple is tracked)
+*.p8
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+GoogleService-Info.plist
+google-services.json
 .env
 .env.*
 !.env.example

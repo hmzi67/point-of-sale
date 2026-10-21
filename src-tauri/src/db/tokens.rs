@@ -89,6 +89,7 @@ pub struct TokenSummary {
     pub printed_by: Option<i64>,
     pub printed_by_name: Option<String>,
     pub status: String,
+    pub shift_id: Option<i64>,
     pub items: Vec<TokenLine>,
 }
 
@@ -130,29 +131,16 @@ pub struct CounterPrintResult {
     pub outcome: PrintOutcome,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum TokenError {
+    #[error("That table order is no longer open")]
     OrderNotFound,
+    #[error("Token not found")]
     TokenNotFound,
+    #[error("Could not read the parked order: {0}")]
     Corrupt(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for TokenError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TokenError::OrderNotFound => write!(f, "That table order is no longer open"),
-            TokenError::TokenNotFound => write!(f, "Token not found"),
-            TokenError::Corrupt(msg) => write!(f, "Could not read the parked order: {}", msg),
-            TokenError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for TokenError {
-    fn from(err: rusqlite::Error) -> Self {
-        TokenError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 impl From<TableError> for TokenError {
@@ -232,7 +220,7 @@ fn group_by_counter(
             qty,
             unit,
             sold_by_amount,
-            amount_minor: (qty * price_minor as f64).round() as i64,
+            amount_minor: super::sales::line_total_minor(price_minor, qty),
         });
     }
 
@@ -316,14 +304,33 @@ pub fn ad_hoc_pending_for_counter(
 /// forever-incrementing autoincrement) — this is the first one, deliberately
 /// scoped to `tokens` only rather than generalized, since nothing else
 /// needs it yet.
+/// The next sequential token number for a shift or today — resets per shift
+/// when a shift is active, or daily when no shift is active:
+/// unique per shift/calendar day across every counter, not per-counter, so staff
+/// can say "token 14" unambiguously.
+pub fn next_token_number_for_shift_or_today(
+    conn: &Connection,
+    shift_id: Option<i64>,
+) -> Result<i64, rusqlite::Error> {
+    match shift_id {
+        Some(sid) => conn.query_row(
+            "SELECT COALESCE(MAX(token_number), 0) + 1 FROM tokens WHERE shift_id = ?1",
+            params![sid],
+            |row| row.get(0),
+        ),
+        None => conn.query_row(
+            "SELECT COALESCE(MAX(token_number), 0) + 1
+               FROM tokens
+              WHERE shift_id IS NULL AND date(printed_at) = date('now', 'localtime')",
+            [],
+            |row| row.get(0),
+        ),
+    }
+}
+
+#[allow(dead_code)]
 pub fn next_token_number_for_today(conn: &Connection) -> Result<i64, rusqlite::Error> {
-    conn.query_row(
-        "SELECT COALESCE(MAX(token_number), 0) + 1
-           FROM tokens
-          WHERE date(printed_at) = date('now', 'localtime')",
-        [],
-        |row| row.get(0),
-    )
+    next_token_number_for_shift_or_today(conn, None)
 }
 
 /// Records a token that has *already physically printed* — the caller
@@ -340,12 +347,13 @@ pub fn insert_token(
     counter_id: i64,
     token_number: i64,
     printed_by: Option<i64>,
+    shift_id: Option<i64>,
     items: &[TokenLine],
 ) -> Result<TokenSummary, TokenError> {
     tx.execute(
-        "INSERT INTO tokens (token_number, table_order_id, counter_id, printed_by, status)
-         VALUES (?1, ?2, ?3, ?4, 'printed')",
-        params![token_number, table_order_id, counter_id, printed_by],
+        "INSERT INTO tokens (token_number, table_order_id, counter_id, printed_by, shift_id, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'printed')",
+        params![token_number, table_order_id, counter_id, printed_by, shift_id],
     )?;
     let token_id = tx.last_insert_rowid();
 
@@ -361,10 +369,22 @@ pub fn insert_token(
 
 fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenError> {
     #[allow(clippy::type_complexity)]
-    let row: Option<(i64, i64, String, Option<i64>, Option<i64>, Option<String>, String, Option<i64>, Option<String>, String)> = conn
+    let row: Option<(
+        i64,
+        i64,
+        String,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        String,
+        Option<i64>,
+        Option<String>,
+        String,
+        Option<i64>,
+    )> = conn
         .query_row(
             "SELECT tk.token_number, tk.counter_id, c.name, tk.table_order_id, o.table_id, t.name,
-                    tk.printed_at, tk.printed_by, u.name, tk.status
+                    tk.printed_at, tk.printed_by, u.name, tk.status, tk.shift_id
                FROM tokens tk
                JOIN counters c ON c.id = tk.counter_id
                LEFT JOIN table_orders o ON o.id = tk.table_order_id
@@ -384,6 +404,7 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
                     row.get(7)?,
                     row.get(8)?,
                     row.get(9)?,
+                    row.get(10)?,
                 ))
             },
         )
@@ -399,6 +420,7 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
         printed_by,
         printed_by_name,
         status,
+        shift_id,
     )) = row
     else {
         return Err(TokenError::TokenNotFound);
@@ -422,7 +444,7 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
                 qty,
                 unit: row.get(3)?,
                 sold_by_amount,
-                amount_minor: (qty * price_minor as f64).round() as i64,
+                amount_minor: super::sales::line_total_minor(price_minor, qty),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -439,6 +461,7 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
         printed_by,
         printed_by_name,
         status,
+        shift_id,
         items,
     })
 }
@@ -461,7 +484,7 @@ pub fn list_tokens_for_order(conn: &Connection, table_order_id: i64) -> Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::test_support::{item_id, table_id};
+    use crate::db::test_support::{item_id, item_input, table_id};
     use crate::db::counters;
     use crate::db::items::{self, ItemInput};
     use crate::db::schema::test_conn;
@@ -477,21 +500,7 @@ mod tests {
     }
 
     fn basic_item_input(name: &str) -> ItemInput {
-        ItemInput {
-            name: name.to_string(),
-            barcode: None,
-            short_code: None,
-            description: None,
-            price_minor: 10000,
-            cost_minor: 8000,
-            stock_qty: 100.0,
-            category_id: None,
-            low_stock_threshold: 2,
-            image_path: None,
-            sold_by_amount: false,
-            unit: None,
-            counter_id: None,
-        }
+        item_input(name, 100.0)
     }
 
     /// Sets up: two counters, one item on each, one item (roti-analog) with
@@ -558,7 +567,7 @@ mod tests {
         let number = next_token_number_for_today(&conn).unwrap();
         {
             let tx = conn.transaction().unwrap();
-            insert_token(&tx, Some(order_id), channa_counter, number, None, &pending).unwrap();
+            insert_token(&tx, Some(order_id), channa_counter, number, None, None, &pending).unwrap();
             tx.commit().unwrap();
         }
 
@@ -585,11 +594,46 @@ mod tests {
         {
             let items = pending_items_for_counter(&conn, order_id, channa_counter).unwrap();
             let tx = conn.transaction().unwrap();
-            insert_token(&tx, Some(order_id), channa_counter, first_number, None, &items[..1].to_vec()).unwrap();
+            insert_token(&tx, Some(order_id), channa_counter, first_number, None, None, &items[..1].to_vec()).unwrap();
             tx.commit().unwrap();
         }
         let second_number = next_token_number_for_today(&conn).unwrap();
         assert_eq!(second_number, first_number + 1);
+    }
+
+    #[test]
+    fn token_numbers_restart_at_one_for_each_new_shift() {
+        let mut conn = test_conn();
+        let (channa_counter, _drinks, channa, _roti) = seed_counters_and_items(&conn);
+        let items = vec![TokenLine {
+            item_id: channa,
+            item_name: "Channa".to_string(),
+            qty: 1.0,
+            unit: None,
+            sold_by_amount: false,
+            amount_minor: 1000,
+        }];
+
+        // Shift 1
+        conn.execute("INSERT INTO shifts (cashier_id, opening_balance_minor) VALUES (NULL, 0)", []).unwrap();
+        let shift1 = conn.last_insert_rowid();
+
+        let shift1_token1 = next_token_number_for_shift_or_today(&conn, Some(shift1)).unwrap();
+        assert_eq!(shift1_token1, 1);
+        {
+            let tx = conn.transaction().unwrap();
+            insert_token(&tx, None, channa_counter, shift1_token1, None, Some(shift1), &items).unwrap();
+            tx.commit().unwrap();
+        }
+        let shift1_token2 = next_token_number_for_shift_or_today(&conn, Some(shift1)).unwrap();
+        assert_eq!(shift1_token2, 2);
+
+        // Next Shift (Shift 2) starts — token number must restart at 1!
+        conn.execute("INSERT INTO shifts (cashier_id, opening_balance_minor) VALUES (NULL, 0)", []).unwrap();
+        let shift2 = conn.last_insert_rowid();
+
+        let shift2_token1 = next_token_number_for_shift_or_today(&conn, Some(shift2)).unwrap();
+        assert_eq!(shift2_token1, 1);
     }
 
     #[test]
@@ -614,7 +658,7 @@ mod tests {
         let number = next_token_number_for_today(&conn).unwrap();
         let token = {
             let tx = conn.transaction().unwrap();
-            let t = insert_token(&tx, Some(order_id), channa_counter, number, None, &items).unwrap();
+            let t = insert_token(&tx, Some(order_id), channa_counter, number, None, None, &items).unwrap();
             tx.commit().unwrap();
             t
         };
@@ -663,7 +707,7 @@ mod tests {
         let number = next_token_number_for_today(&conn).unwrap();
         let token = {
             let tx = conn.transaction().unwrap();
-            let t = insert_token(&tx, None, channa_counter, number, None, &pending).unwrap();
+            let t = insert_token(&tx, None, channa_counter, number, None, None, &pending).unwrap();
             tx.commit().unwrap();
             t
         };
@@ -692,7 +736,7 @@ mod tests {
         let pending = pending_items_for_counter(conn, order_id, counter_id).unwrap();
         let number = next_token_number_for_today(conn).unwrap();
         let tx = conn.transaction().unwrap();
-        insert_token(&tx, Some(order_id), counter_id, number, None, &pending).unwrap();
+        insert_token(&tx, Some(order_id), counter_id, number, None, None, &pending).unwrap();
         tx.commit().unwrap();
     }
 

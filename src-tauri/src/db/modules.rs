@@ -5,6 +5,25 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
+/// Every module key, as stored in `modules.key`. Commands pass these to
+/// `require_module`, so a typo is a compile error rather than a command that
+/// silently refuses to run.
+pub mod key {
+    pub const DASHBOARD: &str = "dashboard";
+    pub const BILLING: &str = "billing";
+    pub const INVENTORY: &str = "inventory";
+    pub const REPORTS: &str = "reports";
+    pub const TABLES: &str = "tables";
+    pub const ATTENDANCE: &str = "attendance";
+    pub const EXPENSES: &str = "expenses";
+    pub const SALARY: &str = "salary";
+    pub const SHIFTS: &str = "shifts";
+    pub const EMPLOYEES: &str = "employees";
+    pub const USERS: &str = "users";
+    pub const SETTINGS: &str = "settings";
+    pub const DELIVERY: &str = "delivery";
+}
+
 /// Which installation surface a visibility flag applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -148,40 +167,21 @@ pub fn require_enabled(conn: &Connection, keys: &[&str], platform: Platform) -> 
     Err(format!("{} is disabled on this device", keys.join(" / ")))
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ToggleError {
+    #[error("unknown module: {0}")]
     UnknownModule(String),
+    #[error("{0} is a core module and cannot be disabled")]
     CoreModule(String),
     /// The product owner has locked this module on this platform — see
     /// schema.sql's comment on `enabled_modules`. Distinct from
     /// `CoreModule` because the fix is different: a core module can never
     /// be unlocked (it's architectural), a locked-by-product-owner module
     /// is unlocked by the product owner, not by anything the client does.
+    #[error("{0} is locked by the product administrator and cannot be changed here")]
     LockedByProductOwner(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for ToggleError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ToggleError::UnknownModule(key) => write!(f, "unknown module: {}", key),
-            ToggleError::CoreModule(key) => {
-                write!(f, "{} is a core module and cannot be disabled", key)
-            }
-            ToggleError::LockedByProductOwner(key) => write!(
-                f,
-                "{} is locked by the product administrator and cannot be changed here",
-                key
-            ),
-            ToggleError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for ToggleError {
-    fn from(err: rusqlite::Error) -> Self {
-        ToggleError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 /// Looks up a module by key, returning `(module_id, is_core)`.
@@ -288,7 +288,7 @@ mod tests {
 
         assert!(!enabled_keys(&conn, Platform::Desktop).contains(&"inventory".to_string()));
         // The module itself still exists — only its visibility changed.
-        assert_eq!(list(&conn, Platform::Desktop).unwrap().len(), 12);
+        assert_eq!(list(&conn, Platform::Desktop).unwrap().len(), 13);
     }
 
     #[test]

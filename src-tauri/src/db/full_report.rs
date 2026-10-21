@@ -8,7 +8,7 @@
 //! thermal-print version are built from the exact same numbers rather than
 //! two separate queries that could theoretically disagree.
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde::Serialize;
 
 use crate::db::dashboard::{self, DashboardSummary};
@@ -18,39 +18,34 @@ use crate::db::reports::{
     TableSalesSummary, TopItemSort,
 };
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum FullReportError {
-    Dashboard(dashboard::DashboardError),
-    Report(ReportError),
-    Sqlite(rusqlite::Error),
+    #[error("{0}")]
+    Dashboard(#[from] dashboard::DashboardError),
+    #[error("{0}")]
+    Report(#[from] ReportError),
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
-impl std::fmt::Display for FullReportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FullReportError::Dashboard(err) => write!(f, "{}", err),
-            FullReportError::Report(err) => write!(f, "{}", err),
-            FullReportError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentMethodBreakdown {
+    pub cash_minor: i64,
+    pub cash_count: i64,
+    pub card_minor: i64,
+    pub card_count: i64,
+    pub other_minor: i64,
+    pub other_count: i64,
 }
 
-impl From<dashboard::DashboardError> for FullReportError {
-    fn from(err: dashboard::DashboardError) -> Self {
-        FullReportError::Dashboard(err)
-    }
-}
-
-impl From<ReportError> for FullReportError {
-    fn from(err: ReportError) -> Self {
-        FullReportError::Report(err)
-    }
-}
-
-impl From<rusqlite::Error> for FullReportError {
-    fn from(err: rusqlite::Error) -> Self {
-        FullReportError::Sqlite(err)
-    }
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SalesMetrics {
+    pub total_discount_minor: i64,
+    pub total_tax_minor: i64,
+    pub net_sales_minor: i64,
+    pub total_items_sold: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,6 +63,8 @@ pub struct FullReport {
     /// tab does, so this reuses `reports::get_sales_summary`'s rounding
     /// rather than recomputing an average a second, different way.
     pub average_sale_minor: i64,
+    pub payment_methods: PaymentMethodBreakdown,
+    pub sales_metrics: SalesMetrics,
     /// Itemized refunds for the period, most recent first, plus a grand
     /// total — never module-gated (same as `overview.refunds_minor`), so
     /// this is always present, unlike `table_sales` below.
@@ -79,6 +76,69 @@ pub struct FullReport {
     /// `DashboardSummary` uses for expenses/salary/inventory, rather than
     /// shipping an empty/meaningless table section.
     pub table_sales: Option<TableSalesSummary>,
+}
+
+fn get_sales_breakdown(
+    conn: &Connection,
+    start_ts: &str,
+    end_ts: &str,
+    net_sales_minor: i64,
+) -> Result<(PaymentMethodBreakdown, SalesMetrics), rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT
+            COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total_minor ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total_minor ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN payment_method = 'card' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN payment_method NOT IN ('cash', 'card') THEN total_minor ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN payment_method NOT IN ('cash', 'card') THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(discount_minor), 0),
+            COALESCE(SUM(tax_minor), 0)
+         FROM sales
+         WHERE created_at >= ?1 AND created_at <= ?2",
+    )?;
+
+    let (cash_minor, cash_count, card_minor, card_count, other_minor, other_count, total_discount_minor, total_tax_minor) =
+        stmt.query_row(params![start_ts, end_ts], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+            ))
+        })?;
+
+    let total_items_sold: f64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(si.qty), 0.0)
+             FROM sale_items si
+             JOIN sales s ON si.sale_id = s.id
+             WHERE s.created_at >= ?1 AND s.created_at <= ?2",
+            params![start_ts, end_ts],
+            |row| row.get(0),
+        )
+        .unwrap_or(0.0);
+
+    Ok((
+        PaymentMethodBreakdown {
+            cash_minor,
+            cash_count,
+            card_minor,
+            card_count,
+            other_minor,
+            other_count,
+        },
+        SalesMetrics {
+            total_discount_minor,
+            total_tax_minor,
+            net_sales_minor,
+            total_items_sold,
+        },
+    ))
 }
 
 /// Assembles one [`FullReport`] for `start_date`..`end_date` (inclusive),
@@ -99,15 +159,25 @@ pub fn get_full_report(
     // match the report's on-screen default sort.
     let product_sales = reports::get_product_sales_summary(conn, start_date, end_date, None, TopItemSort::Revenue)?;
 
-    let tables_enabled = modules::list(conn, platform)?.into_iter().any(|m| m.key == "tables" && m.enabled);
+    let tables_enabled = modules::is_enabled(conn, modules::key::TABLES, platform)?;
     let table_sales =
         if tables_enabled { Some(reports::get_table_sales_summary(conn, start_date, end_date)?) } else { None };
+
+    let (start_ts, end_ts) = reports::validate_range(start_date, end_date)?;
+    let (payment_methods, sales_metrics) = get_sales_breakdown(
+        conn,
+        &start_ts,
+        &end_ts,
+        overview.total_sales_minor - overview.refunds_minor,
+    )?;
 
     Ok(FullReport {
         start_date: start_date.to_string(),
         end_date: end_date.to_string(),
         overview,
         average_sale_minor,
+        payment_methods,
+        sales_metrics,
         refunds,
         category_sales,
         product_sales,

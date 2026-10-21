@@ -22,7 +22,7 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <ModalOverlay>
-      <div className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface glass p-6 shadow-soft-lg">
         <div className="flex items-start gap-3">
           {isDangerous && (
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-danger-soft">

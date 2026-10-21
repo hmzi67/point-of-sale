@@ -1,4 +1,4 @@
-import { AlertTriangle, Receipt, RotateCcw, Table2, TrendingUp, Wallet } from "lucide-react";
+import { AlertTriangle, Bike, Receipt, RotateCcw, Table2, TrendingUp, Wallet } from "lucide-react";
 import { formatMinor } from "../../utils/format";
 import type { DashboardSummary } from "../../types";
 
@@ -29,7 +29,7 @@ function Card({
     tone === "positive" ? "text-success-text" : tone === "negative" ? "text-danger-text" : "text-fg";
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl border p-5 ${featured ? "border-accent/30 bg-linear-to-br from-accent-soft via-surface to-surface" : "border-line bg-surface"}`}>
+    <div className={`relative overflow-hidden rounded-2xl border p-5 ${featured ? "border-accent/30 bg-linear-to-br from-accent-soft via-surface to-surface" : "border-line bg-surface glass"}`}>
       {featured && <div aria-hidden="true" className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full border-[16px] border-accent/5" />}
       <div className="relative flex items-center justify-between gap-3">
         <span className="text-xs font-medium text-fg-muted">{label}</span>
@@ -65,6 +65,7 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
   // see `dashboard.rs` — so this card simply mirrors whatever it says,
   // same pattern as every other optional card here.
   const showTopTable = isLoading || summary?.topTableBySales != null;
+  const showDelivery = isLoading || summary?.deliveryStats != null;
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -113,6 +114,19 @@ export function SnapshotCards({ summary, currency, isLoading }: SnapshotCardsPro
               ? `${summary.topTableBySales.name} · ${formatMinor(summary.topTableBySales.totalMinor, currency)}`
               : "—"
           }
+          isLoading={isLoading}
+        />
+      )}
+      {showDelivery && (
+        <Card
+          icon={Bike}
+          label="Deliveries today"
+          detail={
+            summary?.deliveryStats
+              ? `${summary.deliveryStats.orderCount} delivery order${summary.deliveryStats.orderCount === 1 ? "" : "s"}`
+              : "No deliveries today"
+          }
+          value={formatMinor(summary?.deliveryStats?.salesMinor ?? 0, currency)}
           isLoading={isLoading}
         />
       )}

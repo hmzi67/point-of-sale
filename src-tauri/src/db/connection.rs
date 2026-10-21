@@ -10,27 +10,12 @@ use rusqlite::Connection;
 
 pub const DB_FILE_NAME: &str = "pos.db";
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DbError {
-    Sqlite(rusqlite::Error),
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("storage error: {0}")]
     Io(String),
-}
-
-impl std::fmt::Display for DbError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DbError::Sqlite(err) => write!(f, "database error: {}", err),
-            DbError::Io(msg) => write!(f, "storage error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for DbError {}
-
-impl From<rusqlite::Error> for DbError {
-    fn from(err: rusqlite::Error) -> Self {
-        DbError::Sqlite(err)
-    }
 }
 
 /// Managed application state holding the single SQLite connection.

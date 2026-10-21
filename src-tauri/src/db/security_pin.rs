@@ -25,30 +25,17 @@ use rusqlite::{params, Connection};
 
 use crate::db::users::{self, AuthError};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SecurityPinError {
+    #[error("Incorrect PIN")]
     InvalidPin,
     /// PIN is not 4–6 digits — same rule as a login PIN (`db::users`).
+    #[error("PIN must be 4-6 digits")]
     MalformedPin,
+    #[error("Could not process PIN: {0}")]
     Hash(String),
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for SecurityPinError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SecurityPinError::InvalidPin => write!(f, "Incorrect PIN"),
-            SecurityPinError::MalformedPin => write!(f, "PIN must be 4-6 digits"),
-            SecurityPinError::Hash(msg) => write!(f, "Could not process PIN: {}", msg),
-            SecurityPinError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for SecurityPinError {
-    fn from(err: rusqlite::Error) -> Self {
-        SecurityPinError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 fn validate(pin: &str) -> Result<(), SecurityPinError> {
@@ -126,10 +113,61 @@ pub fn default_credentials(conn: &Connection) -> Result<DefaultCredentials, rusq
     Ok(DefaultCredentials { owner_pin_is_default, area_pin_is_default })
 }
 
+/// The forced first-login change: replaces whichever of the two shipped
+/// PINs are still at their default. A PIN somebody already chose is never
+/// touched, so this needs no "current PIN", and a new PIN equal to the
+/// default is refused. Both are checked before either is written.
+pub fn replace_defaults(conn: &Connection, owner_pin: Option<&str>, area_pin: Option<&str>) -> Result<(), String> {
+    use crate::db::schema::{DEFAULT_AREA_PIN, DEFAULT_OWNER_PIN};
+    let current = default_credentials(conn).map_err(|e| e.to_string())?;
+    for (pin, default) in [(owner_pin, DEFAULT_OWNER_PIN), (area_pin, DEFAULT_AREA_PIN)] {
+        if let Some(pin) = pin {
+            users::validate_pin(pin).map_err(|e| e.to_string())?;
+            if pin == default {
+                return Err("Choose a PIN other than the default".into());
+            }
+        }
+    }
+    if let Some(pin) = owner_pin {
+        if !current.owner_pin_is_default {
+            return Err("The Owner PIN has already been changed".into());
+        }
+        let owner_id: i64 =
+            conn.query_row("SELECT id FROM users WHERE role = 'owner'", [], |row| row.get(0)).map_err(|e| e.to_string())?;
+        users::set_pin(conn, owner_id, pin).map_err(|e| e.to_string())?;
+    }
+    if let Some(pin) = area_pin {
+        if !current.area_pin_is_default {
+            return Err("The area PIN has already been changed".into());
+        }
+        set(conn, DEFAULT_AREA_PIN, pin).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::schema::{test_conn, DEFAULT_AREA_PIN};
+
+    #[test]
+    fn replace_defaults_changes_only_pins_still_at_their_default() {
+        let conn = test_conn();
+        assert!(replace_defaults(&conn, None, Some(DEFAULT_AREA_PIN)).is_err(), "the default itself is refused");
+        assert!(replace_defaults(&conn, Some("12"), None).is_err(), "malformed PINs are refused");
+
+        replace_defaults(&conn, Some("8642"), Some("5678")).unwrap();
+        assert_eq!(
+            default_credentials(&conn).unwrap(),
+            DefaultCredentials { owner_pin_is_default: false, area_pin_is_default: false }
+        );
+        verify(&conn, "5678").unwrap();
+
+        // Once chosen, neither can be overwritten through this path.
+        assert!(replace_defaults(&conn, Some("1111"), None).is_err());
+        assert!(replace_defaults(&conn, None, Some("2222")).is_err());
+        verify(&conn, "5678").unwrap();
+    }
 
     #[test]
     fn a_fresh_install_reports_both_pins_as_default_until_changed() {

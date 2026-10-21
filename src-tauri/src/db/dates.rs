@@ -5,20 +5,23 @@
 
 use chrono::{Datelike, NaiveDate};
 
+/// The `YYYY-MM-DD` format every date argument and `*_date` column uses.
+pub const DATE_FORMAT: &str = "%Y-%m-%d";
+
 /// The one timestamp format stored in every `*_at` TEXT column.
 pub const TIMESTAMP_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
 /// Parses a single `YYYY-MM-DD` date.
 pub fn parse_date(date: &str) -> Result<NaiveDate, String> {
-    NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| format!("Invalid date: {date}"))
+    NaiveDate::parse_from_str(date, DATE_FORMAT).map_err(|_| format!("Invalid date: {date}"))
 }
 
 /// Parses a `YYYY-MM-DD` start/end pair and checks start <= end.
 pub fn parse_date_range(start_date: &str, end_date: &str) -> Result<(NaiveDate, NaiveDate), String> {
-    let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
+    let start = NaiveDate::parse_from_str(start_date, DATE_FORMAT)
         .map_err(|_| format!("Invalid start date: {start_date}"))?;
     let end =
-        NaiveDate::parse_from_str(end_date, "%Y-%m-%d").map_err(|_| format!("Invalid end date: {end_date}"))?;
+        NaiveDate::parse_from_str(end_date, DATE_FORMAT).map_err(|_| format!("Invalid end date: {end_date}"))?;
     if start > end {
         return Err("Start date must not be after the end date".into());
     }
@@ -27,7 +30,7 @@ pub fn parse_date_range(start_date: &str, end_date: &str) -> Result<(NaiveDate, 
 
 /// Parses a `YYYY-MM` month into its first day.
 pub fn parse_month(month: &str) -> Result<NaiveDate, String> {
-    NaiveDate::parse_from_str(&format!("{month}-01"), "%Y-%m-%d")
+    NaiveDate::parse_from_str(&format!("{month}-01"), DATE_FORMAT)
         .map_err(|_| format!("Invalid month: {month} (expected YYYY-MM)"))
 }
 

@@ -16,7 +16,7 @@ use crate::db::dashboard::DashboardSummary;
 use crate::db::expenses::{CategoryTotal, Expense};
 use crate::db::salary::SalaryCalculation;
 use crate::db::items::{Category, DeleteOutcome, Item, ItemInput, ItemQuery};
-use crate::db::modules::{ModuleState, Platform};
+use crate::db::modules::{key as module_key, ModuleState, Platform};
 use crate::db::full_report::FullReport;
 use crate::db::refunds::{CreateRefundInput, Refund, RefundLineInput, RefundableSale};
 use crate::db::reports::{
@@ -32,7 +32,7 @@ use crate::db::dates::TIMESTAMP_FORMAT;
 use crate::db::users::{ManagedUser, Role, User};
 use crate::db::{
     attendance, config, counters, csv_import, dashboard, expenses, full_report, items, modules, product_owner,
-    refunds, reports, salary, sales, security_pin, shifts, tables, tokens, users, Db,
+    refunds, reports, salary, sales, security_pin, shifts, tables, tokens, users, orders, delivery_platforms, Db,
 };
 use crate::area_access_session::AreaAccessSession;
 use crate::attempt_limiter::AttemptLimiter;
@@ -116,6 +116,25 @@ fn require_module(db: &Db, keys: &[&str]) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+/// The module check plus the Owner/Admin check most admin screens' commands open with.
+fn require_module_admin(db: &Db, keys: &[&str], session: &Session) -> Result<User, String> {
+    require_module(db, keys)?;
+    require_role(session, ADMIN_ROLES)
+}
+
+/// The module check plus the sensitive-area PIN grant (see `require_area_access`).
+fn require_module_area(db: &Db, keys: &[&str], session: &Session, area_access: &AreaAccessSession) -> Result<User, String> {
+    require_module(db, keys)?;
+    require_area_access(session, area_access)
+}
+
+/// One module flag for this platform, for commands whose behaviour (not access)
+/// depends on it. A read error fails the command rather than reading as "off".
+fn module_enabled(db: &Db, key: &str) -> Result<bool, String> {
+    db.with_conn(|conn| modules::is_enabled(conn, key, Platform::current()))
+        .map_err(|e| e.to_string())
+}
+
 /// Fails a command unless someone is signed in *and* currently holds a valid
 /// `AreaAccessSession` grant (see that module's doc comment) — the check
 /// behind every command in the Attendance/Expenses/Salary/Reports sections
@@ -163,9 +182,9 @@ fn require_admin_or_area_access(
 /// Mirrors `src/utils/permissions.ts`'s `assignableRoles`.
 fn assignable_roles(caller_role: Role) -> &'static [Role] {
     match caller_role {
-        Role::Owner => &[Role::Admin, Role::Cashier],
-        Role::Admin => &[Role::Cashier],
-        Role::Cashier => &[],
+        Role::Owner => &[Role::Admin, Role::Cashier, Role::Delivery],
+        Role::Admin => &[Role::Cashier, Role::Delivery],
+        Role::Cashier | Role::Delivery => &[],
     }
 }
 
@@ -177,8 +196,8 @@ fn assignable_roles(caller_role: Role) -> &'static [Role] {
 fn caller_may_manage(caller_role: Role, target_role: Role) -> bool {
     match caller_role {
         Role::Owner => true,
-        Role::Admin => matches!(target_role, Role::Cashier),
-        Role::Cashier => false,
+        Role::Admin => matches!(target_role, Role::Cashier | Role::Delivery),
+        Role::Cashier | Role::Delivery => false,
     }
 }
 
@@ -283,6 +302,24 @@ pub fn app_ping() -> String {
     "pong".to_string()
 }
 
+/// Writes a frontend crash (caught by `RootErrorBoundary`) into the same
+/// persistent log Rust startup failures go to, so support has one file to
+/// ask for. Unauthenticated on purpose — a render crash can happen before
+/// anyone signs in — and the text is clipped, since it came from the webview.
+#[tauri::command]
+pub fn app_log_frontend_error(message: String) {
+    crate::startup_log::error(&format!("frontend: {}", crate::startup_log::clip(&message)));
+}
+
+/// `app_log_frontend_error`'s counterpart for a failure the app recovered
+/// from (a preference that didn't save and was rolled back, a sign-out that
+/// needed a retry): logged at WARN, not ERROR. Same clipping, same reason
+/// for being unauthenticated.
+#[tauri::command]
+pub fn app_log_frontend_warning(message: String) {
+    crate::startup_log::warn(&format!("frontend: {}", crate::startup_log::clip(&message)));
+}
+
 /// Called by the splash window's own inline script (see
 /// `public/splashscreen.html`) once its content has actually painted — the
 /// real "ready" signal `reveal_main_window` waits on, rather than a guess at
@@ -294,15 +331,6 @@ pub fn app_ping() -> String {
 /// itself already took a moment — then closes the splash and reveals
 /// `main`. A no-op if that already happened via `MAX_SPLASH_MS`'s ceiling
 /// firing first (see `lib.rs::run`).
-/// Writes a frontend crash (caught by `RootErrorBoundary`) into the same
-/// persistent log Rust startup failures go to, so support has one file to
-/// ask for. Unauthenticated on purpose — a render crash can happen before
-/// anyone signs in — and the text is clipped, since it came from the webview.
-#[tauri::command]
-pub fn app_log_frontend_error(message: String) {
-    crate::startup_log::error(&format!("frontend: {}", crate::startup_log::clip(&message)));
-}
-
 #[tauri::command]
 pub fn splashscreen_ready(app: AppHandle) {
     // Proof the splash window's own JS actually executed (its `load`
@@ -323,16 +351,14 @@ pub fn splashscreen_ready(app: AppHandle) {
 #[tauri::command]
 pub fn app_db_tables(session: State<'_, Session>, db: State<'_, Db>) -> Result<Vec<String>, String> {
     require_role(&session, ADMIN_ROLES)?;
-    db.with_conn(crate::db::schema::table_names)
-        .map_err(|e| e.to_string())
+    query(&db, crate::db::schema::table_names)
 }
 
 /// Current SQLite schema version, as written by the migration runner.
 #[tauri::command]
 pub fn app_db_version(session: State<'_, Session>, db: State<'_, Db>) -> Result<i64, String> {
     require_role(&session, ADMIN_ROLES)?;
-    db.with_conn(|conn| conn.query_row("PRAGMA user_version", [], |row| row.get(0)))
-        .map_err(|e| e.to_string())
+    query(&db, |conn| conn.query_row("PRAGMA user_version", [], |row| row.get(0)))
 }
 
 // ---------------------------------------------------------------------------
@@ -341,7 +367,7 @@ pub fn app_db_version(session: State<'_, Session>, db: State<'_, Db>) -> Result<
 
 #[tauri::command]
 pub fn config_get(db: State<'_, Db>) -> Result<AppConfig, String> {
-    db.with_conn(config::get).map_err(|e| e.to_string())
+    query(&db, config::get)
 }
 
 /// Read before login too — the login and lock screens are themed, and the
@@ -350,7 +376,7 @@ pub fn config_get(db: State<'_, Db>) -> Result<AppConfig, String> {
 /// repaint. See `db::config::UiPrefs` for why these aren't on `AppConfig`.
 #[tauri::command]
 pub fn config_get_ui_prefs(db: State<'_, Db>) -> Result<config::UiPrefs, String> {
-    db.with_conn(config::get_ui_prefs).map_err(|e| e.to_string())
+    query(&db, config::get_ui_prefs)
 }
 
 /// Any signed-in user — the sidebar's own collapse toggle, desktop only.
@@ -361,7 +387,7 @@ pub fn config_set_sidebar_collapsed(
     collapsed: bool,
 ) -> Result<(), String> {
     require_signed_in(&session)?;
-    db.with_conn(|conn| config::set_sidebar_collapsed(conn, collapsed)).map_err(|e| e.to_string())
+    query(&db, |conn| config::set_sidebar_collapsed(conn, collapsed))
 }
 
 /// Any signed-in user, not just Owner/Admin: a display preference on the
@@ -372,7 +398,7 @@ pub fn config_set_theme(db: State<'_, Db>, session: State<'_, Session>, theme: S
     if theme != "dark" && theme != "light" {
         return Err(format!("Unknown theme '{theme}' — expected 'dark' or 'light'"));
     }
-    db.with_conn(|conn| config::set_theme(conn, &theme)).map_err(|e| e.to_string())
+    query(&db, |conn| config::set_theme(conn, &theme))
 }
 
 /// Settings-only write — Owner/Admin, same as the screen it backs.
@@ -384,13 +410,18 @@ pub fn config_update(
     license: State<'_, LicenseRuntime>,
     patch: AppConfigUpdate,
 ) -> Result<AppConfig, String> {
-    require_module(&db, &["settings"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::SETTINGS], &session)?;
+    if let Some(tax) = patch.tax_percent {
+        // Every sale's tax line is derived from this, so reject nonsense here.
+        if !(0.0..=100.0).contains(&tax) {
+            return Err("Tax percent must be between 0 and 100".into());
+        }
+    }
 
     // The vendor gate's actual enforcement point. Completing first-run setup
     // is the single transition that turns a fresh copy of the installer into
     // a working store, so that is what's gated — not the wizard's UI, which
-    // is only a route guard and (with `withGlobalTauri: true`) bypassable by
+    // is only a route guard and (IPC being reachable from devtools) bypassable by
     // calling this command straight from a devtools console.
     //
     // Only the false -> true transition is gated. Once an install is set up,
@@ -414,8 +445,7 @@ pub fn config_update(
         }
     }
 
-    db.with_conn(|conn| config::update(conn, patch))
-        .map_err(|e| e.to_string())
+    query(&db, |conn| config::update(conn, patch))
 }
 
 /// Whether the first-run vendor gate still stands in the way on this
@@ -431,7 +461,7 @@ pub fn vendor_gate_status(
     db: State<'_, Db>,
     vendor_gate: State<'_, VendorGate>,
 ) -> Result<VendorGateStatus, String> {
-    let onboarded = db.with_conn(|conn| config::get(conn)).map_err(|e| e.to_string())?.onboarding_completed;
+    let onboarded = query(&db, |conn| config::get(conn))?.onboarding_completed;
     Ok(VendorGateStatus { required: !onboarded, authorized: vendor_gate.is_authorized() })
 }
 
@@ -472,7 +502,7 @@ pub fn license_get_state(license: State<'_, LicenseRuntime>) -> LicenseState {
 /// secret — a masked key and the public licence-server URL.
 #[tauri::command]
 pub fn license_get_info(db: State<'_, Db>) -> Result<LicenseInfo, String> {
-    let stored = db.with_conn(crate::db::license::get).map_err(|e| e.to_string())?;
+    let stored = query(&db, crate::db::license::get)?;
     Ok(LicenseInfo {
         key_prefix: stored.as_ref().map(|s| mask_license_key(&s.license_key)),
         last_online_check: stored.as_ref().map(|s| s.last_online_check),
@@ -545,6 +575,24 @@ pub async fn license_activate(
 ) -> Result<LicenseState, String> {
     require_role(&session, ADMIN_ROLES)?;
     license.activate(&app, &db, &license_key).await.map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Cloud Sync (diwan.codehunts.co.uk) — push sales & metrics to cloud portal
+// ---------------------------------------------------------------------------
+
+/// Triggers an immediate cloud synchronization with diwan.codehunts.co.uk.
+#[tauri::command]
+pub async fn pos_sync_now(app: AppHandle, session: State<'_, Session>) -> Result<crate::db::sync::SyncResult, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    crate::sync::perform_sync(&app).await
+}
+
+/// Retrieves the current sync tracking info and statistics.
+#[tauri::command]
+pub fn pos_get_sync_status(app: AppHandle, session: State<'_, Session>) -> Result<crate::db::sync::SyncStatusInfo, String> {
+    require_signed_in(&session)?;
+    crate::sync::get_status(&app)
 }
 
 // ---------------------------------------------------------------------------
@@ -640,9 +688,8 @@ pub fn config_upload_logo(
     data_base64: String,
     extension: String,
 ) -> Result<AppConfig, String> {
-    require_module(&db, &["settings"])?;
-    require_role(&session, ADMIN_ROLES)?;
-    let previous_logo = db.with_conn(config::get).map_err(|e| e.to_string())?.logo_path;
+    require_module_admin(&db, &[module_key::SETTINGS], &session)?;
+    let previous_logo = query(&db, config::get)?.logo_path;
 
     let file_name = images::save_logo(&logo_dir(&app)?, &data_base64, &extension).map_err(|e| e.to_string())?;
 
@@ -662,9 +709,11 @@ pub fn config_upload_logo(
 }
 
 /// Reads the current logo back as a `data:` URL for direct use as an
-/// `<img src>` — same shape as `inventory_get_image`.
+/// `<img src>` — same shape, and same sign-in check, as `inventory_get_image`
+/// (every caller — sidebar, top bar, settings, receipt — is past login).
 #[tauri::command]
-pub fn config_get_logo(app: AppHandle, file_name: String) -> Result<String, String> {
+pub fn config_get_logo(app: AppHandle, session: State<'_, Session>, file_name: String) -> Result<String, String> {
+    require_signed_in(&session)?;
     images::read_image_data_url(&logo_dir(&app)?, &file_name).map_err(|e| e.to_string())
 }
 
@@ -684,8 +733,7 @@ pub fn config_get_enabled_modules(
     platform: String,
 ) -> Result<Vec<ModuleState>, String> {
     let platform = parse_platform(&platform)?;
-    db.with_conn(|conn| modules::list(conn, platform))
-        .map_err(|e| e.to_string())
+    query(&db, |conn| modules::list(conn, platform))
 }
 
 /// Settings-only write — Owner/Admin, same as the screen it backs.
@@ -697,18 +745,12 @@ pub fn config_toggle_module(
     platform: String,
     enabled: bool,
 ) -> Result<Vec<ModuleState>, String> {
-    require_module(&db, &["settings"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::SETTINGS], &session)?;
     let platform = parse_platform(&platform)?;
 
-    // `with_conn` surfaces the domain error (core module, unknown key) as a
-    // string so the Settings screen can show it verbatim.
-    db.with_conn(|conn| {
-        Ok(modules::set_enabled(conn, &module_key, platform, enabled)
-            .map_err(|e| e.to_string())
-            .and_then(|()| modules::list(conn, platform).map_err(|e| e.to_string())))
-    })
-    .map_err(|e| e.to_string())?
+    // The domain error (core module, unknown key) reaches the Settings screen verbatim.
+    query(&db, |conn| modules::set_enabled(conn, &module_key, platform, enabled))?;
+    query(&db, |conn| modules::list(conn, platform))
 }
 
 // ---------------------------------------------------------------------------
@@ -716,12 +758,14 @@ pub fn config_toggle_module(
 // ---------------------------------------------------------------------------
 
 /// Items matching the search/category filter. Archived items are excluded
-/// unless the caller asks for them.
+/// unless the caller asks for them. No `require_module(&["inventory"])` on
+/// purpose: Billing, Tables and Reports read the catalogue too, so it must
+/// stay readable with the Inventory screen switched off. Only writes check it.
 #[tauri::command]
 pub fn inventory_get_items(session: State<'_, Session>, db: State<'_, Db>, query: ItemQuery) -> Result<Vec<Item>, String> {
     require_signed_in(&session)?;
-    db.with_conn(|conn| items::list_items(conn, &query))
-        .map_err(|e| e.to_string())
+    // `self::` because the `query` argument shadows the helper.
+    self::query(&db, |conn| items::list_items(conn, &query))
 }
 
 /// Write — Cashiers get read-only Inventory (see `permissions.ts`), so
@@ -732,8 +776,7 @@ pub fn inventory_add_item(
     session: State<'_, Session>,
     input: ItemInput,
 ) -> Result<Item, String> {
-    require_module(&db, &["inventory"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
     query(&db, |conn| items::add_item(conn, input))
 }
 
@@ -749,8 +792,7 @@ pub fn inventory_update_item(
     id: i64,
     input: ItemInput,
 ) -> Result<Item, String> {
-    require_module(&db, &["inventory"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
     let previous_image = current_image_path(&db, id);
 
     let updated = query(&db, |conn| items::update_item(conn, id, input))?;
@@ -776,8 +818,7 @@ pub fn inventory_delete_item(
     session: State<'_, Session>,
     id: i64,
 ) -> Result<DeleteOutcome, String> {
-    require_module(&db, &["inventory"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
     let existing_image = current_image_path(&db, id);
 
     let outcome = query(&db, |conn| items::delete_item(conn, id))?;
@@ -848,13 +889,14 @@ pub fn inventory_get_image(session: State<'_, Session>, app: AppHandle, file_nam
 #[tauri::command]
 pub fn inventory_suggest_short_code(session: State<'_, Session>, db: State<'_, Db>) -> Result<Option<String>, String> {
     require_signed_in(&session)?;
-    db.with_conn(items::suggest_next_short_code).map_err(|e| e.to_string())
+    query(&db, items::suggest_next_short_code)
 }
 
+/// Module-free like `inventory_get_items` (Billing's category pills need it).
 #[tauri::command]
 pub fn inventory_get_categories(session: State<'_, Session>, db: State<'_, Db>) -> Result<Vec<Category>, String> {
     require_signed_in(&session)?;
-    db.with_conn(items::list_categories).map_err(|e| e.to_string())
+    query(&db, items::list_categories)
 }
 
 #[tauri::command]
@@ -863,8 +905,7 @@ pub fn inventory_add_category(
     session: State<'_, Session>,
     name: String,
 ) -> Result<Category, String> {
-    require_module(&db, &["inventory"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
     query(&db, |conn| items::add_category(conn, &name))
 }
 
@@ -880,8 +921,7 @@ pub fn inventory_import_csv(
     session: State<'_, Session>,
     csv_content: String,
 ) -> Result<csv_import::ImportSummary, String> {
-    require_module(&db, &["inventory"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
     query(&db, |conn| csv_import::import_csv(conn, &csv_content))
 }
 
@@ -918,7 +958,7 @@ pub fn inventory_get_best_selling_item_ids(session: State<'_, Session>,
 /// deliberately has no `require_role` check.
 #[tauri::command]
 pub fn users_list_active(db: State<'_, Db>) -> Result<Vec<User>, String> {
-    db.with_conn(users::list_active).map_err(|e| e.to_string())
+    query(&db, users::list_active)
 }
 
 /// The only place `Session` is ever written to from a value the JS side
@@ -954,7 +994,7 @@ pub fn auth_logout(session: State<'_, Session>, area_access: State<'_, AreaAcces
 #[tauri::command]
 pub fn users_list_all(db: State<'_, Db>, session: State<'_, Session>) -> Result<Vec<ManagedUser>, String> {
     require_role(&session, ADMIN_ROLES)?;
-    db.with_conn(users::list_all).map_err(|e| e.to_string())
+    query(&db, users::list_all)
 }
 
 /// Creates a staff account. Owner is never an assignable role here — there
@@ -971,8 +1011,7 @@ pub fn users_create(
     pin: String,
     role: Role,
 ) -> Result<User, String> {
-    require_module(&db, &["users"])?;
-    let caller = require_role(&session, ADMIN_ROLES)?;
+    let caller = require_module_admin(&db, &[module_key::USERS], &session)?;
     authorize_create_user(caller.role, role)?;
     db.with_conn(move |conn| Ok(users::create(conn, &name, &pin, role)))
         .map_err(|e| e.to_string())?
@@ -995,8 +1034,7 @@ pub fn users_update(
     name: String,
     role: Role,
 ) -> Result<User, String> {
-    require_module(&db, &["users"])?;
-    let caller = require_role(&session, ADMIN_ROLES)?;
+    let caller = require_module_admin(&db, &[module_key::USERS], &session)?;
     let current_role = db
         .with_conn(move |conn| users::role_of(conn, user_id))
         .map_err(|e| e.to_string())?
@@ -1023,8 +1061,7 @@ pub fn users_set_active(
     user_id: i64,
     is_active: bool,
 ) -> Result<(), String> {
-    require_module(&db, &["users"])?;
-    let caller = require_role(&session, ADMIN_ROLES)?;
+    let caller = require_module_admin(&db, &[module_key::USERS], &session)?;
     let current_role = db
         .with_conn(move |conn| users::role_of(conn, user_id))
         .map_err(|e| e.to_string())?
@@ -1050,8 +1087,7 @@ pub fn users_set_pin(
     user_id: i64,
     pin: String,
 ) -> Result<(), String> {
-    require_module(&db, &["users"])?;
-    let caller = require_role(&session, ADMIN_ROLES)?;
+    let caller = require_module_admin(&db, &[module_key::USERS], &session)?;
     if user_id != caller.id {
         let current_role = db
             .with_conn(move |conn| users::role_of(conn, user_id))
@@ -1072,10 +1108,11 @@ pub fn users_set_pin(
 /// the billing search bar. An empty query returns no results — the cashier
 /// must type or scan something rather than being handed the whole catalogue.
 #[tauri::command]
-pub fn billing_search_items(db: State<'_, Db>, query: String) -> Result<Vec<Item>, String> {
-    require_module(&db, &["billing"])?;
-    db.with_conn(|conn| items::search_items(conn, &query, 20))
-        .map_err(|e| e.to_string())
+pub fn billing_search_items(session: State<'_, Session>, db: State<'_, Db>, query: String) -> Result<Vec<Item>, String> {
+    require_module(&db, &[module_key::BILLING])?;
+    require_signed_in(&session)?;
+    // `self::` because the `query` argument shadows the helper.
+    self::query(&db, |conn| items::search_items(conn, &query, 20))
 }
 
 /// Completes a sale: re-prices every line against live stock, writes
@@ -1089,31 +1126,35 @@ pub fn billing_search_items(db: State<'_, Db>, query: String) -> Result<Vec<Item
 /// booked against someone else's cash drawer.
 #[tauri::command]
 pub fn billing_create_sale(
+    app: AppHandle,
     db: State<'_, Db>,
     session: State<'_, Session>,
     license: State<'_, LicenseRuntime>,
     mut input: CreateSaleInput,
 ) -> Result<Sale, String> {
-    require_module(&db, &["billing"])?;
+    require_module(&db, &[module_key::BILLING])?;
     let caller = require_signed_in(&session)?;
     require_license(&license)?;
     input.cashier_id = Some(caller.id);
-    let shifts_enabled = db
-        .with_conn(|conn| modules::is_enabled(conn, "shifts", Platform::current()))
-        .map_err(|e| e.to_string())?;
+    let shifts_enabled = module_enabled(&db, module_key::SHIFTS)?;
     input.shift_id = if shifts_enabled {
         query(&db, |conn| shifts::get_open_shift_for_cashier(conn, caller.id))?
             .map(|shift| shift.id)
     } else {
         None
     };
-    transact(&db, |tx| sales::create_sale(tx, input))
+    let sale = transact(&db, |tx| sales::create_sale(tx, input))?;
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::sync::perform_sync(&app_handle).await;
+    });
+    Ok(sale)
 }
 
 /// Fetches a completed sale — used for receipt reprint.
 #[tauri::command]
 pub fn billing_get_sale(session: State<'_, Session>, db: State<'_, Db>, id: i64) -> Result<Sale, String> {
-    require_module(&db, &["billing"])?;
+    require_module(&db, &[module_key::BILLING])?;
     require_signed_in(&session)?;
     query(&db, |conn| sales::get_sale(conn, id))
 }
@@ -1131,13 +1172,11 @@ pub fn billing_get_sale(session: State<'_, Session>, db: State<'_, Db>, id: i64)
 /// the print.
 #[tauri::command]
 pub fn billing_print_receipt_thermal(session: State<'_, Session>, app: AppHandle, db: State<'_, Db>, sale_id: i64) -> Result<(), String> {
-    require_module(&db, &["billing"])?;
+    require_module(&db, &[module_key::BILLING])?;
     require_signed_in(&session)?;
     let sale = query(&db, |conn| sales::get_sale(conn, sale_id))?;
-    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
-    let tables_module_enabled = db
-        .with_conn(|conn| modules::is_enabled(conn, "tables", Platform::current()))
-        .map_err(|e| e.to_string())?;
+    let app_config = query(&db, config::get)?;
+    let tables_module_enabled = module_enabled(&db, module_key::TABLES)?;
 
     let logo_dir_path = logo_dir(&app)?;
     let logo = app_config
@@ -1333,9 +1372,8 @@ pub fn printer_list_windows_printers(session: State<'_, Session>) -> Result<Vec<
 /// printer controls.
 #[tauri::command]
 pub fn printer_print_diagnostic(db: State<'_, Db>, session: State<'_, Session>) -> Result<(), String> {
-    require_module(&db, &["settings"])?;
-    require_role(&session, ADMIN_ROLES)?;
-    let config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    require_module_admin(&db, &[module_key::SETTINGS], &session)?;
+    let config = query(&db, config::get)?;
     crate::printer::escpos::print_diagnostic(&config).map_err(|e| e.to_string())
 }
 
@@ -1347,9 +1385,8 @@ pub fn billing_list_recent_sales(
     session: State<'_, Session>,
     limit: i64,
 ) -> Result<Vec<SaleListItem>, String> {
-    require_module(&db, &["billing"])?;
-    require_role(&session, ADMIN_ROLES)?;
-    db.with_conn(|conn| sales::list_recent(conn, limit)).map_err(|e| e.to_string())
+    require_module_admin(&db, &[module_key::BILLING], &session)?;
+    query(&db, |conn| sales::list_recent(conn, limit))
 }
 
 // ---------------------------------------------------------------------------
@@ -1363,8 +1400,7 @@ pub fn billing_list_recent_sales(
 /// what the refund UI shows before anything is submitted.
 #[tauri::command]
 pub fn refunds_get_sale(db: State<'_, Db>, session: State<'_, Session>, sale_id: i64) -> Result<RefundableSale, String> {
-    require_module(&db, &["billing"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::BILLING], &session)?;
     query(&db, |conn| refunds::get_sale_for_refund(conn, sale_id))
 }
 
@@ -1377,6 +1413,7 @@ pub fn refunds_get_sale(db: State<'_, Db>, session: State<'_, Session>, sale_id:
 /// explains for role checks.
 #[tauri::command]
 pub fn refunds_create(
+    app: AppHandle,
     db: State<'_, Db>,
     session: State<'_, Session>,
     license: State<'_, LicenseRuntime>,
@@ -1384,22 +1421,25 @@ pub fn refunds_create(
     items: Vec<RefundLineInput>,
     reason: Option<String>,
 ) -> Result<Refund, String> {
-    require_module(&db, &["billing"])?;
-    let caller = require_role(&session, ADMIN_ROLES)?;
+    let caller = require_module_admin(&db, &[module_key::BILLING], &session)?;
     require_license(&license)?;
-    transact(&db, |tx| {
+    let refund = transact(&db, |tx| {
         refunds::create_refund(
             tx,
             CreateRefundInput { sale_id, items, reason, refunded_by: Some(caller.id) },
         )
-    })
+    })?;
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::sync::perform_sync(&app_handle).await;
+    });
+    Ok(refund)
 }
 
 /// Re-fetches a previously created refund — used to reprint its receipt.
 #[tauri::command]
 pub fn refunds_get(db: State<'_, Db>, session: State<'_, Session>, refund_id: i64) -> Result<Refund, String> {
-    require_module(&db, &["billing"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::BILLING], &session)?;
     query(&db, |conn| refunds::get_refund(conn, refund_id))
 }
 
@@ -1407,10 +1447,9 @@ pub fn refunds_get(db: State<'_, Db>, session: State<'_, Session>, refund_id: i6
 /// auto-detect/fall-back-to-PDF contract as `billing_print_receipt_thermal`.
 #[tauri::command]
 pub fn refunds_print_thermal(db: State<'_, Db>, session: State<'_, Session>, refund_id: i64) -> Result<(), String> {
-    require_module(&db, &["billing"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::BILLING], &session)?;
     let refund = query(&db, |conn| refunds::get_refund(conn, refund_id))?;
-    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    let app_config = query(&db, config::get)?;
     crate::printer::escpos::print_refund(&refund, &app_config).map_err(|e| e.to_string())
 }
 
@@ -1428,7 +1467,7 @@ pub fn refunds_print_thermal(db: State<'_, Db>, session: State<'_, Session>, ref
 /// screen decide whether to show "Open Shift" or "Close Shift".
 #[tauri::command]
 pub fn shifts_get_open(db: State<'_, Db>, session: State<'_, Session>) -> Result<Option<Shift>, String> {
-    require_module(&db, &["shifts"])?;
+    require_module(&db, &[module_key::SHIFTS])?;
     let caller = require_signed_in(&session)?;
     query(&db, |conn| shifts::get_open_shift_for_cashier(conn, caller.id))
 }
@@ -1441,7 +1480,7 @@ pub fn shifts_open(
     session: State<'_, Session>,
     opening_balance_minor: i64,
 ) -> Result<Shift, String> {
-    require_module(&db, &["shifts"])?;
+    require_module(&db, &[module_key::SHIFTS])?;
     let caller = require_signed_in(&session)?;
     query(&db, |conn| shifts::open_shift(conn, caller.id, opening_balance_minor))
 }
@@ -1461,7 +1500,7 @@ pub fn shifts_get_summary(
     shift_id: i64,
     declared_cash_amount_minor: Option<i64>,
 ) -> Result<ShiftSummary, String> {
-    require_module(&db, &["shifts"])?;
+    require_module(&db, &[module_key::SHIFTS])?;
     let caller = require_signed_in(&session)?;
     let summary = query(&db, |conn| shifts::get_shift_summary(conn, shift_id, declared_cash_amount_minor))?;
     if !may_act_on_shift(&caller, summary.shift.cashier_id) {
@@ -1487,7 +1526,7 @@ pub fn shifts_close(
     shift_id: i64,
     declared_cash_amount_minor: i64,
 ) -> Result<ShiftSummary, String> {
-    require_module(&db, &["shifts"])?;
+    require_module(&db, &[module_key::SHIFTS])?;
     let caller = require_signed_in(&session)?;
     let shift = query(&db, |conn| shifts::get_shift_summary(conn, shift_id, None))?
         .shift;
@@ -1502,21 +1541,20 @@ pub fn shifts_close(
 /// page's tier (see MODULE_CATALOGUE's doc comment on the `shifts` module).
 #[tauri::command]
 pub fn shifts_list_recent(db: State<'_, Db>, session: State<'_, Session>, limit: i64) -> Result<Vec<Shift>, String> {
-    require_module(&db, &["shifts"])?;
-    require_role(&session, ADMIN_ROLES)?;
-    db.with_conn(|conn| shifts::list_shifts(conn, limit)).map_err(|e| e.to_string())
+    require_module_admin(&db, &[module_key::SHIFTS], &session)?;
+    query(&db, |conn| shifts::list_shifts(conn, limit))
 }
 
 /// Prints a shift's close-out reconciliation receipt.
 #[tauri::command]
 pub fn shifts_print_summary(db: State<'_, Db>, session: State<'_, Session>, shift_id: i64) -> Result<(), String> {
-    require_module(&db, &["shifts"])?;
+    require_module(&db, &[module_key::SHIFTS])?;
     let caller = require_signed_in(&session)?;
     let summary = query(&db, |conn| shifts::get_shift_summary(conn, shift_id, None))?;
     if !may_act_on_shift(&caller, summary.shift.cashier_id) {
         return Err("You don't have permission to print this shift".to_string());
     }
-    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    let app_config = query(&db, config::get)?;
     crate::printer::escpos::print_shift_summary(&summary, &app_config).map_err(|e| e.to_string())
 }
 
@@ -1539,8 +1577,7 @@ pub fn reports_get_sales_summary(
     start_date: String,
     end_date: String,
 ) -> Result<SalesSummary, String> {
-    require_module(&db, &["reports"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
     query(&db, |conn| reports::get_sales_summary(conn, &start_date, &end_date))
 }
 
@@ -1555,8 +1592,7 @@ pub fn reports_get_top_items(
     limit: i64,
     sort_by: TopItemSort,
 ) -> Result<Vec<TopItem>, String> {
-    require_module(&db, &["reports"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
     query(&db, |conn| reports::get_top_items(conn, &start_date, &end_date, limit, sort_by))
 }
 
@@ -1572,7 +1608,7 @@ pub fn reports_get_sales_over_time(
     start_date: String,
     end_date: String,
 ) -> Result<Vec<DailySales>, String> {
-    require_module(&db, &["reports", "dashboard"])?;
+    require_module(&db, &[module_key::REPORTS, module_key::DASHBOARD])?;
     require_admin_or_area_access(&session, &area_access)?;
     query(&db, |conn| reports::get_sales_over_time(conn, &start_date, &end_date))
 }
@@ -1587,8 +1623,7 @@ pub fn reports_get_category_sales(
     start_date: String,
     end_date: String,
 ) -> Result<CategorySalesReport, String> {
-    require_module(&db, &["reports"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
     query(&db, |conn| reports::get_category_sales(conn, &start_date, &end_date))
 }
 
@@ -1601,10 +1636,10 @@ fn print_area_report<R, E: std::fmt::Display, P: std::fmt::Display>(
     fetch: impl FnOnce(&rusqlite::Connection) -> Result<R, E>,
     print: impl FnOnce(&R, &AppConfig) -> Result<(), P>,
 ) -> Result<(), String> {
-    require_module(db, &["reports"])?;
+    require_module(db, &[module_key::REPORTS])?;
     require_area_access(session, area_access)?;
     let report = query(db, fetch)?;
-    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    let app_config = query(&db, config::get)?;
     print(&report, &app_config).map_err(|e| e.to_string())
 }
 
@@ -1641,8 +1676,7 @@ pub fn reports_get_table_sales_summary(
     start_date: String,
     end_date: String,
 ) -> Result<TableSalesSummary, String> {
-    require_module(&db, &["reports"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
     query(&db, |conn| reports::get_table_sales_summary(conn, &start_date, &end_date))
 }
 
@@ -1660,8 +1694,7 @@ pub fn reports_get_product_sales_summary(
     category_id: Option<i64>,
     sort_by: TopItemSort,
 ) -> Result<ProductSalesSummaryReport, String> {
-    require_module(&db, &["reports"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
     query(&db, |conn| reports::get_product_sales_summary(conn, &start_date, &end_date, category_id, sort_by))
 }
 
@@ -1696,8 +1729,7 @@ pub fn reports_get_refunds_summary(
     start_date: String,
     end_date: String,
 ) -> Result<RefundsSummary, String> {
-    require_module(&db, &["reports"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
     query(&db, |conn| reports::get_refunds_summary(conn, &start_date, &end_date))
 }
 
@@ -1719,6 +1751,20 @@ pub fn reports_print_refunds_summary(
     )
 }
 
+/// Delivery report: summaries for in-house and third-party deliveries, platform breakdown,
+/// rider breakdown (grouped by normalized phone for manual riders), and detailed orders.
+#[tauri::command]
+pub fn reports_get_delivery_report(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    start_date: String,
+    end_date: String,
+) -> Result<reports::DeliveryReport, String> {
+    require_module_area(&db, &[module_key::DELIVERY], &session, &area_access)?;
+    query(&db, |conn| reports::get_delivery_report(conn, &start_date, &end_date))
+}
+
 /// The "Generate Full Report" consolidated document: Overview (incl. net
 /// profit, via `dashboard::get_summary`), Category Wise Sale, Product Wise
 /// Sales, and Table Wise Sales (only when `tables` is enabled) for one date
@@ -1732,8 +1778,7 @@ pub fn reports_get_full_report(
     start_date: String,
     end_date: String,
 ) -> Result<FullReport, String> {
-    require_module(&db, &["reports"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
     let platform = Platform::current();
     query(&db, |conn| full_report::get_full_report(conn, &start_date, &end_date, platform))
 }
@@ -1765,9 +1810,10 @@ pub fn reports_print_full_report(
 /// Every table with its status and whether it has a cart parked on it, for
 /// the floor view and the billing screen's table picker.
 #[tauri::command]
-pub fn tables_get_tables(db: State<'_, Db>) -> Result<Vec<TableSummary>, String> {
-    require_module(&db, &["tables"])?;
-    db.with_conn(tables::list_tables).map_err(|e| e.to_string())
+pub fn tables_get_tables(session: State<'_, Session>, db: State<'_, Db>) -> Result<Vec<TableSummary>, String> {
+    require_module(&db, &[module_key::TABLES])?;
+    require_signed_in(&session)?;
+    query(&db, tables::list_tables)
 }
 
 /// Adds a new physical table to the floor. Owner/admin only, like the rest
@@ -1782,8 +1828,7 @@ pub fn tables_add_table(
     name: String,
     seats: i64,
 ) -> Result<TableSummary, String> {
-    require_module(&db, &["tables"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::TABLES], &session)?;
     query(&db, |conn| tables::add_table(conn, &name, seats))
 }
 
@@ -1795,8 +1840,7 @@ pub fn tables_update_table_status(
     table_id: i64,
     status: String,
 ) -> Result<TableSummary, String> {
-    require_module(&db, &["tables"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::TABLES], &session)?;
     query(&db, |conn| tables::update_table_status(conn, table_id, &status))
 }
 
@@ -1809,8 +1853,7 @@ pub fn tables_update_table(
     name: String,
     seats: i64,
 ) -> Result<TableSummary, String> {
-    require_module(&db, &["tables"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::TABLES], &session)?;
     query(&db, |conn| tables::update_table(conn, table_id, &name, seats))
 }
 
@@ -1820,8 +1863,7 @@ pub fn tables_update_table(
 /// never be silently discarded from this command.
 #[tauri::command]
 pub fn tables_delete_table(db: State<'_, Db>, session: State<'_, Session>, table_id: i64) -> Result<(), String> {
-    require_module(&db, &["tables"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::TABLES], &session)?;
     query(&db, |conn| tables::delete_table(conn, table_id))
 }
 
@@ -1840,8 +1882,7 @@ pub fn tables_assign_order_to_table(
     session: State<'_, Session>,
     table_id: i64,
 ) -> Result<TableSummary, String> {
-    require_module(&db, &["tables"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::TABLES], &session)?;
     transact(&db, |tx| tables::start_table_order(tx, table_id))
 }
 
@@ -1857,8 +1898,7 @@ pub fn tables_clear_table(
     session: State<'_, Session>,
     table_id: i64,
 ) -> Result<TableSummary, String> {
-    require_module(&db, &["tables"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::TABLES], &session)?;
     transact(&db, |tx| tables::clear_table(tx, table_id))
 }
 
@@ -1870,19 +1910,22 @@ pub fn tables_clear_table(
 /// Cashier-reachable path (via Billing), so it's exercised far more often.
 #[tauri::command]
 pub fn tables_attach_cart_to_table(
+    session: State<'_, Session>,
     db: State<'_, Db>,
     table_id: i64,
     items: Vec<ParkedCartLine>,
     discount_minor: i64,
 ) -> Result<(), String> {
-    require_module(&db, &["tables"])?;
+    require_module(&db, &[module_key::TABLES])?;
+    require_signed_in(&session)?;
     transact(&db, |tx| tables::attach_cart_to_table(tx, table_id, &items, discount_minor))
 }
 
 /// The cart parked on a table, if any — used to resume billing it.
 #[tauri::command]
-pub fn tables_get_parked_cart(db: State<'_, Db>, table_id: i64) -> Result<Option<ParkedOrder>, String> {
-    require_module(&db, &["tables"])?;
+pub fn tables_get_parked_cart(session: State<'_, Session>, db: State<'_, Db>, table_id: i64) -> Result<Option<ParkedOrder>, String> {
+    require_module(&db, &[module_key::TABLES])?;
+    require_signed_in(&session)?;
     query(&db, |conn| tables::get_parked_cart(conn, table_id))
 }
 
@@ -1903,8 +1946,7 @@ pub fn tables_shift_table_order(
     from_table_id: i64,
     to_table_id: i64,
 ) -> Result<tables::ShiftTableResult, String> {
-    require_module(&db, &["tables"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::TABLES], &session)?;
     transact(&db, |tx| tables::shift_table_order(tx, from_table_id, to_table_id))
 }
 
@@ -1920,13 +1962,12 @@ pub fn tables_shift_table_order(
 #[tauri::command]
 pub fn counters_get_counters(session: State<'_, Session>, db: State<'_, Db>, include_inactive: bool) -> Result<Vec<Counter>, String> {
     require_signed_in(&session)?;
-    db.with_conn(|conn| counters::list_counters(conn, include_inactive)).map_err(|e| e.to_string())
+    query(&db, |conn| counters::list_counters(conn, include_inactive))
 }
 
 #[tauri::command]
 pub fn counters_add_counter(db: State<'_, Db>, session: State<'_, Session>, name: String) -> Result<Counter, String> {
-    require_module(&db, &["settings"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::SETTINGS], &session)?;
     query(&db, |conn| counters::add_counter(conn, &name))
 }
 
@@ -1937,8 +1978,7 @@ pub fn counters_update_counter(
     id: i64,
     name: String,
 ) -> Result<Counter, String> {
-    require_module(&db, &["settings"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::SETTINGS], &session)?;
     query(&db, |conn| counters::update_counter(conn, id, &name))
 }
 
@@ -1949,8 +1989,7 @@ pub fn counters_set_active(
     id: i64,
     is_active: bool,
 ) -> Result<Counter, String> {
-    require_module(&db, &["settings"])?;
-    require_role(&session, ADMIN_ROLES)?;
+    require_module_admin(&db, &[module_key::SETTINGS], &session)?;
     query(&db, |conn| counters::set_counter_active(conn, id, is_active))
 }
 
@@ -2005,6 +2044,7 @@ fn print_one_counter_token(
     counter: &Counter,
     printed_by: Option<i64>,
     printed_by_name: Option<String>,
+    shift_id: Option<i64>,
     config: &AppConfig,
 ) -> PrintOutcome {
     let result = db.with_transaction(|tx| {
@@ -2033,7 +2073,7 @@ fn print_one_counter_token(
             TokenSource::Adhoc(_) => (None, None, None),
         };
 
-        let token_number = tokens::next_token_number_for_today(tx)?;
+        let token_number = tokens::next_token_number_for_shift_or_today(tx, shift_id)?;
 
         // A draft, not-yet-persisted `TokenSummary` — everything the
         // ticket itself needs to print, built *before* any row exists.
@@ -2051,6 +2091,7 @@ fn print_one_counter_token(
             printed_by,
             printed_by_name: printed_by_name.clone(),
             status: "printed".to_string(),
+            shift_id,
             items: pending.clone(),
         };
 
@@ -2061,7 +2102,7 @@ fn print_one_counter_token(
             return Ok(Err(print_err.to_string()));
         }
 
-        let token = match tokens::insert_token(tx, table_order_id, counter.id, token_number, printed_by, &pending) {
+        let token = match tokens::insert_token(tx, table_order_id, counter.id, token_number, printed_by, shift_id, &pending) {
             Ok(t) => t,
             Err(tokens::TokenError::Sqlite(e)) => return Err(e),
             Err(other) => return Ok(Err(other.to_string())),
@@ -2090,8 +2131,15 @@ fn print_tokens_for_counters(
     let caller = require_signed_in(session)?;
     let printed_by = Some(caller.id);
     let printed_by_name = Some(caller.name);
-    let config = db.with_conn(config::get).map_err(|e| e.to_string())?;
-    let all_counters = db.with_conn(|conn| counters::list_counters(conn, true)).map_err(|e| e.to_string())?;
+    let config = query(&db, config::get)?;
+    let all_counters = query(&db, |conn| counters::list_counters(conn, true))?;
+
+    let shifts_enabled = module_enabled(db, module_key::SHIFTS)?;
+    let shift_id = if shifts_enabled {
+        query(&db, |conn| shifts::get_effective_open_shift_id(conn, Some(caller.id)))?
+    } else {
+        None
+    };
 
     let mut results = Vec::with_capacity(counter_ids.len());
     for counter_id in counter_ids {
@@ -2104,7 +2152,7 @@ fn print_tokens_for_counters(
             continue;
         };
 
-        let outcome = print_one_counter_token(db, &source, counter, printed_by, printed_by_name.clone(), &config);
+        let outcome = print_one_counter_token(db, &source, counter, printed_by, printed_by_name.clone(), shift_id, &config);
         results.push(CounterPrintResult { counter_id: counter.id, counter_name: counter.name.clone(), outcome });
     }
 
@@ -2134,10 +2182,17 @@ pub fn tokens_print(
 /// database; a failed reprint just means "try again", same as any other
 /// print.
 #[tauri::command]
-pub fn tokens_reprint(session: State<'_, Session>, db: State<'_, Db>, token_id: i64) -> Result<(), String> {
+pub fn tokens_reprint(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    license: State<'_, LicenseRuntime>,
+    token_id: i64,
+) -> Result<(), String> {
+    // Licensed like every other print path (`print_tokens_for_counters`).
+    require_license(&license)?;
     require_signed_in(&session)?;
     let token = query(&db, |conn| tokens::get_token(conn, token_id))?;
-    let config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    let config = query(&db, config::get)?;
     crate::printer::escpos::print_token(&token, &config, true).map_err(|e| e.to_string())
 }
 
@@ -2147,8 +2202,9 @@ pub fn tokens_reprint(session: State<'_, Session>, db: State<'_, Db>, token_id: 
 /// always reports the full quantity of every counter-eligible line in
 /// `items`, not a delta — see `db::tokens`'s module doc comment.
 #[tauri::command]
-pub fn tokens_get_adhoc_groups(session: State<'_, Session>, 
+pub fn tokens_get_adhoc_groups(
     db: State<'_, Db>,
+    session: State<'_, Session>,
     items: Vec<tokens::AdhocTokenLine>,
 ) -> Result<Vec<PendingCounterGroup>, String> {
     require_signed_in(&session)?;
@@ -2178,6 +2234,283 @@ pub fn tokens_print_adhoc(
     counter_ids: Vec<i64>,
 ) -> Result<Vec<CounterPrintResult>, String> {
     print_tokens_for_counters(&db, &session, &license, TokenSource::Adhoc(&items), counter_ids)
+}
+
+// ---------------------------------------------------------------------------
+// Orders (Active restaurant orders lifecycle: takeaway and dine-in)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAndHoldOrderInput {
+    pub client_ref: String,
+    pub order_type: String,
+    pub table_id: Option<i64>,
+    pub customer_name: Option<String>,
+    pub notes: Option<String>,
+    pub estimated_prep_minutes: Option<i64>,
+    pub delivery: Option<orders::DeliveryDetails>,
+    pub lines: Vec<orders::NewLine>,
+}
+
+#[tauri::command]
+pub fn orders_create_and_hold(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    input: CreateAndHoldOrderInput,
+) -> Result<orders::Order, String> {
+    let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    let shifts_enabled = module_enabled(&db, module_key::SHIFTS)?;
+    let shift_id = if shifts_enabled {
+        query(&db, |conn| shifts::get_effective_open_shift_id(conn, Some(user.id)))?
+    } else {
+        None
+    };
+    transact(&db, |tx| {
+        let order = orders::create_order(
+            tx,
+            &input.client_ref,
+            &input.order_type,
+            input.table_id,
+            Some(user.id),
+            input.customer_name.as_deref(),
+            input.notes.as_deref(),
+            input.estimated_prep_minutes,
+            shift_id,
+            input.delivery,
+        )?;
+        let order = orders::add_lines(tx, order.id, order.version, &input.lines, Some(user.id))?;
+        orders::hold(tx, order.id, order.version, Some(user.id))
+    })
+}
+
+#[tauri::command]
+pub fn orders_list_active(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+) -> Result<Vec<orders::Order>, String> {
+    require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    query(&db, |conn| orders::list_active_orders(conn))
+}
+
+#[tauri::command]
+pub fn orders_get(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    order_id: i64,
+) -> Result<orders::Order, String> {
+    require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    query(&db, |conn| orders::get_order(conn, order_id))
+}
+
+#[tauri::command]
+pub fn orders_resume(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    order_id: i64,
+    version: i64,
+) -> Result<orders::Order, String> {
+    let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    transact(&db, |tx| orders::resume(tx, order_id, version, Some(user.id)))
+}
+
+#[tauri::command]
+pub fn orders_transition(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    order_id: i64,
+    version: i64,
+    to_status: String,
+) -> Result<orders::Order, String> {
+    let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    transact(&db, |tx| orders::transition(tx, order_id, version, &to_status, Some(user.id)))
+}
+
+#[tauri::command]
+pub fn orders_update_prep_time(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    order_id: i64,
+    prep_minutes: i64,
+) -> Result<orders::Order, String> {
+    require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    transact(&db, |tx| orders::update_prep_time(tx, order_id, prep_minutes))
+}
+
+#[tauri::command]
+pub fn orders_cancel(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    order_id: i64,
+    version: i64,
+    reason: Option<String>,
+) -> Result<orders::Order, String> {
+    let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    transact(&db, |tx| {
+        orders::cancel(
+            tx,
+            order_id,
+            version,
+            reason.as_deref().unwrap_or("Cancelled by cashier"),
+            Some(user.id),
+            if user.role == Role::Owner || user.role == Role::Admin { Some(user.id) } else { None },
+        )
+    })
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrdersPayInput {
+    pub order_id: i64,
+    pub version: i64,
+    pub order_item_ids: Vec<i64>,
+    pub payment_method: String,
+    pub discount_minor: i64,
+    pub tax_minor: i64,
+    #[serde(default)]
+    pub tendered_minor: Option<i64>,
+    #[serde(default)]
+    pub change_minor: Option<i64>,
+}
+
+#[tauri::command]
+pub fn orders_pay(
+    app: AppHandle,
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    license: State<'_, LicenseRuntime>,
+    input: OrdersPayInput,
+) -> Result<orders::Paid, String> {
+    let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    require_license(&license)?;
+    let shifts_enabled = module_enabled(&db, module_key::SHIFTS)?;
+    let shift_id = if shifts_enabled {
+        query(&db, |conn| shifts::get_effective_open_shift_id(conn, Some(user.id)))?
+    } else {
+        None
+    };
+    let paid = transact(&db, |tx| {
+        orders::pay_lines(
+            tx,
+            input.order_id,
+            input.version,
+            orders::PayInput {
+                order_item_ids: input.order_item_ids,
+                payment_method: input.payment_method,
+                discount_minor: input.discount_minor,
+                tax_minor: input.tax_minor,
+                cashier_id: Some(user.id),
+                shift_id,
+                tendered_minor: input.tendered_minor,
+                change_minor: input.change_minor,
+            },
+        )
+    })?;
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::sync::perform_sync(&app_handle).await;
+    });
+    Ok(paid)
+}
+
+#[tauri::command]
+pub fn orders_print_token(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    license: State<'_, LicenseRuntime>,
+    order_id: i64,
+    is_kitchen: Option<bool>,
+) -> Result<(), String> {
+    require_license(&license)?;
+    require_signed_in(&session)?;
+    let order = query(&db, |conn| orders::get_order(conn, order_id))?;
+    let config = query(&db, config::get)?;
+    crate::printer::escpos::print_order_token(&order, &config, is_kitchen.unwrap_or(false))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn orders_update_delivery_status(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    order_id: i64,
+    delivery_status: String,
+) -> Result<orders::Order, String> {
+    let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier, Role::Delivery])?;
+    transact(&db, |tx| {
+        orders::update_delivery_status(tx, order_id, &delivery_status, Some(user.id))
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Delivery Platforms (Foodpanda, etc. and recent rider suggestions)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn delivery_platforms_list(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+) -> Result<Vec<delivery_platforms::DeliveryPlatform>, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| delivery_platforms::list_platforms(conn))
+}
+
+#[tauri::command]
+pub fn delivery_platforms_list_active(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+) -> Result<Vec<delivery_platforms::DeliveryPlatform>, String> {
+    require_signed_in(&session)?;
+    query(&db, |conn| delivery_platforms::list_active_platforms(conn))
+}
+
+#[tauri::command]
+pub fn delivery_platforms_add(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    name: String,
+) -> Result<delivery_platforms::DeliveryPlatform, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| delivery_platforms::add_platform(conn, &name))
+}
+
+#[tauri::command]
+pub fn delivery_platforms_update(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    name: String,
+) -> Result<delivery_platforms::DeliveryPlatform, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| delivery_platforms::update_platform(conn, id, &name))
+}
+
+#[tauri::command]
+pub fn delivery_platforms_set_active(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    is_active: bool,
+) -> Result<(), String> {
+    require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| delivery_platforms::set_platform_active(conn, id, is_active))
+}
+
+#[tauri::command]
+pub fn delivery_platforms_get_recent_riders(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    platform_id: i64,
+    limit: Option<i64>,
+) -> Result<Vec<delivery_platforms::RecentRider>, String> {
+    require_signed_in(&session)?;
+    query(&db, |conn| {
+        delivery_platforms::get_recent_riders_for_platform(
+            conn,
+            platform_id,
+            limit.unwrap_or(10).try_into().unwrap_or(10),
+        )
+    })
 }
 
 
@@ -2232,7 +2565,26 @@ pub fn security_get_default_credentials(
     session: State<'_, Session>,
 ) -> Result<security_pin::DefaultCredentials, String> {
     require_role(&session, ADMIN_ROLES)?;
-    db.with_conn(security_pin::default_credentials).map_err(|e| e.to_string())
+    query(&db, security_pin::default_credentials)
+}
+
+/// The forced change of the shipped PINs (`ChangeDefaultPinsDialog`). Only
+/// replaces a PIN still at its default, so it needs no current PIN; the
+/// Owner PIN only by the Owner, who is the one person outranking it.
+/// Deliberately not behind the Users/Settings modules — a vendor may switch
+/// those off, and the defaults must still be changeable.
+#[tauri::command]
+pub fn security_replace_default_pins(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    owner_pin: Option<String>,
+    area_pin: Option<String>,
+) -> Result<(), String> {
+    let caller = require_role(&session, ADMIN_ROLES)?;
+    if owner_pin.is_some() && caller.role != Role::Owner {
+        return Err("Only the Owner can change the Owner PIN".into());
+    }
+    transact(&db, |tx| security_pin::replace_defaults(tx, owner_pin.as_deref(), area_pin.as_deref()))
 }
 
 /// Changes the shared area PIN — Owner/Admin only (Settings itself is
@@ -2268,9 +2620,8 @@ pub fn attendance_get_employees(
     session: State<'_, Session>,
     area_access: State<'_, AreaAccessSession>,
 ) -> Result<Vec<Employee>, String> {
-    require_module(&db, &["attendance", "salary"])?;
-    require_area_access(&session, &area_access)?;
-    db.with_conn(attendance::list_employees).map_err(|e| e.to_string())
+    require_module_area(&db, &[module_key::ATTENDANCE, module_key::SALARY], &session, &area_access)?;
+    query(&db, attendance::list_employees)
 }
 
 /// Every employee, active or not — the employee management screen.
@@ -2280,9 +2631,8 @@ pub fn attendance_get_all_employees(
     session: State<'_, Session>,
     area_access: State<'_, AreaAccessSession>,
 ) -> Result<Vec<ManagedEmployee>, String> {
-    require_module(&db, &["employees"])?;
-    require_area_access(&session, &area_access)?;
-    db.with_conn(attendance::list_all_employees).map_err(|e| e.to_string())
+    require_module_area(&db, &[module_key::EMPLOYEES], &session, &area_access)?;
+    query(&db, attendance::list_all_employees)
 }
 
 /// Adds a new employee (payroll/attendance record, not a login account —
@@ -2299,8 +2649,7 @@ pub fn attendance_add_employee(
     contact: Option<String>,
     base_salary_minor: i64,
 ) -> Result<ManagedEmployee, String> {
-    require_module(&db, &["employees"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::EMPLOYEES], &session, &area_access)?;
     db.with_conn(move |conn| Ok(attendance::add_employee(conn, &name, &role, contact.as_deref(), base_salary_minor)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -2318,8 +2667,7 @@ pub fn attendance_update_employee(
     contact: Option<String>,
     base_salary_minor: i64,
 ) -> Result<ManagedEmployee, String> {
-    require_module(&db, &["employees"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::EMPLOYEES], &session, &area_access)?;
     db.with_conn(move |conn| {
         Ok(attendance::update_employee(
             conn,
@@ -2345,8 +2693,7 @@ pub fn attendance_set_employee_active(
     employee_id: i64,
     is_active: bool,
 ) -> Result<(), String> {
-    require_module(&db, &["employees"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::EMPLOYEES], &session, &area_access)?;
     db.with_conn(move |conn| Ok(attendance::set_employee_active(conn, employee_id, is_active)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -2361,8 +2708,7 @@ pub fn attendance_check_in(
     area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<AttendanceRecord, String> {
-    require_module(&db, &["attendance"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::ATTENDANCE], &session, &area_access)?;
     query(&db, |conn| attendance::check_in(conn, employee_id))
 }
 
@@ -2375,8 +2721,7 @@ pub fn attendance_check_out(
     area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<AttendanceRecord, String> {
-    require_module(&db, &["attendance"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::ATTENDANCE], &session, &area_access)?;
     query(&db, |conn| attendance::check_out(conn, employee_id))
 }
 
@@ -2391,8 +2736,7 @@ pub fn attendance_get_attendance(
     start_date: String,
     end_date: String,
 ) -> Result<Vec<AttendanceRecord>, String> {
-    require_module(&db, &["attendance"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::ATTENDANCE], &session, &area_access)?;
     query(&db, |conn| attendance::get_attendance(conn, employee_id, &start_date, &end_date))
 }
 
@@ -2405,8 +2749,7 @@ pub fn attendance_get_monthly_summary(
     area_access: State<'_, AreaAccessSession>,
     month: String,
 ) -> Result<Vec<MonthlySummary>, String> {
-    require_module(&db, &["attendance"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::ATTENDANCE], &session, &area_access)?;
     query(&db, |conn| attendance::get_monthly_summary(conn, &month))
 }
 
@@ -2427,8 +2770,7 @@ pub fn expenses_add_expense(
     amount_minor: i64,
     note: Option<String>,
 ) -> Result<Expense, String> {
-    require_module(&db, &["expenses"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::EXPENSES], &session, &area_access)?;
     query(&db, |conn| expenses::add_expense(conn, &date, &category, amount_minor, note.as_deref()))
 }
 
@@ -2442,8 +2784,7 @@ pub fn expenses_get_expenses(
     end_date: String,
     category: Option<String>,
 ) -> Result<Vec<Expense>, String> {
-    require_module(&db, &["expenses"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::EXPENSES], &session, &area_access)?;
     query(&db, |conn| expenses::get_expenses(conn, &start_date, &end_date, category.as_deref()))
 }
 
@@ -2454,9 +2795,8 @@ pub fn expenses_get_expense_categories(
     session: State<'_, Session>,
     area_access: State<'_, AreaAccessSession>,
 ) -> Result<Vec<String>, String> {
-    require_module(&db, &["expenses"])?;
-    require_area_access(&session, &area_access)?;
-    db.with_conn(expenses::get_categories).map_err(|e| e.to_string())
+    require_module_area(&db, &[module_key::EXPENSES], &session, &area_access)?;
+    query(&db, expenses::get_categories)
 }
 
 /// Category-wise totals for a date range, highest spend first — feeds the
@@ -2469,8 +2809,7 @@ pub fn expenses_get_totals_by_category(
     start_date: String,
     end_date: String,
 ) -> Result<Vec<CategoryTotal>, String> {
-    require_module(&db, &["expenses"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::EXPENSES], &session, &area_access)?;
     query(&db, |conn| expenses::get_totals_by_category(conn, &start_date, &end_date))
 }
 
@@ -2492,8 +2831,7 @@ pub fn salary_calculate_salary(
     employee_id: i64,
     month: String,
 ) -> Result<SalaryCalculation, String> {
-    require_module(&db, &["salary"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::SALARY], &session, &area_access)?;
     query(&db, |conn| salary::calculate_salary(conn, employee_id, &month))
 }
 
@@ -2511,8 +2849,7 @@ pub fn salary_get_monthly_overview(
     area_access: State<'_, AreaAccessSession>,
     month: String,
 ) -> Result<Vec<SalaryCalculation>, String> {
-    require_module(&db, &["salary"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::SALARY], &session, &area_access)?;
     transact(&db, |tx| salary::get_monthly_overview(tx, &month))
 }
 
@@ -2534,8 +2871,7 @@ pub fn salary_record_payment(
     paid_amount_minor: i64,
     paid_date: String,
 ) -> Result<SalaryCalculation, String> {
-    require_module(&db, &["salary"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::SALARY], &session, &area_access)?;
     transact(&db, |tx| salary::record_payment(tx, employee_id, &month, paid_amount_minor, &paid_date))
 }
 
@@ -2549,10 +2885,9 @@ pub fn salary_print_monthly_report(
     area_access: State<'_, AreaAccessSession>,
     month: String,
 ) -> Result<(), String> {
-    require_module(&db, &["salary"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::SALARY], &session, &area_access)?;
     let rows = transact(&db, |tx| salary::get_monthly_overview(tx, &month))?;
-    let app_config = db.with_conn(config::get).map_err(|e| e.to_string())?;
+    let app_config = query(&db, config::get)?;
     crate::printer::escpos::print_employee_report(&rows, &month, &app_config).map_err(|e| e.to_string())
 }
 
@@ -2564,8 +2899,7 @@ pub fn salary_get_payment_history(
     area_access: State<'_, AreaAccessSession>,
     employee_id: i64,
 ) -> Result<Vec<SalaryCalculation>, String> {
-    require_module(&db, &["salary"])?;
-    require_area_access(&session, &area_access)?;
+    require_module_area(&db, &[module_key::SALARY], &session, &area_access)?;
     query(&db, |conn| salary::get_payment_history(conn, employee_id))
 }
 
@@ -2609,7 +2943,7 @@ pub fn dashboard_get_summary(
 /// credential itself.
 #[tauri::command]
 pub fn product_owner_get_status(db: State<'_, Db>) -> Result<bool, String> {
-    db.with_conn(product_owner::has_account).map_err(|e| e.to_string())
+    query(&db, product_owner::has_account)
 }
 
 /// Sets the initial credential for this install and immediately grants an
@@ -2667,7 +3001,7 @@ pub fn product_owner_get_modules(
 ) -> Result<Vec<ModuleState>, String> {
     require_product_owner(&po_session)?;
     let platform = parse_platform(&platform)?;
-    db.with_conn(|conn| modules::list(conn, platform)).map_err(|e| e.to_string())
+    query(&db, |conn| modules::list(conn, platform))
 }
 
 /// Sets a module's `enabled` and/or `locked` state on one platform,
@@ -2687,12 +3021,8 @@ pub fn product_owner_set_module(
 ) -> Result<Vec<ModuleState>, String> {
     require_product_owner(&po_session)?;
     let platform = parse_platform(&platform)?;
-    db.with_conn(|conn| {
-        Ok(modules::set_by_product_owner(conn, &module_key, platform, enabled, locked)
-            .map_err(|e| e.to_string())
-            .and_then(|()| modules::list(conn, platform).map_err(|e| e.to_string())))
-    })
-    .map_err(|e| e.to_string())?
+    query(&db, |conn| modules::set_by_product_owner(conn, &module_key, platform, enabled, locked))?;
+    query(&db, |conn| modules::list(conn, platform))
 }
 
 // ---------------------------------------------------------------------------
@@ -2828,6 +3158,33 @@ mod user_hierarchy_tests {
         assert!(authorize_set_active(&owner, 2, Role::Admin, false).is_ok());
     }
 
+    // -- a Cashier caller -------------------------------------------------------
+    // Unreachable through the commands today (each calls `require_role(&session,
+    // ADMIN_ROLES)` first); these pin down the second layer on its own.
+
+    #[test]
+    fn a_cashier_can_create_no_account() {
+        for role in [Role::Owner, Role::Admin, Role::Cashier] {
+            assert!(authorize_create_user(Role::Cashier, role).is_err(), "cashier created {role:?}");
+        }
+    }
+
+    #[test]
+    fn a_cashier_cannot_promote_themselves_but_may_rename_themselves() {
+        let cashier = user(5, Role::Cashier);
+        assert!(authorize_update_user(&cashier, cashier.id, Role::Cashier, Role::Admin).is_err());
+        assert!(authorize_update_user(&cashier, cashier.id, Role::Cashier, Role::Owner).is_err());
+        assert!(authorize_update_user(&cashier, cashier.id, Role::Cashier, Role::Cashier).is_ok());
+    }
+
+    #[test]
+    fn a_cashier_cannot_manage_another_cashier() {
+        let cashier = user(5, Role::Cashier);
+        assert!(authorize_update_user(&cashier, 6, Role::Cashier, Role::Cashier).is_err());
+        assert!(authorize_set_active(&cashier, 6, Role::Cashier, false).is_err());
+        assert!(authorize_set_pin(&cashier, 6, Role::Cashier).is_err());
+    }
+
     // -- users_set_pin ----------------------------------------------------------
 
     #[test]
@@ -2854,6 +3211,21 @@ mod user_hierarchy_tests {
         assert!(authorize_set_pin(&owner, owner.id, Role::Owner).is_ok());
         let admin = user(2, Role::Admin);
         assert!(authorize_set_pin(&admin, admin.id, Role::Admin).is_ok());
+    }
+
+    #[test]
+    fn delivery_role_is_assignable_and_manageable_but_manages_nobody() {
+        assert!(authorize_create_user(Role::Owner, Role::Delivery).is_ok());
+        assert!(authorize_create_user(Role::Admin, Role::Delivery).is_ok());
+        for role in [Role::Owner, Role::Admin, Role::Cashier, Role::Delivery] {
+            assert!(authorize_create_user(Role::Delivery, role).is_err(), "delivery created {role:?}");
+        }
+        let admin = user(2, Role::Admin);
+        assert!(authorize_update_user(&admin, 6, Role::Delivery, Role::Cashier).is_ok());
+        assert!(authorize_set_active(&admin, 6, Role::Delivery, false).is_ok());
+        let rider = user(6, Role::Delivery);
+        assert!(authorize_update_user(&rider, rider.id, Role::Delivery, Role::Admin).is_err());
+        assert!(authorize_set_active(&rider, 5, Role::Cashier, false).is_err());
     }
 }
 
@@ -2903,7 +3275,7 @@ mod guard_tests {
 
     #[test]
     fn area_access_needs_someone_signed_in_even_with_a_live_grant() {
-        assert_eq!(require_area_access(&Session::new(), &granted()).unwrap_err(), "Not signed in");
+        assert_eq!(require_area_access(&Session::new(), &granted()).unwrap_err(), crate::session::NOT_SIGNED_IN);
     }
 
     #[test]

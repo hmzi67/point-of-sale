@@ -4,6 +4,7 @@ import type { TableSummary } from "../../types";
 
 import { SeatCountField } from "./SeatCountField";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { runAction } from "../../utils/runAction";
 
 interface EditTableModalProps {
   table: TableSummary;
@@ -23,15 +24,9 @@ export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) 
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed || unchanged || !validSeats) return;
-    setIsSaving(true);
-    setError(null);
-    try {
+    await runAction(setIsSaving, setError, async () => {
       await onSave(trimmed, seats);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsSaving(false);
-    }
+    });
   };
 
   return (

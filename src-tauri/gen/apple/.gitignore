@@ -1,3 +1,9 @@
 xcuserdata/
 build/
 Externals/
+# Signing material and local overrides stay out of the tracked project
+*.p8
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.local.xcconfig

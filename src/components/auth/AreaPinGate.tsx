@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Lock } from "lucide-react";
 import { revokeAreaAccess, verifyAreaPin } from "../../services/securityPinService";
+import { reportError } from "../../services/logService";
+import { runAction } from "../../utils/runAction";
 
 interface AreaPinGateProps {
   /** Shown in the prompt ("Enter the area PIN to open Salary"). */
@@ -42,25 +44,26 @@ export function AreaPinGate({ label, children }: AreaPinGateProps) {
   // revoke, and calling it anyway would be harmless but pointless.
   useEffect(() => {
     return () => {
-      // Best-effort: the grant's own short timeout is the safety net.
-      if (wasUnlocked.current) revokeAreaAccess().catch(() => undefined);
+      // The grant's own short timeout is the safety net, but a failed
+      // revoke is still logged rather than lost.
+      if (wasUnlocked.current) {
+        revokeAreaAccess().catch((error: Error) =>
+          reportError(`[area-pin] revoke did not reach the backend: ${error.message}`),
+        );
+      }
     };
   }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (pin.length < 4) return;
-    setIsVerifying(true);
-    setError(null);
-    try {
+    const ok = await runAction(setIsVerifying, setError, async () => {
       await verifyAreaPin(pin);
       wasUnlocked.current = true;
       setUnlocked(true);
-    } catch (err) {
-      setError((err as Error).message);
+    });
+    if (!ok) {
       setPin("");
-    } finally {
-      setIsVerifying(false);
     }
   };
 

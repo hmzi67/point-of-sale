@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { TABLE_HEAD_FILL } from "./a4Pdf";
 
 /**
  * Shared jsPDF layout primitives — header block, totals block, footer, the
@@ -146,7 +147,7 @@ export function drawTable(doc: jsPDF, startY: number, head: string[], body: stri
       lineWidth: 0.15,
       lineColor: [100, 116, 139], // slate-500 — a real, visible grid line on every cell
     },
-    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: "bold" },
+    headStyles: { fillColor: TABLE_HEAD_FILL, textColor: [255, 255, 255], fontStyle: "bold" },
     theme: "grid",
     // Right-align every numeric-looking column (all but the first) — the
     // "Description / Qty / Rate / Amount, right-aligned numbers" convention
@@ -310,7 +311,7 @@ export function drawRuledItemTable(doc: jsPDF, startY: number, rows: string[][])
 /** Truncates `text` to whatever fits `maxWidth` millimeters at the current
  * font — the PDF counterpart of the thermal `pad`'s truncation, so a long
  * item name shortens instead of colliding with the Qty column. */
-function clipToWidth(doc: jsPDF, text: string, maxWidth: number): string {
+export function clipToWidth(doc: jsPDF, text: string, maxWidth: number): string {
   if (doc.getTextWidth(text) <= maxWidth) return text;
   let clipped = text;
   while (clipped.length > 1 && doc.getTextWidth(clipped) > maxWidth) {

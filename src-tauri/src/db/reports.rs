@@ -10,7 +10,6 @@
 
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use crate::db::dates;
@@ -20,34 +19,19 @@ use crate::db::dates;
 /// product constraint. Raise it if a client legitimately needs longer ranges.
 const MAX_RANGE_DAYS: i64 = 400;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ReportError {
+    #[error("{0}")]
     InvalidDateRange(String),
+    #[error("Date range is too large — please narrow it to {} days or fewer", MAX_RANGE_DAYS)]
     RangeTooLarge,
-    Sqlite(rusqlite::Error),
-}
-
-impl std::fmt::Display for ReportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ReportError::InvalidDateRange(msg) => write!(f, "{}", msg),
-            ReportError::RangeTooLarge => {
-                write!(f, "Date range is too large — please narrow it to {} days or fewer", MAX_RANGE_DAYS)
-            }
-            ReportError::Sqlite(err) => write!(f, "database error: {}", err),
-        }
-    }
-}
-
-impl From<rusqlite::Error> for ReportError {
-    fn from(err: rusqlite::Error) -> Self {
-        ReportError::Sqlite(err)
-    }
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 /// Parses and checks a `start_date`/`end_date` pair, returning the full
 /// `created_at`-comparable timestamp bounds for the SQL WHERE clause.
-fn validate_range(start_date: &str, end_date: &str) -> Result<(String, String), ReportError> {
+pub(crate) fn validate_range(start_date: &str, end_date: &str) -> Result<(String, String), ReportError> {
     let (start, end) = dates::parse_date_range(start_date, end_date).map_err(ReportError::InvalidDateRange)?;
     if (end - start).num_days() > MAX_RANGE_DAYS {
         return Err(ReportError::RangeTooLarge);
@@ -600,9 +584,7 @@ pub fn get_sales_over_time(
     end_date: &str,
 ) -> Result<Vec<DailySales>, ReportError> {
     let (start_ts, end_ts) = validate_range(start_date, end_date)?;
-    // Already validated by validate_range above.
-    let start = NaiveDate::parse_from_str(start_date, "%Y-%m-%d").unwrap();
-    let end = NaiveDate::parse_from_str(end_date, "%Y-%m-%d").unwrap();
+    let (start, end) = dates::parse_date_range(start_date, end_date).map_err(ReportError::InvalidDateRange)?;
 
     let mut stmt = conn.prepare(
         "SELECT substr(created_at, 1, 10) AS day, COALESCE(SUM(total_minor), 0), COUNT(*)
@@ -629,7 +611,7 @@ pub fn get_sales_over_time(
     let mut result = Vec::new();
     let mut day = start;
     while day <= end {
-        let key = day.format("%Y-%m-%d").to_string();
+        let key = day.format(dates::DATE_FORMAT).to_string();
         let (total_minor, transaction_count) = by_day.get(&key).copied().unwrap_or((0, 0));
         let refunds_minor = refunds_by_day.get(&key).copied().unwrap_or(0);
         result.push(DailySales {
@@ -691,6 +673,275 @@ pub fn get_best_selling_item_ids(
     Ok(ids)
 }
 
+// ---------------------------------------------------------------------------
+// Delivery Reports
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformSummary {
+    pub platform_id: Option<i64>,
+    pub platform_name: String,
+    pub order_count: i64,
+    pub total_sales_minor: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RiderSummary {
+    pub rider_key: String,
+    pub rider_name: String,
+    pub rider_phone: Option<String>,
+    pub rider_source: String,
+    pub order_count: i64,
+    pub delivered_count: i64,
+    pub total_sales_minor: i64,
+    pub delivery_charges_minor: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryOrderRow {
+    pub id: i64,
+    pub order_no: i64,
+    pub order_type: String,
+    pub delivery_status: Option<String>,
+    pub platform_name: Option<String>,
+    pub rider_name: Option<String>,
+    pub rider_phone: Option<String>,
+    pub customer_name: Option<String>,
+    pub customer_phone: Option<String>,
+    pub delivery_address: Option<String>,
+    pub total_minor: i64,
+    pub delivery_charge_minor: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeliveryReport {
+    pub start_date: String,
+    pub end_date: String,
+    pub total_orders: i64,
+    pub in_house_orders: i64,
+    pub third_party_orders: i64,
+    pub total_sales_minor: i64,
+    pub in_house_sales_minor: i64,
+    pub third_party_sales_minor: i64,
+    pub total_delivery_charges_minor: i64,
+    pub platforms: Vec<PlatformSummary>,
+    pub riders: Vec<RiderSummary>,
+    pub orders: Vec<DeliveryOrderRow>,
+}
+
+pub fn normalize_phone_number(raw: &str) -> String {
+    let digits: String = raw.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.starts_with("92") && digits.len() == 12 {
+        format!("0{}", &digits[2..])
+    } else if digits.len() == 10 && !digits.starts_with('0') {
+        format!("0{}", digits)
+    } else if !digits.is_empty() {
+        digits
+    } else {
+        raw.trim().to_lowercase()
+    }
+}
+
+pub fn get_delivery_report(
+    conn: &Connection,
+    start_date: &str,
+    end_date: &str,
+) -> Result<DeliveryReport, ReportError> {
+    let (start_bound, end_bound) = validate_range(start_date, end_date)?;
+
+    let mut stmt = conn.prepare(
+        "SELECT o.id, o.order_no, o.order_type, o.delivery_status, o.delivery_platform_id,
+                o.delivery_platform_name, o.delivery_rider_id, o.rider_source,
+                o.delivery_rider_name, o.delivery_rider_phone, o.customer_name,
+                o.customer_phone, o.delivery_address, o.delivery_charge_minor,
+                o.created_at,
+                COALESCE(
+                    (SELECT SUM(s.total_minor) FROM sales s WHERE s.order_id = o.id),
+                    (SELECT COALESCE(SUM(ROUND(oi.price_at_order_minor * oi.qty)), 0)
+                       FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'active')
+                ) AS total_minor
+           FROM orders o
+          WHERE o.order_type IN ('delivery', 'third_party_delivery')
+            AND o.created_at >= ?1 AND o.created_at <= ?2
+            AND o.status != 'cancelled'
+          ORDER BY o.created_at DESC",
+    )?;
+
+    struct RawOrder {
+        id: i64,
+        order_no: i64,
+        order_type: String,
+        delivery_status: Option<String>,
+        delivery_platform_id: Option<i64>,
+        delivery_platform_name: Option<String>,
+        delivery_rider_id: Option<i64>,
+        rider_source: Option<String>,
+        delivery_rider_name: Option<String>,
+        delivery_rider_phone: Option<String>,
+        customer_name: Option<String>,
+        customer_phone: Option<String>,
+        delivery_address: Option<String>,
+        delivery_charge_minor: i64,
+        created_at: String,
+        total_minor: i64,
+    }
+
+    let rows = stmt.query_map(params![start_bound, end_bound], |row| {
+        Ok(RawOrder {
+            id: row.get(0)?,
+            order_no: row.get(1)?,
+            order_type: row.get(2)?,
+            delivery_status: row.get(3)?,
+            delivery_platform_id: row.get(4)?,
+            delivery_platform_name: row.get(5)?,
+            delivery_rider_id: row.get(6)?,
+            rider_source: row.get(7)?,
+            delivery_rider_name: row.get(8)?,
+            delivery_rider_phone: row.get(9)?,
+            customer_name: row.get(10)?,
+            customer_phone: row.get(11)?,
+            delivery_address: row.get(12)?,
+            delivery_charge_minor: row.get::<_, Option<i64>>(13)?.unwrap_or(0),
+            created_at: row.get(14)?,
+            total_minor: row.get::<_, Option<i64>>(15)?.unwrap_or(0),
+        })
+    })?;
+
+    let mut total_orders: i64 = 0;
+    let mut in_house_orders: i64 = 0;
+    let mut third_party_orders: i64 = 0;
+    let mut total_sales_minor: i64 = 0;
+    let mut in_house_sales_minor: i64 = 0;
+    let mut third_party_sales_minor: i64 = 0;
+    let mut total_delivery_charges_minor: i64 = 0;
+
+    let mut platforms_map: HashMap<String, (Option<i64>, i64, i64)> = HashMap::new();
+    let mut riders_map: HashMap<String, (String, Option<String>, String, i64, i64, i64, i64)> = HashMap::new();
+    let mut order_rows = Vec::new();
+
+    for row in rows {
+        let r = row?;
+        total_orders += 1;
+        total_sales_minor += r.total_minor;
+        total_delivery_charges_minor += r.delivery_charge_minor;
+
+        if r.order_type == "delivery" {
+            in_house_orders += 1;
+            in_house_sales_minor += r.total_minor;
+        } else if r.order_type == "third_party_delivery" {
+            third_party_orders += 1;
+            third_party_sales_minor += r.total_minor;
+
+            let p_name = r.delivery_platform_name.clone().unwrap_or_else(|| "Other Platform".to_string());
+            let entry = platforms_map.entry(p_name).or_insert((r.delivery_platform_id, 0, 0));
+            entry.1 += 1; // count
+            entry.2 += r.total_minor; // sales
+        }
+
+        // Rider aggregation
+        let rider_src = r.rider_source.as_deref().unwrap_or("manual");
+        let (rider_key, r_name, r_phone) = match rider_src {
+            "user" => {
+                let uid = r.delivery_rider_id.unwrap_or(0);
+                let key = format!("user_{}", uid);
+                let name = r.delivery_rider_name.clone().unwrap_or_else(|| format!("User #{}", uid));
+                (key, name, r.delivery_rider_phone.clone())
+            }
+            _ => {
+                let phone = r.delivery_rider_phone.as_deref().unwrap_or("");
+                let norm_phone = normalize_phone_number(phone);
+                let key = if norm_phone.is_empty() {
+                    r.delivery_rider_name.as_deref().unwrap_or("Unknown").to_lowercase()
+                } else {
+                    norm_phone
+                };
+                let name = r.delivery_rider_name.clone().unwrap_or_else(|| "Unknown Rider".to_string());
+                (key, name, r.delivery_rider_phone.clone())
+            }
+        };
+
+        if !rider_key.is_empty() && rider_key != "unknown" {
+            let entry = riders_map.entry(rider_key.clone()).or_insert((
+                r_name,
+                r_phone,
+                rider_src.to_string(),
+                0, // orders
+                0, // delivered
+                0, // sales
+                0, // charges
+            ));
+            entry.3 += 1;
+            if r.delivery_status.as_deref() == Some("delivered") {
+                entry.4 += 1;
+            }
+            entry.5 += r.total_minor;
+            entry.6 += r.delivery_charge_minor;
+        }
+
+        order_rows.push(DeliveryOrderRow {
+            id: r.id,
+            order_no: r.order_no,
+            order_type: r.order_type,
+            delivery_status: r.delivery_status,
+            platform_name: r.delivery_platform_name,
+            rider_name: r.delivery_rider_name,
+            rider_phone: r.delivery_rider_phone,
+            customer_name: r.customer_name,
+            customer_phone: r.customer_phone,
+            delivery_address: r.delivery_address,
+            total_minor: r.total_minor,
+            delivery_charge_minor: r.delivery_charge_minor,
+            created_at: r.created_at,
+        });
+    }
+
+    let mut platforms: Vec<PlatformSummary> = platforms_map
+        .into_iter()
+        .map(|(name, (pid, count, sales))| PlatformSummary {
+            platform_id: pid,
+            platform_name: name,
+            order_count: count,
+            total_sales_minor: sales,
+        })
+        .collect();
+    platforms.sort_by(|a, b| b.total_sales_minor.cmp(&a.total_sales_minor));
+
+    let mut riders: Vec<RiderSummary> = riders_map
+        .into_iter()
+        .map(|(key, (name, phone, src, count, delivered, sales, charges))| RiderSummary {
+            rider_key: key,
+            rider_name: name,
+            rider_phone: phone,
+            rider_source: src,
+            order_count: count,
+            delivered_count: delivered,
+            total_sales_minor: sales,
+            delivery_charges_minor: charges,
+        })
+        .collect();
+    riders.sort_by(|a, b| b.order_count.cmp(&a.order_count));
+
+    Ok(DeliveryReport {
+        start_date: start_date.to_string(),
+        end_date: end_date.to_string(),
+        total_orders,
+        in_house_orders,
+        third_party_orders,
+        total_sales_minor,
+        in_house_sales_minor,
+        third_party_sales_minor,
+        total_delivery_charges_minor,
+        platforms,
+        riders,
+        orders: order_rows,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -722,18 +973,18 @@ mod tests {
     #[test]
     fn summary_narrows_correctly_to_a_single_day() {
         let conn = test_conn();
-        // Seed data has exactly one sale "today" (days_ago(0)).
-        let summary = get_sales_summary(&conn, &days_ago(0), &days_ago(0)).unwrap();
-        assert_eq!(summary.transaction_count, 1);
-
-        let expected_total: i64 = conn
-            .query_row(
-                "SELECT total_minor FROM sales WHERE substr(created_at,1,10) = date('now','localtime')",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(summary.total_sales_minor, expected_total);
+        // Its own sales on fixed future dates: independent of the demo seed
+        // and of the clock (no flake when the run crosses midnight).
+        conn.execute_batch(
+            "INSERT INTO sales (total_minor, created_at) VALUES (1500, '2031-03-04 00:00:00');
+             INSERT INTO sales (total_minor, created_at) VALUES (2500, '2031-03-04 23:59:59');
+             INSERT INTO sales (total_minor, created_at) VALUES (9000, '2031-03-05 00:00:00');
+             INSERT INTO sales (total_minor, created_at) VALUES (7000, '2031-03-03 23:59:59');",
+        )
+        .unwrap();
+        let summary = get_sales_summary(&conn, "2031-03-04", "2031-03-04").unwrap();
+        assert_eq!(summary.transaction_count, 2);
+        assert_eq!(summary.total_sales_minor, 4000);
     }
 
     #[test]
@@ -1249,5 +1500,59 @@ mod tests {
         let report = get_refunds_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
         assert!(report.refunds.is_empty());
         assert_eq!(report.grand_total_refunded_minor, 0);
+    }
+
+    #[test]
+    fn delivery_report_aggregates_platforms_and_groups_riders_by_normalized_phone() {
+        let conn = test_conn();
+
+        // 1. In-house delivery with manual rider
+        conn.execute(
+            "INSERT INTO orders (order_no, order_type, client_ref, rider_source, delivery_rider_name, delivery_rider_phone, customer_phone, delivery_address, delivery_charge_minor, delivery_status, created_at)
+             VALUES (1, 'delivery', 'del-rep-1', 'manual', 'Farhan', '0300-1122334', '03121111111', 'F-8/2', 20000, 'delivered', datetime('now', 'localtime'))",
+            [],
+        ).unwrap();
+        let o1_id = conn.last_insert_rowid();
+        conn.execute("INSERT INTO sales (total_minor, order_id, created_at) VALUES (50000, ?1, datetime('now', 'localtime'))", [o1_id]).unwrap();
+
+        // 2. Another order for the same manual rider with slightly different formatted phone number (+92 300 1122334)
+        conn.execute(
+            "INSERT INTO orders (order_no, order_type, client_ref, rider_source, delivery_rider_name, delivery_rider_phone, customer_phone, delivery_address, delivery_charge_minor, delivery_status, created_at)
+             VALUES (2, 'delivery', 'del-rep-2', 'manual', 'Farhan Ali', '+923001122334', '03122222222', 'F-8/3', 15000, 'dispatched', datetime('now', 'localtime'))",
+            [],
+        ).unwrap();
+        let o2_id = conn.last_insert_rowid();
+        conn.execute("INSERT INTO sales (total_minor, order_id, created_at) VALUES (30000, ?1, datetime('now', 'localtime'))", [o2_id]).unwrap();
+
+        // 3. Third-party order on Foodpanda
+        conn.execute(
+            "INSERT INTO orders (order_no, order_type, client_ref, delivery_platform_id, delivery_platform_name, rider_source, delivery_rider_name, delivery_rider_phone, delivery_status, created_at)
+             VALUES (3, 'third_party_delivery', 'del-rep-3', 1, 'Foodpanda', 'manual', 'FP Rider 1', '03219988776', 'delivered', datetime('now', 'localtime'))",
+            [],
+        ).unwrap();
+        let o3_id = conn.last_insert_rowid();
+        conn.execute("INSERT INTO sales (total_minor, payment_method, order_id, created_at) VALUES (40000, 'platform', ?1, datetime('now', 'localtime'))", [o3_id]).unwrap();
+
+        let report = get_delivery_report(&conn, &days_ago(1), &days_ago(0)).unwrap();
+        assert_eq!(report.total_orders, 3);
+        assert_eq!(report.in_house_orders, 2);
+        assert_eq!(report.third_party_orders, 1);
+        assert_eq!(report.total_sales_minor, 120_000);
+        assert_eq!(report.in_house_sales_minor, 80_000);
+        assert_eq!(report.third_party_sales_minor, 40_000);
+        assert_eq!(report.total_delivery_charges_minor, 35_000);
+
+        // Platform breakdown
+        assert_eq!(report.platforms.len(), 1);
+        assert_eq!(report.platforms[0].platform_name, "Foodpanda");
+        assert_eq!(report.platforms[0].order_count, 1);
+        assert_eq!(report.platforms[0].total_sales_minor, 40_000);
+
+        // Rider breakdown: Farhan's 2 orders must be grouped into 1 rider row by normalized phone number!
+        let farhan = report.riders.iter().find(|r| r.rider_key == "03001122334").expect("Farhan must be grouped by normalized phone");
+        assert_eq!(farhan.order_count, 2);
+        assert_eq!(farhan.delivered_count, 1); // 1 delivered, 1 dispatched
+        assert_eq!(farhan.total_sales_minor, 80_000);
+        assert_eq!(farhan.delivery_charges_minor, 35_000);
     }
 }

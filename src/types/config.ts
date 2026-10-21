@@ -90,6 +90,8 @@ export interface WindowsPrinterOption {
  * `store/themeStore.ts`. */
 export type Theme = "dark" | "light";
 
+export type GlassEffect = "off" | "subtle";
+
 /** Device-level display preferences, read together at boot — see
  * `store/uiPrefsStore.ts`. Both live on `app_config` next to `theme`. */
 export interface UiPrefs {
@@ -97,4 +99,5 @@ export interface UiPrefs {
   /** Desktop sidebar shrunk to its icon-only rail. Android has no sidebar
    * and ignores this. */
   sidebarCollapsed: boolean;
+  glassEffect?: GlassEffect;
 }

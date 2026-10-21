@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS users (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL UNIQUE,
     pin_hash   TEXT    NOT NULL,
-    role       TEXT    NOT NULL CHECK (role IN ('owner', 'admin', 'cashier')),
+    role       TEXT    NOT NULL CHECK (role IN ('owner', 'admin', 'cashier', 'delivery')),
     is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -203,6 +203,17 @@ CREATE TABLE IF NOT EXISTS license_status (
     server_issued_at    INTEGER NOT NULL,
     high_water_local_ts INTEGER NOT NULL,
     last_online_check   INTEGER NOT NULL,
+    updated_at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- ---------------------------------------------------------------------------
+-- pos_sync_meta — cloud synchronization tracking and server account ID.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pos_sync_meta (
+    id                  INTEGER PRIMARY KEY CHECK (id = 1),
+    last_synced_sale_id INTEGER NOT NULL DEFAULT 0,
+    last_synced_at      TEXT,
+    server_customer_id  INTEGER,
     updated_at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -338,7 +349,7 @@ CREATE TABLE IF NOT EXISTS sales (
     discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
     tax_minor      INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
     payment_method TEXT    NOT NULL DEFAULT 'cash'
-                           CHECK (payment_method IN ('cash', 'card', 'other')),
+                           CHECK (payment_method IN ('cash', 'card', 'other', 'platform')),
     -- Kept even if the cashier's account is later removed, so a bill always
     -- has a total; ON DELETE SET NULL rather than losing the sale.
     cashier_id     INTEGER REFERENCES users (id) ON DELETE SET NULL,
@@ -354,6 +365,9 @@ CREATE TABLE IF NOT EXISTS sales (
     -- for a plain counter sale. One order can have several sales (split
     -- bill). Added via ADDED_COLUMNS on an existing install, like shift_id.
     order_id       INTEGER REFERENCES orders (id) ON DELETE SET NULL,
+    -- Amount given by customer and change returned (paisa/cents), if cash.
+    tendered_minor INTEGER,
+    change_minor   INTEGER,
     created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -503,6 +517,7 @@ CREATE TABLE IF NOT EXISTS tokens (
     -- the older table_orders / ad hoc paths, which the kitchen display
     -- never shows. Added via ADDED_COLUMNS on an existing install.
     order_id       INTEGER REFERENCES orders (id) ON DELETE SET NULL,
+    shift_id       INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
     -- Kitchen-display progress of this ticket at its counter.
     kitchen_status TEXT    NOT NULL DEFAULT 'queued'
                            CHECK (kitchen_status IN ('queued', 'preparing', 'ready')),
@@ -510,7 +525,7 @@ CREATE TABLE IF NOT EXISTS tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tokens_table_order ON tokens (table_order_id);
--- `next_token_number_for_today` scans by date(printed_at) for today's max.
+-- `next_token_number_for_shift_or_today` scans by shift_id or date(printed_at) for max.
 CREATE INDEX IF NOT EXISTS idx_tokens_printed_at  ON tokens (printed_at);
 
 CREATE TABLE IF NOT EXISTS token_items (
@@ -530,9 +545,19 @@ CREATE TABLE IF NOT EXISTS token_items (
 
 CREATE INDEX IF NOT EXISTS idx_token_items_token ON token_items (token_id);
 CREATE INDEX IF NOT EXISTS idx_token_items_item  ON token_items (item_id);
--- Indexes on sales.order_id, tokens.order_id and token_items.order_item_id
--- live in schema.rs's ADDED_COLUMN_INDEXES (an upgrading install only has
--- those columns after add_missing_columns runs).
+-- Indexes on sales.order_id, tokens.order_id, tokens.shift_id, orders.shift_id
+-- and token_items.order_item_id live in schema.rs's ADDED_COLUMN_INDEXES (an
+-- upgrading install only has those columns after add_missing_columns runs).
+
+-- ---------------------------------------------------------------------------
+-- Delivery platforms (Foodpanda, Bykea, in-house, etc.) for third-party deliveries
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS delivery_platforms (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE,
+    is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
 
 -- ---------------------------------------------------------------------------
 -- Orders (restaurant order management). An order runs on two independent
@@ -545,38 +570,49 @@ CREATE INDEX IF NOT EXISTS idx_token_items_item  ON token_items (item_id);
 -- (and its `cart_json` stand-in) for new orders.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS orders (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    -- Shown to staff and printed on tickets; resets daily (unique per
-    -- calendar day via idx_orders_day_no).
-    order_no         INTEGER NOT NULL CHECK (order_no > 0),
-    order_type       TEXT    NOT NULL
-                             CHECK (order_type IN ('dine_in', 'takeaway', 'delivery')),
-    table_id         INTEGER REFERENCES tables (id) ON DELETE SET NULL,
-    status           TEXT    NOT NULL DEFAULT 'draft'
-                             CHECK (status IN ('draft', 'sent', 'preparing', 'ready',
-                                               'served', 'held', 'cancelled')),
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- Shown to staff and printed on tickets; resets daily or per shift.
+    order_no                INTEGER NOT NULL CHECK (order_no > 0),
+    order_type              TEXT    NOT NULL
+                            CHECK (order_type IN ('dine_in', 'takeaway', 'delivery', 'third_party_delivery')),
+    table_id                INTEGER REFERENCES tables (id) ON DELETE SET NULL,
+    status                  TEXT    NOT NULL DEFAULT 'draft'
+                            CHECK (status IN ('draft', 'sent', 'preparing', 'ready',
+                                              'served', 'held', 'cancelled')),
     -- What `held` resumes to; set only while status = 'held'.
-    held_from_status TEXT    CHECK (held_from_status IN ('draft', 'sent', 'preparing',
-                                                         'ready', 'served')),
+    held_from_status        TEXT    CHECK (held_from_status IN ('draft', 'sent', 'preparing',
+                                                                 'ready', 'served')),
     -- Bumped on every change; a write naming a stale version is refused, so
     -- two devices can never silently overwrite each other.
-    version          INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+    version                 INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
     -- Client-generated UUID, made once per order: a retried create returns
     -- the existing order instead of a duplicate.
-    client_ref       TEXT    NOT NULL UNIQUE,
-    customer_name    TEXT,
-    notes            TEXT,
-    created_by       INTEGER REFERENCES users (id) ON DELETE SET NULL,
-    created_at       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
-    sent_at          TEXT,
-    ready_at         TEXT,
-    served_at        TEXT,
-    completed_at     TEXT,
-    cancelled_at     TEXT,
-    cancel_reason    TEXT
+    client_ref              TEXT    NOT NULL UNIQUE,
+    customer_name           TEXT,
+    notes                   TEXT,
+    estimated_prep_minutes  INTEGER NOT NULL DEFAULT 15,
+    created_by              INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    shift_id                INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
+    created_at              TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    sent_at                 TEXT,
+    ready_at                TEXT,
+    served_at               TEXT,
+    completed_at            TEXT,
+    cancelled_at            TEXT,
+    cancel_reason           TEXT,
+    delivery_rider_id       INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    rider_source            TEXT    CHECK (rider_source IN ('user', 'manual')),
+    delivery_rider_name     TEXT,
+    delivery_rider_phone    TEXT,
+    delivery_platform_id    INTEGER REFERENCES delivery_platforms (id) ON DELETE SET NULL,
+    delivery_platform_name  TEXT,
+    customer_phone          TEXT,
+    delivery_address        TEXT,
+    delivery_charge_minor   INTEGER NOT NULL DEFAULT 0,
+    delivery_status         TEXT    CHECK (delivery_status IN ('placed', 'dispatched', 'delivered', 'cancelled')),
+    platform_order_ref      TEXT
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_day_no ON orders (date(created_at), order_no);
 -- The active-orders board filters on status.
 CREATE INDEX IF NOT EXISTS idx_orders_status     ON orders (status);
 CREATE INDEX IF NOT EXISTS idx_orders_table      ON orders (table_id);
@@ -593,6 +629,10 @@ CREATE TABLE IF NOT EXISTS order_items (
     -- sent by the client — so paying can copy it as price_at_sale_minor.
     price_at_order_minor INTEGER NOT NULL CHECK (price_at_order_minor >= 0),
     notes                TEXT,
+    -- When the kitchen was told about this line (Send); NULL = not sent yet,
+    -- so it may still be changed or removed freely. Set even for an item
+    -- with no counter, which never appears on a token.
+    sent_at              TEXT,
     -- A line the kitchen was told about is voided, never deleted.
     status               TEXT    NOT NULL DEFAULT 'active'
                                  CHECK (status IN ('active', 'voided')),
