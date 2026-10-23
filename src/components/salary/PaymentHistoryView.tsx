@@ -4,6 +4,7 @@ import { getEmployees } from "../../services/attendanceService";
 import { getPaymentHistory } from "../../services/salaryService";
 import { formatMinor } from "../../utils/format";
 import type { Employee, PaymentStatus, SalaryCalculation } from "../../types";
+import { useReport } from "../../hooks/useReport";
 
 const STATUS_STYLES: Record<PaymentStatus, string> = {
   paid: "bg-success-soft text-success-text",
@@ -21,9 +22,7 @@ const STATUS_LABEL: Record<PaymentStatus, string> = {
 export function PaymentHistoryView() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeId, setEmployeeId] = useState<number | null>(null);
-  const [history, setHistory] = useState<SalaryCalculation[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [employeesError, setEmployeesError] = useState<string | null>(null);
   const { config } = useAppConfig();
 
   useEffect(() => {
@@ -32,21 +31,13 @@ export function PaymentHistoryView() {
         setEmployees(staff);
         setEmployeeId((current) => current ?? staff[0]?.id ?? null);
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => setEmployeesError(e.message));
   }, []);
 
-  useEffect(() => {
-    if (employeeId === null) {
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    getPaymentHistory(employeeId)
-      .then(setHistory)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
-  }, [employeeId]);
+  const payments = useReport(() => getPaymentHistory(employeeId as number), [employeeId], { enabled: employeeId !== null });
+  const history: SalaryCalculation[] = payments.data ?? [];
+  const isLoading = payments.isLoading;
+  const error = payments.error ?? employeesError;
 
   return (
     <div className="space-y-3">

@@ -1,11 +1,12 @@
 import { ManagementSummary } from "../components/ui/ManagementSummary";
 import { formatMinor } from "../utils/format";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Download, Printer, Wallet, Banknote, Clock } from "lucide-react";
 import { MonthlyOverviewTable } from "../components/salary/MonthlyOverviewTable";
 import { PaymentHistoryView } from "../components/salary/PaymentHistoryView";
 import { RecordPaymentModal } from "../components/salary/RecordPaymentModal";
 import { useAppConfig } from "../hooks/useAppConfig";
+import { useReport } from "../hooks/useReport";
 import { getMonthlyOverview, printMonthlyReportThermal } from "../services/salaryService";
 import type { SalaryCalculation } from "../types";
 import { currentMonth } from "../utils/dateRanges";
@@ -17,9 +18,6 @@ export function SalaryPage() {
   const { config } = useAppConfig();
   const [tab, setTab] = useState<Tab>("overview");
   const [month, setMonth] = useState(currentMonth());
-  const [rows, setRows] = useState<SalaryCalculation[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [paymentTarget, setPaymentTarget] = useState<SalaryCalculation | null>(null);
 
   // "Employee Report" — attendance + salary for every active employee this
@@ -43,16 +41,9 @@ export function SalaryPage() {
     });
   };
 
-  const reload = () => {
-    setIsLoading(true);
-    setError(null);
-    getMonthlyOverview(month)
-      .then(setRows)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(reload, [month]);
+  const overview = useReport(() => getMonthlyOverview(month), [month]);
+  const rows: SalaryCalculation[] = overview.data ?? [];
+  const { isLoading, error } = overview;
 
   return (
     <section className="space-y-6">
@@ -148,8 +139,8 @@ export function SalaryPage() {
           row={paymentTarget}
           currency={config.currency}
           onClose={() => setPaymentTarget(null)}
-          onSaved={(updated) => {
-            setRows((prev) => prev.map((r) => (r.employeeId === updated.employeeId ? updated : r)));
+          onSaved={() => {
+            overview.reload();
             setPaymentTarget(null);
           }}
         />

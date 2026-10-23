@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useReport } from "../../hooks/useReport";
 import { getMonthlySummary } from "../../services/attendanceService";
 import { formatHours } from "../../utils/format";
 import type { MonthlySummary } from "../../types";
@@ -11,18 +12,8 @@ import { currentMonth } from "../../utils/dateRanges";
  * contributing zero hours. */
 export function MonthlySummaryTable() {
   const [month, setMonth] = useState(currentMonth());
-  const [rows, setRows] = useState<MonthlySummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setIsLoading(true);
-    setError(null);
-    getMonthlySummary(month)
-      .then(setRows)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
-  }, [month]);
+  const { data, isLoading, error } = useReport(() => getMonthlySummary(month), [month]);
+  const rows: MonthlySummary[] = data ?? [];
 
   return (
     <div className="space-y-3">

@@ -36,7 +36,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -70,6 +70,19 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "salary_payments",
     "expenses",
     "delivery_platforms",
+    // v13 — customers/credit, purchasing, stock control
+    "customers",
+    "sale_payments",
+    "customer_payments",
+    "suppliers",
+    "purchase_orders",
+    "purchase_order_items",
+    "goods_receipts",
+    "goods_receipt_items",
+    "supplier_payments",
+    "stock_movements",
+    "stock_takes",
+    "stock_take_lines",
 ];
 
 /// Default PIN for the seeded owner account. Surfaced on the login screen on
@@ -111,6 +124,12 @@ const MODULE_CATALOGUE: &[(&str, &str, bool, i64, bool, bool)] = &[
     (key::USERS, "Users", false, 11, true, true),
     (key::SETTINGS, "Settings", false, 12, true, true),
     (key::DELIVERY, "Delivery", false, 13, false, false),
+    // Customer accounts, pay-later sales and installments.
+    (key::CUSTOMERS, "Customers", false, 14, true, false),
+    // Suppliers, purchase orders and goods received notes (GRN).
+    (key::PURCHASING, "Purchasing", false, 15, true, false),
+    // Receivables/payables dashboard and statements over the two above.
+    (key::LEDGER, "Ledger", false, 16, true, false),
 ];
 
 /// User tables currently present, in name order (SQLite internals excluded).
@@ -154,6 +173,9 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
         ));
     }
 
+    // Recreated below, once every table rebuild has run — SQLite refuses to
+    // rename a rebuilt table into place while a view names a missing one.
+    conn.execute_batch("DROP VIEW IF EXISTS sale_payment_lines;")?;
     relax_tokens_table_order_id(conn)?;
     crate::startup_log::log("db: v9->v10 tokens.table_order_id nullability migration checked");
 
@@ -164,6 +186,13 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
 
     add_delivery_support(conn)?;
     crate::startup_log::log("db: v11->v12 delivery support migration checked");
+
+    // Again: the v12 rebuild above copies only the `sales` columns it knew
+    // about, so an install upgrading straight from v11 needs v13's re-added.
+    add_missing_columns(conn)?;
+    widen_sales_payment_methods(conn)?;
+    crate::startup_log::log("db: v12->v13 sales payment-method migration checked");
+    conn.execute_batch(SALE_PAYMENT_LINES_VIEW)?;
 
     // If this ever trips, `schema.sql` and EXPECTED_TABLES have drifted apart.
     let missing_after = missing_tables(conn)?;
@@ -312,6 +341,19 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("sales", "change_minor", "INTEGER"),
     ("orders", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
     ("tokens", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
+    // v13 — see schema.sql's `sales`/`sale_items` comments.
+    ("sales", "customer_id", "INTEGER REFERENCES customers (id) ON DELETE SET NULL"),
+    ("sales", "service_charge_minor", "INTEGER NOT NULL DEFAULT 0"),
+    ("sales", "due_date", "TEXT"),
+    ("sale_items", "cost_at_sale_minor", "INTEGER"),
+    // Service charge added to every sale when > 0 — see `db::config::AppConfig`.
+    ("app_config", "service_charge_percent", "REAL NOT NULL DEFAULT 0"),
+    // Weight-scale (price/weight-embedded) barcodes — see `db::items::parse_scale_barcode`.
+    ("app_config", "scale_barcode_enabled", "INTEGER NOT NULL DEFAULT 0"),
+    ("app_config", "scale_barcode_prefix", "TEXT NOT NULL DEFAULT '21'"),
+    ("app_config", "scale_item_code_digits", "INTEGER NOT NULL DEFAULT 5"),
+    ("app_config", "scale_value_kind", "TEXT NOT NULL DEFAULT 'weight'"),
+    ("app_config", "scale_value_decimals", "INTEGER NOT NULL DEFAULT 3"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs
@@ -331,6 +373,7 @@ const ADDED_COLUMN_INDEXES: &[(&str, &str, &str)] = &[
     ("idx_token_items_order_item", "token_items", "order_item_id"),
     ("idx_orders_shift", "orders", "shift_id"),
     ("idx_tokens_shift", "tokens", "shift_id"),
+    ("idx_sales_customer", "sales", "customer_id"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -377,6 +420,15 @@ fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
     Ok(())
 }
 
+/// Whether `table` exists yet — every guarded migration step starts here.
+fn table_exists(conn: &Connection, table: &str) -> Result<bool, rusqlite::Error> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        params![table],
+        |row| row.get(0),
+    )
+}
+
 /// v9 -> v10: `tokens.table_order_id` goes from `NOT NULL` to nullable, so a
 /// Takeaway sale (which has no `table_orders` row at all) can still record
 /// an ad hoc token — see `schema.sql`'s comment on that column, and `db::
@@ -400,12 +452,8 @@ fn add_missing_columns(conn: &Connection) -> Result<(), rusqlite::Error> {
 /// creates the nullable shape directly) and a no-op if `tokens` already has
 /// the nullable shape (idempotent, safe to check on every launch).
 fn relax_tokens_table_order_id(conn: &Connection) -> Result<(), rusqlite::Error> {
-    let exists: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tokens'",
-        [],
-        |row| row.get(0),
-    )?;
-    if exists == 0 {
+    let exists = table_exists(conn, "tokens")?;
+    if !exists {
         return Ok(());
     }
 
@@ -447,13 +495,9 @@ fn relax_tokens_table_order_id(conn: &Connection) -> Result<(), rusqlite::Error>
 /// Creates `delivery_platforms` table if missing. Idempotent and safe on existing data.
 fn add_delivery_support(conn: &Connection) -> Result<(), rusqlite::Error> {
     // Check if orders table exists and whether it already has delivery_status column
-    let orders_exists: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'orders'",
-        [],
-        |row| row.get(0),
-    )?;
+    let orders_exists = table_exists(conn, "orders")?;
 
-    if orders_exists > 0 {
+    if orders_exists {
         let mut stmt = conn.prepare("PRAGMA table_info(orders)")?;
         let has_delivery_status = stmt
             .query_map([], |row| row.get::<_, String>(1))?
@@ -485,13 +529,9 @@ fn add_delivery_support(conn: &Connection) -> Result<(), rusqlite::Error> {
         )?;
 
         // 2. Rebuild users table with 'delivery' role
-        let users_exists: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'users'",
-            [],
-            |row| row.get(0),
-        )?;
+        let users_exists = table_exists(conn, "users")?;
 
-        if users_exists > 0 {
+        if users_exists {
             conn.execute_batch(
                 "CREATE TABLE users_v12 (
                      id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -571,12 +611,8 @@ fn add_delivery_support(conn: &Connection) -> Result<(), rusqlite::Error> {
         )?;
 
         // 4. Rebuild sales table to add 'platform' to payment_method CHECK constraint
-        let sales_exists: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sales'",
-            [],
-            |row| row.get(0),
-        )?;
-        if sales_exists > 0 {
+        let sales_exists = table_exists(conn, "sales")?;
+        if sales_exists {
             conn.execute_batch(
                 "CREATE TABLE sales_v12 (
                      id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -609,6 +645,77 @@ fn add_delivery_support(conn: &Connection) -> Result<(), rusqlite::Error> {
     })();
 
     // Always restore foreign keys
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    result
+}
+
+/// Every sale's tender breakdown: its `sale_payments` rows, or — for a sale
+/// written before v13 (or by a path that records none) — one line for the
+/// whole total under `sales.payment_method`. Shift reconciliation and the
+/// payment-type reports read this rather than `sales.payment_method`, which
+/// is only `split`/`credit` for a multi-tender or pay-later sale. Created
+/// here rather than in `schema.sql` because `apply()` drops it before any
+/// table rebuild and recreates it afterwards.
+const SALE_PAYMENT_LINES_VIEW: &str = "CREATE VIEW IF NOT EXISTS sale_payment_lines AS
+    SELECT sp.sale_id, sp.method, sp.amount_minor FROM sale_payments sp
+    UNION ALL
+    SELECT s.id, s.payment_method, s.total_minor FROM sales s
+     WHERE s.total_minor > 0
+       AND NOT EXISTS (SELECT 1 FROM sale_payments sp WHERE sp.sale_id = s.id);";
+
+/// v12 -> v13: `sales.payment_method` gains `split` and `credit`. Same
+/// rebuild-and-rename as `add_delivery_support`'s step 4 (a CHECK can't be
+/// altered in place); a no-op once the stored definition already has them,
+/// which includes every fresh install.
+fn widen_sales_payment_methods(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let sql: Option<String> = conn
+        .query_row("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sales'", [], |row| row.get(0))
+        .ok();
+    let Some(sql) = sql else { return Ok(()) };
+    if sql.contains("'split'") {
+        return Ok(());
+    }
+
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
+    let result = conn.execute_batch(
+        "BEGIN;
+         CREATE TABLE sales_v13 (
+             id             INTEGER PRIMARY KEY AUTOINCREMENT,
+             total_minor    INTEGER NOT NULL CHECK (total_minor >= 0),
+             discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
+             tax_minor      INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
+             payment_method TEXT    NOT NULL DEFAULT 'cash'
+                                    CHECK (payment_method IN ('cash', 'card', 'other', 'platform', 'split', 'credit')),
+             cashier_id     INTEGER REFERENCES users (id) ON DELETE SET NULL,
+             table_id       INTEGER REFERENCES tables (id) ON DELETE SET NULL,
+             shift_id       INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
+             order_id       INTEGER REFERENCES orders (id) ON DELETE SET NULL,
+             tendered_minor INTEGER,
+             change_minor   INTEGER,
+             created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+             customer_id    INTEGER REFERENCES customers (id) ON DELETE SET NULL,
+             service_charge_minor INTEGER NOT NULL DEFAULT 0 CHECK (service_charge_minor >= 0),
+             due_date       TEXT
+         );
+         INSERT INTO sales_v13 (id, total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id,
+                                shift_id, order_id, tendered_minor, change_minor, created_at, customer_id,
+                                service_charge_minor, due_date)
+             SELECT id, total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id,
+                    shift_id, order_id, tendered_minor, change_minor, created_at, customer_id,
+                    service_charge_minor, due_date FROM sales;
+         DROP TABLE sales;
+         ALTER TABLE sales_v13 RENAME TO sales;
+         CREATE INDEX idx_sales_created_at ON sales (created_at);
+         CREATE INDEX idx_sales_cashier    ON sales (cashier_id);
+         CREATE INDEX idx_sales_table      ON sales (table_id);
+         CREATE INDEX idx_sales_shift      ON sales (shift_id);
+         CREATE INDEX idx_sales_order      ON sales (order_id);
+         CREATE INDEX idx_sales_customer   ON sales (customer_id);
+         COMMIT;",
+    );
+    if result.is_err() {
+        let _ = conn.execute_batch("ROLLBACK;");
+    }
     conn.pragma_update(None, "foreign_keys", "ON")?;
     result
 }
@@ -706,6 +813,55 @@ pub(crate) fn test_conn() -> Connection {
 mod tests {
     use super::*;
     use crate::db::test_support::count;
+
+    #[test]
+    fn upgrading_a_v12_install_widens_payment_methods_and_keeps_sales() {
+        let conn = test_conn();
+        conn.execute("INSERT INTO sales (total_minor, payment_method) VALUES (2500, 'card')", []).unwrap();
+        let sales_before = count(&conn, "SELECT COUNT(*) FROM sales");
+
+        conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+        conn.execute_batch(
+            "DROP VIEW sale_payment_lines;
+             DROP TABLE sale_payments;
+             CREATE TABLE sales_v12 (
+                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                 total_minor    INTEGER NOT NULL CHECK (total_minor >= 0),
+                 discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
+                 tax_minor      INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
+                 payment_method TEXT    NOT NULL DEFAULT 'cash'
+                                        CHECK (payment_method IN ('cash', 'card', 'other', 'platform')),
+                 cashier_id     INTEGER REFERENCES users (id) ON DELETE SET NULL,
+                 table_id       INTEGER REFERENCES tables (id) ON DELETE SET NULL,
+                 shift_id       INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
+                 order_id       INTEGER REFERENCES orders (id) ON DELETE SET NULL,
+                 tendered_minor INTEGER,
+                 change_minor   INTEGER,
+                 created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+             );
+             INSERT INTO sales_v12 SELECT id, total_minor, discount_minor, tax_minor, payment_method, cashier_id,
+                                          table_id, shift_id, order_id, tendered_minor, change_minor, created_at
+                                     FROM sales;
+             DROP TABLE sales;
+             ALTER TABLE sales_v12 RENAME TO sales;
+             PRAGMA user_version = 12;",
+        )
+        .unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+
+        apply(&conn).unwrap();
+
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM sales"), sales_before);
+        assert!(has_column(&conn, "sales", "customer_id"));
+        assert!(has_column(&conn, "sales", "service_charge_minor"));
+        conn.execute("INSERT INTO sales (total_minor, payment_method) VALUES (100, 'split')", []).unwrap();
+        assert_eq!(
+            count(&conn, "SELECT COUNT(*) FROM sale_payment_lines WHERE method = 'card' AND amount_minor = 2500"),
+            1,
+            "a sale from before v13 reads as one tender of its whole total"
+        );
+        apply(&conn).unwrap();
+    }
 
     #[test]
     fn relax_tokens_table_order_id_upgrades_a_v9_install_and_preserves_existing_rows() {
@@ -954,7 +1110,8 @@ mod tests {
         // SQLite can't DROP COLUMN out of these commented CREATE TABLEs).
         conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
         conn.execute_batch(
-            "DROP TABLE order_status_events;
+            "DROP VIEW sale_payment_lines;
+             DROP TABLE order_status_events;
              DROP TABLE order_items;
              DROP TABLE orders;
              CREATE TABLE sales_v11 (

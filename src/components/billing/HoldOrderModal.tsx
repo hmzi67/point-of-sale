@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
-import { Clock, Pause, X } from "lucide-react";
+import { Clock, Pause } from "lucide-react";
 import { createAndHoldOrder, printOrderToken } from "../../services/ordersService";
 import { reportWarning } from "../../services/logService";
 import { useBillingStore } from "../../store";
 import type { Order } from "../../types";
 import { formatMinor } from "../../utils/format";
+import { ModalHeader } from "../ui/ModalCard";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { ORDER_TYPE_LABELS } from "../../utils/orderType";
 import { runAction } from "../../utils/runAction";
@@ -80,27 +81,13 @@ export function HoldOrderModal({
   return (
     <ModalOverlay>
       <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-line pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="rounded-xl bg-accent-soft p-2 text-accent-text">
-              <Pause className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-fg">Hold Active Order</h2>
-              <p className="text-xs text-fg-muted">
-                Save to queue & clear cart for the next customer
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <ModalHeader
+          icon={Pause}
+          title="Hold Active Order"
+          subtitle="Save to queue & clear cart for the next customer"
+          onClose={onClose}
+          className="pb-4"
+        />
 
         <form onSubmit={handleHold} className="mt-5 space-y-4">
           {error && (

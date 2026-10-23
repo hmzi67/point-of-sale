@@ -20,7 +20,7 @@ function line(priceMinor: number, qty: number): CartEntry {
 describe("computeCartTotals", () => {
   it("sums lines and returns whole minor units with no discount or tax", () => {
     const totals = computeCartTotals([line(8000, 2), line(5000, 1)], "flat", 0, 0);
-    expect(totals).toEqual({ subtotalMinor: 21000, discountMinor: 0, taxMinor: 0, taxableMinor: 21000, deliveryChargeMinor: 0, totalMinor: 21000 });
+    expect(totals).toEqual({ subtotalMinor: 21000, discountMinor: 0, taxMinor: 0, taxableMinor: 21000, serviceChargeMinor: 0, deliveryChargeMinor: 0, totalMinor: 21000 });
   });
 
   it("rounds each line like the Rust side, so a fractional qty never leaves a fraction", () => {
@@ -28,6 +28,13 @@ describe("computeCartTotals", () => {
     const totals = computeCartTotals([line(1234, 0.333)], "flat", 0, 0);
     expect(totals.subtotalMinor).toBe(411);
     expect(Number.isInteger(totals.totalMinor)).toBe(true);
+  });
+
+  it("adds a service charge on the discounted subtotal, alongside tax", () => {
+    // 10000 - 10% = 9000 taxable; 5% tax = 450; 10% service = 900.
+    const totals = computeCartTotals([line(10000, 1)], "percent", 10, 5, 0, 10);
+    expect(totals.serviceChargeMinor).toBe(900);
+    expect(totals.totalMinor).toBe(9000 + 450 + 900);
   });
 
   it("applies a flat discount entered as a decimal amount", () => {

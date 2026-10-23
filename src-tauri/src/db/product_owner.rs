@@ -49,7 +49,8 @@ pub enum ProductOwnerError {
     InvalidLength,
     #[error("Incorrect password")]
     InvalidPassword,
-    #[error("{0}")]
+    /// The detail is logged (see `db::hash_failure`), not shown.
+    #[error("Could not check the password — please try again. Details are in the support log.")]
     Hash(String),
     #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -82,7 +83,7 @@ pub fn setup(conn: &Connection, password: &str) -> Result<(), ProductOwnerError>
     }
     validate_password(password)?;
 
-    let hash = hash_pin(password).map_err(ProductOwnerError::Hash)?;
+    let hash = hash_pin(password).map_err(|e| ProductOwnerError::Hash(crate::db::hash_failure("product owner password", e)))?;
     conn.execute("INSERT INTO product_owner_account (id, pin_hash) VALUES (1, ?1)", params![hash])?;
     Ok(())
 }
@@ -96,7 +97,7 @@ pub fn verify(conn: &Connection, password: &str) -> Result<(), ProductOwnerError
         conn.query_row("SELECT pin_hash FROM product_owner_account WHERE id = 1", [], |row| row.get(0)).optional()?;
     let hash = hash.ok_or(ProductOwnerError::NotConfigured)?;
 
-    let parsed = PasswordHash::new(&hash).map_err(|e| ProductOwnerError::Hash(e.to_string()))?;
+    let parsed = PasswordHash::new(&hash).map_err(|e| ProductOwnerError::Hash(crate::db::hash_failure("product owner password", e)))?;
     Argon2::default()
         .verify_password(password.as_bytes(), &parsed)
         .map_err(|_| ProductOwnerError::InvalidPassword)?;

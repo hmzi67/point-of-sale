@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Store, UserCheck, X } from "lucide-react";
+import { Store, UserCheck } from "lucide-react";
 import { getRecentRiders, listActivePlatforms } from "../../services/deliveryService";
-import { devWarn } from "../../services/logService";
+import { reportWarning } from "../../services/logService";
 import { useBillingStore } from "../../store";
 import type { DeliveryDetails, DeliveryPlatform, RecentRider } from "../../types";
+import { ModalHeader } from "../ui/ModalCard";
 import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface ThirdPartyDeliveryModalProps {
@@ -46,7 +47,7 @@ export function ThirdPartyDeliveryModal({ onClose, onSaved }: ThirdPartyDelivery
         }
       })
       .catch((err) => {
-        devWarn("Failed to load active delivery platforms", err);
+        reportWarning(`Failed to load active delivery platforms: ${(err as Error).message}`);
       })
       .finally(() => {
         if (!cancelled) setIsLoadingPlatforms(false);
@@ -69,7 +70,7 @@ export function ThirdPartyDeliveryModal({ onClose, onSaved }: ThirdPartyDelivery
         if (!cancelled) setRecentRiders(riders);
       })
       .catch((err) => {
-        devWarn("Failed to fetch recent platform riders", err);
+        reportWarning(`Failed to fetch recent platform riders: ${(err as Error).message}`);
       });
 
     return () => {
@@ -121,27 +122,13 @@ export function ThirdPartyDeliveryModal({ onClose, onSaved }: ThirdPartyDelivery
   return (
     <ModalOverlay>
       <div className="w-full max-w-lg rounded-2xl border border-line bg-surface p-6 shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-line pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="rounded-xl bg-accent-soft p-2 text-accent-text">
-              <Store className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-fg">Third-Party Platform Delivery</h2>
-              <p className="text-xs text-fg-muted">
-                Foodpanda, Cheetay, or other external aggregator order
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <ModalHeader
+          icon={Store}
+          title="Third-Party Platform Delivery"
+          subtitle="Foodpanda, Cheetay, or other external aggregator order"
+          onClose={onClose}
+          className="pb-4"
+        />
 
         <form onSubmit={handleSave} className="mt-5 space-y-4">
           {error && (

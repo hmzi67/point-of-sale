@@ -30,10 +30,15 @@ export class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErr
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // The persisted line is clipped (see `startup_log::clip`), so keep it to
-    // the message plus the innermost component — the frame that matters.
+    // The persisted line goes to the support log, and a render error's
+    // message can carry customer or order data — so it records where it
+    // broke (error type, top stack frame, innermost component), not the
+    // message itself, which stays on screen (and in dev's console).
     const innermostFrame = info.componentStack?.split("\n").map((line) => line.trim()).find(Boolean);
-    reportError(`RootErrorBoundary caught: ${error.message}${innermostFrame ? ` | ${innermostFrame}` : ""}`);
+    const topFrame = error.stack?.split("\n").map((line) => line.trim()).find((line) => line.startsWith("at "));
+    reportError(
+      `RootErrorBoundary caught ${error.name}${topFrame ? ` ${topFrame}` : ""}${innermostFrame ? ` | ${innermostFrame}` : ""}`,
+    );
   }
 
   render() {

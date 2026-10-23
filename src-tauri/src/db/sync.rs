@@ -21,6 +21,16 @@ pub struct SyncSalePayload {
     pub items_count: i64,
     pub items_summary: String,
     pub sale_created_at: String,
+    /// Part of `total_minor` — see `sales.service_charge_minor`.
+    pub service_charge_minor: i64,
+    /// The tender breakdown (`sale_payment_lines`), so the dashboard can
+    /// split a `split`/`credit` sale by method. `other_minor` includes
+    /// platform payments; `credit_minor` is the pay-later part.
+    pub cash_minor: i64,
+    pub card_minor: i64,
+    pub other_minor: i64,
+    pub credit_minor: i64,
+    pub customer_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +58,17 @@ pub fn get_records_for_sync(
         "refund_items", "table_orders", "tokens", "token_items",
         "delivery_platforms", "orders", "order_items", "order_status_events",
         "employees", "attendance", "salary_payments", "expenses",
+        // v13: customers & pay-later, purchasing, stock control.
+        "customers", "sale_payments", "customer_payments", "suppliers",
+        "purchase_orders", "purchase_order_items", "goods_receipts",
+        "goods_receipt_items", "supplier_payments", "stock_movements",
+        "stock_takes", "stock_take_lines",
     ];
+
+    // Columns of mirrored tables that must still stay on the device: a 4–6
+    // digit PIN behind an argon2 hash falls to an offline brute force in
+    // seconds, so the hash itself is the secret.
+    const PRIVATE_COLUMNS: &[(&str, &str)] = &[("app_config", "sensitive_area_pin_hash")];
 
     let mut snapshot = Map::new();
     for table in TABLES {
@@ -61,6 +81,9 @@ pub fn get_records_for_sync(
         let rows = statement.query_map([], |row| {
             let mut object = Map::new();
             for (index, column) in columns.iter().enumerate() {
+                if PRIVATE_COLUMNS.contains(&(*table, column.as_str())) {
+                    continue;
+                }
                 object.insert(column.clone(), sqlite_value(row.get_ref(index)?));
             }
             Ok(Value::Object(object))
@@ -162,11 +185,13 @@ pub fn get_sales_for_sync(
 ) -> Result<Vec<SyncSalePayload>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT s.id, o.order_no, t.name, u.name, s.total_minor, s.discount_minor, s.tax_minor,
-                s.payment_method, s.created_at
+                s.payment_method, s.created_at, s.service_charge_minor,
+                COALESCE(c.name, o.customer_name)
            FROM sales s
       LEFT JOIN orders o ON o.id = s.order_id
       LEFT JOIN tables t ON t.id = s.table_id
       LEFT JOIN users u ON u.id = s.cashier_id
+      LEFT JOIN customers c ON c.id = s.customer_id
           WHERE s.id > ?1
           ORDER BY s.id ASC
           LIMIT ?2",
@@ -183,6 +208,8 @@ pub fn get_sales_for_sync(
             row.get::<_, i64>(6)?,
             row.get::<_, String>(7)?,
             row.get::<_, String>(8)?,
+            row.get::<_, i64>(9)?,
+            row.get::<_, Option<String>>(10)?,
         ))
     })?;
 
@@ -193,9 +220,30 @@ pub fn get_sales_for_sync(
            JOIN items i ON i.id = si.item_id
           WHERE si.sale_id = ?1",
     )?;
+    let mut tenders_stmt = conn.prepare(
+        "SELECT COALESCE(SUM(CASE WHEN method = 'cash' THEN amount_minor END), 0),
+                COALESCE(SUM(CASE WHEN method = 'card' THEN amount_minor END), 0),
+                COALESCE(SUM(CASE WHEN method IN ('other', 'platform') THEN amount_minor END), 0),
+                COALESCE(SUM(CASE WHEN method = 'credit' THEN amount_minor END), 0)
+           FROM sale_payment_lines WHERE sale_id = ?1",
+    )?;
 
     for row in rows {
-        let (id, order_no, table_name, cashier_name, total_minor, discount_minor, tax_minor, payment_method, created_at) = row?;
+        let (
+            id,
+            order_no,
+            table_name,
+            cashier_name,
+            total_minor,
+            discount_minor,
+            tax_minor,
+            payment_method,
+            created_at,
+            service_charge_minor,
+            customer_name,
+        ) = row?;
+        let (cash_minor, card_minor, other_minor, credit_minor): (i64, i64, i64, i64) =
+            tenders_stmt.query_row(params![id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
 
         let items_rows = items_stmt.query_map(params![id], |ir| {
             Ok((ir.get::<_, String>(0)?, ir.get::<_, f64>(1)?))
@@ -229,6 +277,12 @@ pub fn get_sales_for_sync(
             items_count: items_count.max(1),
             items_summary,
             sale_created_at: created_at,
+            service_charge_minor,
+            cash_minor,
+            card_minor,
+            other_minor,
+            credit_minor,
+            customer_name,
         });
     }
 
@@ -242,15 +296,20 @@ pub fn get_recent_daily_summaries(
     currency: &str,
 ) -> Result<Vec<SyncDailySummaryPayload>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT DATE(created_at) AS sdate,
-                COALESCE(SUM(total_minor), 0),
+        // Cash/card/other by tender (`sale_payment_lines`), so the parts of a
+        // split bill land under their own methods.
+        "SELECT DATE(s.created_at) AS sdate,
+                COALESCE(SUM(s.total_minor), 0),
                 COUNT(*),
-                COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total_minor ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total_minor ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN payment_method NOT IN ('cash', 'card') THEN total_minor ELSE 0 END), 0)
-           FROM sales
-          WHERE created_at >= datetime('now', 'localtime', ?1)
-          GROUP BY DATE(created_at)
+                COALESCE(SUM((SELECT SUM(amount_minor) FROM sale_payment_lines p
+                               WHERE p.sale_id = s.id AND p.method = 'cash')), 0),
+                COALESCE(SUM((SELECT SUM(amount_minor) FROM sale_payment_lines p
+                               WHERE p.sale_id = s.id AND p.method = 'card')), 0),
+                COALESCE(SUM((SELECT SUM(amount_minor) FROM sale_payment_lines p
+                               WHERE p.sale_id = s.id AND p.method NOT IN ('cash', 'card'))), 0)
+           FROM sales s
+          WHERE s.created_at >= datetime('now', 'localtime', ?1)
+          GROUP BY DATE(s.created_at)
           ORDER BY sdate DESC",
     )?;
 
@@ -364,5 +423,112 @@ mod tests {
         let status = get_sync_status(&conn, URL).unwrap();
         assert_eq!(status.last_synced_sale_id, 11);
         assert_eq!(status.server_customer_id, Some(43));
+    }
+
+    #[test]
+    fn the_cloud_mirror_leaves_out_local_only_tables() {
+        let conn = test_conn();
+        let snapshot = get_records_for_sync(&conn).unwrap();
+        for private in ["users", "license_status", "pos_sync_meta", "product_owner_account"] {
+            assert!(!snapshot.contains_key(private), "{private} must never leave the device");
+        }
+        let sales = snapshot["sales"].as_array().unwrap();
+        assert_eq!(sales.len(), sale_ids(&conn).len());
+        assert!(sales[0]["total_minor"].is_i64());
+        let config = &snapshot["app_config"].as_array().unwrap()[0];
+        assert!(config.get("business_name").is_some());
+        assert!(config.get("sensitive_area_pin_hash").is_none(), "the area PIN's hash must never leave the device");
+    }
+
+    #[test]
+    fn sqlite_values_map_to_json_by_type() {
+        assert_eq!(sqlite_value(ValueRef::Null), Value::Null);
+        assert_eq!(sqlite_value(ValueRef::Integer(7)), Value::from(7));
+        assert_eq!(sqlite_value(ValueRef::Real(1.5)), Value::from(1.5));
+        assert_eq!(sqlite_value(ValueRef::Text(b"chai")), Value::from("chai"));
+        assert_eq!(sqlite_value(ValueRef::Blob(&[1, 2, 3])), Value::from("<3 bytes>"), "blobs are summarized, not sent");
+    }
+
+    #[test]
+    fn daily_summaries_split_a_split_bill_by_tender() {
+        use crate::db::sales::{create_sale, CreateSaleInput, PaymentPart};
+        use crate::db::test_support::{in_tx, item_id, one_line_sale};
+        let mut conn = test_conn();
+        let today: String = conn.query_row("SELECT date('now', 'localtime')", [], |r| r.get(0)).unwrap();
+        let before = get_recent_daily_summaries(&conn, 1, "PKR")
+            .unwrap()
+            .into_iter()
+            .find(|d| d.summary_date == today);
+        let cola = item_id(&conn, "Cola 500ml");
+        let price: i64 = conn.query_row("SELECT price_minor FROM items WHERE id = ?1", [cola], |r| r.get(0)).unwrap();
+        in_tx(&mut conn, |tx| {
+            create_sale(
+                tx,
+                CreateSaleInput {
+                    payments: vec![
+                        PaymentPart { method: "cash".into(), amount_minor: 1000 },
+                        PaymentPart { method: "card".into(), amount_minor: price - 1000 },
+                    ],
+                    ..one_line_sale(cola, 1.0)
+                },
+            )
+        })
+        .unwrap();
+        let after = get_recent_daily_summaries(&conn, 1, "PKR")
+            .unwrap()
+            .into_iter()
+            .find(|d| d.summary_date == today)
+            .unwrap();
+        let (cash0, card0) = before.map_or((0, 0), |d| (d.cash_minor, d.card_minor));
+        assert_eq!(after.cash_minor - cash0, 1000);
+        assert_eq!(after.card_minor - card0, price - 1000);
+        assert_eq!(after.currency, "PKR");
+    }
+
+    #[test]
+    fn a_synced_sale_carries_its_tender_breakdown_and_customer() {
+        use crate::db::customers::{add_customer, CustomerInput};
+        use crate::db::sales::{create_sale, CreateSaleInput, PaymentPart};
+        use crate::db::test_support::{in_tx, item_id, one_line_sale};
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let price: i64 = conn.query_row("SELECT price_minor FROM items WHERE id = ?1", [cola], |r| r.get(0)).unwrap();
+        let customer = add_customer(
+            &conn,
+            CustomerInput { name: "Hina".into(), phone: None, email: None, address: None, notes: None },
+        )
+        .unwrap()
+        .id;
+        let sale = in_tx(&mut conn, |tx| {
+            create_sale(
+                tx,
+                CreateSaleInput {
+                    payments: vec![
+                        PaymentPart { method: "cash".into(), amount_minor: 1000 },
+                        PaymentPart { method: "credit".into(), amount_minor: price + 200 - 1000 },
+                    ],
+                    customer_id: Some(customer),
+                    service_charge_minor: 200,
+                    due_date: Some("2099-01-01".into()),
+                    ..one_line_sale(cola, 1.0)
+                },
+            )
+        })
+        .unwrap();
+
+        let payload = get_sales_for_sync(&conn, sale.id - 1, 1, "PKR").unwrap().remove(0);
+        assert_eq!(payload.payment_method, "split");
+        assert_eq!((payload.cash_minor, payload.card_minor, payload.other_minor), (1000, 0, 0));
+        assert_eq!(payload.credit_minor, price + 200 - 1000);
+        assert_eq!(payload.service_charge_minor, 200);
+        assert_eq!(payload.customer_name.as_deref(), Some("Hina"));
+
+        let plain = get_sales_for_sync(&conn, 0, 1, "PKR").unwrap().remove(0);
+        assert_eq!(plain.cash_minor + plain.card_minor + plain.other_minor, plain.total_minor, "a pre-v13 sale is one tender");
+
+        let records = get_records_for_sync(&conn).unwrap();
+        for table in ["customers", "sale_payments", "suppliers", "stock_movements"] {
+            assert!(records.contains_key(table), "{table} is mirrored");
+        }
     }
 }

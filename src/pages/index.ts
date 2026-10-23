@@ -1,12 +1,15 @@
 export { AttendancePage } from "./AttendancePage";
 export { BillingPage } from "./BillingPage";
+export { CustomersPage } from "./CustomersPage";
 export { DashboardPage } from "./DashboardPage";
 export { EmployeesPage } from "./EmployeesPage";
 export { ExpensesPage } from "./ExpensesPage";
 export { InventoryPage } from "./InventoryPage";
+export { LedgerPage } from "./LedgerPage";
 export { LoginPage } from "./LoginPage";
 export { NotFoundPage } from "./NotFoundPage";
 export { OnboardingPage } from "./OnboardingPage";
+export { PurchasingPage } from "./PurchasingPage";
 export { ReportsPage } from "./ReportsPage";
 export { SalaryPage } from "./SalaryPage";
 export { SettingsPage } from "./SettingsPage";

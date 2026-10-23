@@ -45,8 +45,13 @@ service-account*.json
 *.provisionprofile
 GoogleService-Info.plist
 google-services.json
+*.der
+*.pfx
+*.p7b
 .env
 .env.*
+*.env
+*.env.local
 !.env.example
 
 # Local SQLite databases (a copied-out pos.db holds real client data)

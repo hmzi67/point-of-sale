@@ -31,8 +31,9 @@ use crate::db::counters::Counter;
 use crate::db::dates::TIMESTAMP_FORMAT;
 use crate::db::users::{ManagedUser, Role, User};
 use crate::db::{
-    attendance, config, counters, csv_import, dashboard, expenses, full_report, items, modules, product_owner,
-    refunds, reports, salary, sales, security_pin, shifts, tables, tokens, users, orders, delivery_platforms, Db,
+    attendance, config, counters, csv_import, customers, dashboard, expenses, full_report, insights, items, modules,
+    product_owner, purchasing, refunds, reports, salary, sales, security_pin, shifts, stock, tables, tokens, users,
+    orders, delivery_platforms, Db,
 };
 use crate::area_access_session::AreaAccessSession;
 use crate::attempt_limiter::AttemptLimiter;
@@ -320,31 +321,46 @@ pub fn app_log_frontend_warning(message: String) {
     crate::startup_log::warn(&format!("frontend: {}", crate::startup_log::clip(&message)));
 }
 
-/// Called by the splash window's own inline script (see
-/// `public/splashscreen.html`) once its content has actually painted — the
-/// real "ready" signal `reveal_main_window` waits on, rather than a guess at
-/// how long a freshly-created webview process takes to render its first
-/// frame (a cold WKWebView/WebView2 can lag "the window exists" by a
-/// meaningful fraction of a second, long enough to eat the whole splash
-/// floor if that guess is wrong). Waits out whatever remains of
-/// `MIN_SPLASH_MS` from process launch — almost always ~0, since painting
-/// itself already took a moment — then closes the splash and reveals
-/// `main`. A no-op if that already happened via `MAX_SPLASH_MS`'s ceiling
-/// firing first (see `lib.rs::run`).
+/// The splash window's own script finished loading and painting — a
+/// diagnostic marker only: if a startup failure's log lacks this line, the
+/// splash's assets never resolved. Revealing `main` waits on
+/// `app_main_ready` instead, so the splash covers the app's own load.
+/// `async` so it runs off the main thread (sync commands run on it).
 #[tauri::command]
-pub fn splashscreen_ready(app: AppHandle) {
-    // Proof the splash window's own JS actually executed (its `load`
-    // listener fired and the IPC bridge reached Rust) — if a real startup
-    // failure's log is missing this line entirely, the splash's content
-    // itself never finished loading, which points at an asset-resolution
-    // problem in the bundle rather than anything in `setup()`.
-    crate::startup_log::log("splashscreen_ready invoked — splash content loaded and painted");
-    let launched_at = app.state::<crate::LaunchedAt>().0;
-    let remaining = crate::MIN_SPLASH_MS.saturating_sub(launched_at.elapsed().as_millis() as u64);
-    if remaining > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(remaining));
+pub async fn app_splashscreen_ready(app: AppHandle) {
+    crate::startup_log::log("app_splashscreen_ready invoked — splash content loaded and painted");
+    if let Ok(mut painted) = app.state::<crate::SplashPaintedAt>().0.lock() {
+        painted.get_or_insert_with(std::time::Instant::now);
     }
-    crate::reveal_main_window(&app);
+}
+
+/// The main window's frontend has rendered its first screen: close the
+/// splash and show `main`, once the splash has been up for `MIN_SPLASH_MS`
+/// (counted from launch if the splash never reported painting). A no-op on
+/// mobile and once already revealed (by the `MAX_SPLASH_MS` ceiling). `async`
+/// because it may wait — a sync command would block the main thread, and
+/// with it the very window it's about to show.
+#[tauri::command]
+pub async fn app_main_ready(app: AppHandle) {
+    if app.get_webview_window("splashscreen").is_none() {
+        return;
+    }
+    crate::startup_log::log("app_main_ready invoked — main window rendered its first screen");
+    let shown_since = app
+        .state::<crate::SplashPaintedAt>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|painted| *painted)
+        .unwrap_or(app.state::<crate::LaunchedAt>().0);
+    let remaining = crate::MIN_SPLASH_MS.saturating_sub(shown_since.elapsed().as_millis() as u64);
+    if remaining > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(remaining)).await;
+    }
+    let handle = app.clone();
+    // `reveal_main_window` polls with blocking sleeps; keep them off the
+    // async runtime's worker.
+    let _ = tauri::async_runtime::spawn_blocking(move || crate::reveal_main_window(&handle)).await;
 }
 
 /// The user tables currently present. Used to verify a migration landed.
@@ -415,6 +431,31 @@ pub fn config_update(
         // Every sale's tax line is derived from this, so reject nonsense here.
         if !(0.0..=100.0).contains(&tax) {
             return Err("Tax percent must be between 0 and 100".into());
+        }
+    }
+    if let Some(service) = patch.service_charge_percent {
+        if !(0.0..=100.0).contains(&service) {
+            return Err("Service charge must be between 0 and 100 percent".into());
+        }
+    }
+    if let Some(prefix) = &patch.scale_barcode_prefix {
+        if prefix.is_empty() || prefix.len() > 3 || !prefix.chars().all(|c| c.is_ascii_digit()) {
+            return Err("Scale barcode prefix must be 1 to 3 digits".into());
+        }
+    }
+    if let Some(digits) = patch.scale_item_code_digits {
+        if !(3..=6).contains(&digits) {
+            return Err("Scale item code must be 3 to 6 digits".into());
+        }
+    }
+    if let Some(kind) = &patch.scale_value_kind {
+        if kind != "weight" && kind != "price" {
+            return Err("Scale value must be weight or price".into());
+        }
+    }
+    if let Some(decimals) = patch.scale_value_decimals {
+        if !(0..=3).contains(&decimals) {
+            return Err("Scale decimals must be 0 to 3".into());
         }
     }
 
@@ -583,14 +624,14 @@ pub async fn license_activate(
 
 /// Triggers an immediate cloud synchronization with diwan.codehunts.co.uk.
 #[tauri::command]
-pub async fn pos_sync_now(app: AppHandle, session: State<'_, Session>) -> Result<crate::db::sync::SyncResult, String> {
+pub async fn sync_now(app: AppHandle, session: State<'_, Session>) -> Result<crate::db::sync::SyncResult, String> {
     require_role(&session, ADMIN_ROLES)?;
     crate::sync::perform_sync(&app).await
 }
 
 /// Retrieves the current sync tracking info and statistics.
 #[tauri::command]
-pub fn pos_get_sync_status(app: AppHandle, session: State<'_, Session>) -> Result<crate::db::sync::SyncStatusInfo, String> {
+pub fn sync_get_status(app: AppHandle, session: State<'_, Session>) -> Result<crate::db::sync::SyncStatusInfo, String> {
     require_signed_in(&session)?;
     crate::sync::get_status(&app)
 }
@@ -1144,10 +1185,7 @@ pub fn billing_create_sale(
         None
     };
     let sale = transact(&db, |tx| sales::create_sale(tx, input))?;
-    let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = crate::sync::perform_sync(&app_handle).await;
-    });
+    crate::sync::spawn_after_write(&app);
     Ok(sale)
 }
 
@@ -1429,10 +1467,7 @@ pub fn refunds_create(
             CreateRefundInput { sale_id, items, reason, refunded_by: Some(caller.id) },
         )
     })?;
-    let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = crate::sync::perform_sync(&app_handle).await;
-    });
+    crate::sync::spawn_after_write(&app);
     Ok(refund)
 }
 
@@ -2371,6 +2406,14 @@ pub struct OrdersPayInput {
     pub tendered_minor: Option<i64>,
     #[serde(default)]
     pub change_minor: Option<i64>,
+    #[serde(default)]
+    pub payments: Vec<sales::PaymentPart>,
+    #[serde(default)]
+    pub customer_id: Option<i64>,
+    #[serde(default)]
+    pub service_charge_minor: i64,
+    #[serde(default)]
+    pub due_date: Option<String>,
 }
 
 #[tauri::command]
@@ -2403,13 +2446,14 @@ pub fn orders_pay(
                 shift_id,
                 tendered_minor: input.tendered_minor,
                 change_minor: input.change_minor,
+                payments: input.payments,
+                customer_id: input.customer_id,
+                service_charge_minor: input.service_charge_minor,
+                due_date: input.due_date,
             },
         )
     })?;
-    let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = crate::sync::perform_sync(&app_handle).await;
-    });
+    crate::sync::spawn_after_write(&app);
     Ok(paid)
 }
 
@@ -3246,6 +3290,53 @@ mod guard_tests {
         area
     }
 
+    // -- module gating ------------------------------------------------------
+
+    fn db_with(disabled: &[&str]) -> Db {
+        let conn = crate::db::schema::test_conn();
+        for key in disabled {
+            modules::set_by_product_owner(&conn, key, Platform::current(), Some(false), None).unwrap();
+        }
+        Db::from_connection(conn)
+    }
+
+    #[test]
+    fn require_module_refuses_a_disabled_module_and_accepts_any_one_enabled_key() {
+        let db = db_with(&[module_key::PURCHASING]);
+        assert!(require_module(&db, &[module_key::PURCHASING]).is_err());
+        assert!(require_module(&db, &[module_key::PURCHASING, module_key::LEDGER]).is_ok());
+        assert!(require_module(&db, &[module_key::CUSTOMERS]).is_ok());
+    }
+
+    #[test]
+    fn require_module_admin_needs_both_the_module_and_an_admin_role() {
+        let db = db_with(&[module_key::LEDGER]);
+        assert!(require_module_admin(&db, &[module_key::PURCHASING], &signed_in(Role::Admin)).is_ok());
+        assert!(require_module_admin(&db, &[module_key::PURCHASING], &signed_in(Role::Cashier)).is_err());
+        assert!(require_module_admin(&db, &[module_key::PURCHASING], &Session::new()).is_err());
+        assert!(require_module_admin(&db, &[module_key::LEDGER], &signed_in(Role::Owner)).is_err());
+    }
+
+    #[test]
+    fn require_module_area_needs_the_module_and_a_live_grant() {
+        let db = db_with(&[]);
+        let cashier = signed_in(Role::Cashier);
+        assert!(require_module_area(&db, &[module_key::REPORTS], &cashier, &granted()).is_ok());
+        assert_eq!(
+            require_module_area(&db, &[module_key::REPORTS], &cashier, &AreaAccessSession::new()).unwrap_err(),
+            AREA_PIN_REQUIRED
+        );
+        let off = db_with(&[module_key::REPORTS]);
+        assert!(require_module_area(&off, &[module_key::REPORTS], &cashier, &granted()).is_err());
+    }
+
+    #[test]
+    fn require_customers_lets_a_cashier_in_only_while_the_module_is_on() {
+        assert_eq!(require_customers(&db_with(&[]), &signed_in(Role::Cashier)).unwrap().role, Role::Cashier);
+        assert!(require_customers(&db_with(&[]), &Session::new()).is_err());
+        assert!(require_customers(&db_with(&[module_key::CUSTOMERS]), &signed_in(Role::Owner)).is_err());
+    }
+
     // -- require_license ---------------------------------------------------
 
     #[test]
@@ -3331,4 +3422,513 @@ mod guard_tests {
             assert!(may_act_on_shift(&staff, None), "{role:?}");
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Customers and pay-later (`customers` module). Cashiers take installments at
+// the till, so these need a signed-in user, not an admin — except archiving.
+// ---------------------------------------------------------------------------
+
+fn require_customers(db: &Db, session: &Session) -> Result<User, String> {
+    require_module(db, &[module_key::CUSTOMERS])?;
+    require_signed_in(session)
+}
+
+/// The caller's open shift, when the shifts module is on — so cash taken
+/// outside a sale still lands in that drawer's reconciliation.
+fn caller_open_shift(db: &Db, user: &User) -> Result<Option<i64>, String> {
+    if !module_enabled(db, module_key::SHIFTS)? {
+        return Ok(None);
+    }
+    Ok(query(db, |conn| shifts::get_open_shift_for_cashier(conn, user.id))?.map(|shift| shift.id))
+}
+
+#[tauri::command]
+pub fn customers_list(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    search: Option<String>,
+    include_inactive: Option<bool>,
+) -> Result<Vec<customers::Customer>, String> {
+    require_customers(&db, &session)?;
+    query(&db, |conn| customers::list_customers(conn, search.as_deref(), include_inactive.unwrap_or(false), 2000))
+}
+
+/// The billing screen's customer picker: active customers only, few rows.
+#[tauri::command]
+pub fn customers_search(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    search: String,
+) -> Result<Vec<customers::Customer>, String> {
+    require_customers(&db, &session)?;
+    query(&db, |conn| customers::list_customers(conn, Some(&search), false, 12))
+}
+
+#[tauri::command]
+pub fn customers_get(db: State<'_, Db>, session: State<'_, Session>, id: i64) -> Result<customers::Customer, String> {
+    require_customers(&db, &session)?;
+    query(&db, |conn| customers::get_customer(conn, id))
+}
+
+#[tauri::command]
+pub fn customers_add(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    input: customers::CustomerInput,
+) -> Result<customers::Customer, String> {
+    require_customers(&db, &session)?;
+    query(&db, |conn| customers::add_customer(conn, input))
+}
+
+#[tauri::command]
+pub fn customers_update(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    input: customers::CustomerInput,
+) -> Result<customers::Customer, String> {
+    require_customers(&db, &session)?;
+    query(&db, |conn| customers::update_customer(conn, id, input))
+}
+
+#[tauri::command]
+pub fn customers_set_active(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    active: bool,
+) -> Result<customers::Customer, String> {
+    require_module_admin(&db, &[module_key::CUSTOMERS], &session)?;
+    query(&db, |conn| customers::set_active(conn, id, active))
+}
+
+#[tauri::command]
+pub fn customers_get_credit_sales(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    customer_id: Option<i64>,
+    only_outstanding: bool,
+) -> Result<Vec<customers::CreditSale>, String> {
+    require_module(&db, &[module_key::CUSTOMERS, module_key::LEDGER])?;
+    require_signed_in(&session)?;
+    query(&db, |conn| customers::list_credit_sales(conn, customer_id, only_outstanding))
+}
+
+#[tauri::command]
+pub fn customers_get_payments(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    customer_id: i64,
+) -> Result<Vec<customers::CustomerPayment>, String> {
+    require_customers(&db, &session)?;
+    query(&db, |conn| customers::list_payments(conn, customer_id))
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomerPaymentArgs {
+    pub customer_id: i64,
+    pub sale_id: Option<i64>,
+    pub amount_minor: i64,
+    pub method: String,
+    pub note: Option<String>,
+}
+
+#[tauri::command]
+pub fn customers_record_payment(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    input: CustomerPaymentArgs,
+) -> Result<Vec<customers::CustomerPayment>, String> {
+    let user = require_customers(&db, &session)?;
+    let shift_id = caller_open_shift(&db, &user)?;
+    transact(&db, |tx| {
+        customers::record_payment(
+            tx,
+            customers::PaymentInput {
+                customer_id: input.customer_id,
+                sale_id: input.sale_id,
+                amount_minor: input.amount_minor,
+                method: &input.method,
+                note: input.note.as_deref(),
+                received_by: Some(user.id),
+                shift_id,
+            },
+        )
+    })
+}
+
+#[tauri::command]
+pub fn customers_get_statement(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    customer_id: i64,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<customers::Statement, String> {
+    require_module(&db, &[module_key::CUSTOMERS, module_key::LEDGER])?;
+    require_signed_in(&session)?;
+    query(&db, |conn| customers::statement(conn, customer_id, start_date.as_deref(), end_date.as_deref()))
+}
+
+/// Pay-later sales past their due date — the payment alerts.
+#[tauri::command]
+pub fn customers_get_overdue(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+) -> Result<Vec<customers::CreditSale>, String> {
+    require_customers(&db, &session)?;
+    query(&db, customers::list_overdue)
+}
+
+#[tauri::command]
+pub fn customers_get_overdue_summary(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+) -> Result<customers::OverdueSummary, String> {
+    require_customers(&db, &session)?;
+    query(&db, customers::overdue_summary)
+}
+
+// ---------------------------------------------------------------------------
+// Purchasing (`purchasing` module) — Owner/Admin.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn purchasing_list_suppliers(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    include_inactive: Option<bool>,
+) -> Result<Vec<purchasing::Supplier>, String> {
+    require_module(&db, &[module_key::PURCHASING, module_key::LEDGER])?;
+    require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| purchasing::list_suppliers(conn, include_inactive.unwrap_or(false)))
+}
+
+#[tauri::command]
+pub fn purchasing_add_supplier(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    input: purchasing::SupplierInput,
+) -> Result<purchasing::Supplier, String> {
+    require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    query(&db, |conn| purchasing::add_supplier(conn, input))
+}
+
+#[tauri::command]
+pub fn purchasing_update_supplier(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    input: purchasing::SupplierInput,
+) -> Result<purchasing::Supplier, String> {
+    require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    query(&db, |conn| purchasing::update_supplier(conn, id, input))
+}
+
+#[tauri::command]
+pub fn purchasing_set_supplier_active(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    active: bool,
+) -> Result<purchasing::Supplier, String> {
+    require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    query(&db, |conn| purchasing::set_supplier_active(conn, id, active))
+}
+
+#[tauri::command]
+pub fn purchasing_list_orders(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    status: Option<String>,
+) -> Result<Vec<purchasing::PurchaseOrder>, String> {
+    require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    query(&db, |conn| purchasing::list_pos(conn, status.as_deref(), 500))
+}
+
+#[tauri::command]
+pub fn purchasing_create_order(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    input: purchasing::PoInput,
+) -> Result<purchasing::PurchaseOrder, String> {
+    let user = require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    transact(&db, |tx| purchasing::create_po(tx, input, Some(user.id)))
+}
+
+#[tauri::command]
+pub fn purchasing_update_order(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    input: purchasing::PoInput,
+) -> Result<purchasing::PurchaseOrder, String> {
+    require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    transact(&db, |tx| purchasing::update_po(tx, id, input))
+}
+
+#[tauri::command]
+pub fn purchasing_set_order_status(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    status: String,
+) -> Result<purchasing::PurchaseOrder, String> {
+    require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    transact(&db, |tx| purchasing::set_po_status(tx, id, &status))
+}
+
+#[tauri::command]
+pub fn purchasing_get_incoming(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+) -> Result<Vec<purchasing::IncomingLine>, String> {
+    require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    query(&db, purchasing::incoming_stock)
+}
+
+#[tauri::command]
+pub fn purchasing_receive_goods(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    input: purchasing::GrnInput,
+) -> Result<purchasing::GoodsReceipt, String> {
+    let user = require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    transact(&db, |tx| purchasing::receive_goods(tx, input, Some(user.id)))
+}
+
+#[tauri::command]
+pub fn purchasing_list_receipts(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    supplier_id: Option<i64>,
+) -> Result<Vec<purchasing::GoodsReceipt>, String> {
+    require_module_admin(&db, &[module_key::PURCHASING], &session)?;
+    query(&db, |conn| purchasing::list_grns(conn, supplier_id, 500))
+}
+
+#[tauri::command]
+pub fn purchasing_record_payment(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    input: purchasing::SupplierPaymentInput,
+) -> Result<purchasing::SupplierPayment, String> {
+    require_module(&db, &[module_key::PURCHASING, module_key::LEDGER])?;
+    let user = require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| purchasing::record_supplier_payment(conn, input, Some(user.id)))
+}
+
+#[tauri::command]
+pub fn purchasing_list_payments(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    supplier_id: Option<i64>,
+) -> Result<Vec<purchasing::SupplierPayment>, String> {
+    require_module(&db, &[module_key::PURCHASING, module_key::LEDGER])?;
+    require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| purchasing::list_supplier_payments(conn, supplier_id, 1000))
+}
+
+#[tauri::command]
+pub fn purchasing_get_statement(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    supplier_id: i64,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<customers::Statement, String> {
+    require_module(&db, &[module_key::PURCHASING, module_key::LEDGER])?;
+    require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| purchasing::supplier_statement(conn, supplier_id, start_date.as_deref(), end_date.as_deref()))
+}
+
+/// The Ledger screen's receivables/payables overview.
+#[tauri::command]
+pub fn ledger_get_summary(db: State<'_, Db>, session: State<'_, Session>) -> Result<insights::LedgerSummary, String> {
+    require_module_admin(&db, &[module_key::LEDGER], &session)?;
+    query(&db, insights::ledger_summary)
+}
+
+// ---------------------------------------------------------------------------
+// Stock control (`inventory` module) — Owner/Admin, like item edits.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn stock_adjust(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    input: stock::AdjustmentInput,
+) -> Result<Item, String> {
+    let user = require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    transact(&db, |tx| stock::adjust(tx, input, Some(user.id)))
+}
+
+#[tauri::command]
+pub fn stock_list_movements(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    item_id: Option<i64>,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    reason: Option<String>,
+) -> Result<Vec<stock::StockMovement>, String> {
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    query(&db, |conn| {
+        stock::list_movements(conn, item_id, start_date.as_deref(), end_date.as_deref(), reason.as_deref(), 1000)
+    })
+}
+
+#[tauri::command]
+pub fn stock_submit_take(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    note: Option<String>,
+    lines: Vec<stock::CountLine>,
+) -> Result<stock::StockTake, String> {
+    let user = require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    transact(&db, |tx| stock::submit_stock_take(tx, note.as_deref(), &lines, Some(user.id)))
+}
+
+#[tauri::command]
+pub fn stock_list_takes(db: State<'_, Db>, session: State<'_, Session>) -> Result<Vec<stock::StockTake>, String> {
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    query(&db, |conn| stock::list_stock_takes(conn, 100))
+}
+
+#[tauri::command]
+pub fn stock_get_take(db: State<'_, Db>, session: State<'_, Session>, id: i64) -> Result<stock::StockTake, String> {
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    query(&db, |conn| stock::get_stock_take(conn, id))
+}
+
+/// Assigns in-store EAN-13 barcodes to the given items (or every active item
+/// without one); returns how many were assigned.
+#[tauri::command]
+pub fn stock_generate_barcodes(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    item_ids: Option<Vec<i64>>,
+) -> Result<i64, String> {
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    transact(&db, |tx| stock::generate_barcodes(tx, item_ids.as_deref()))
+}
+
+/// A scanned weight-scale barcode, resolved to its item and quantity —
+/// `None` when the code isn't one (or scale barcodes are off).
+#[tauri::command]
+pub fn billing_lookup_scale_barcode(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    code: String,
+) -> Result<Option<stock::ScaleMatch>, String> {
+    require_module(&db, &[module_key::BILLING])?;
+    require_signed_in(&session)?;
+    query(&db, |conn| {
+        let config = config::get(conn)?;
+        stock::lookup_scale_barcode(conn, &code, &config)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Insight reports (Reports screen, area-PIN gated like the rest of it).
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn reports_get_profit_loss(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    start_date: String,
+    end_date: String,
+    grouping: String,
+) -> Result<insights::ProfitLoss, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    let include_expenses = module_enabled(&db, module_key::EXPENSES)?;
+    let include_salaries = module_enabled(&db, module_key::SALARY)?;
+    query(&db, |conn| {
+        insights::profit_loss(conn, &start_date, &end_date, &grouping, include_expenses, include_salaries)
+    })
+}
+
+#[tauri::command]
+pub fn reports_get_order_profit(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<insights::OrderProfitRow>, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    query(&db, |conn| insights::order_profit(conn, &start_date, &end_date))
+}
+
+#[tauri::command]
+pub fn reports_get_payment_types(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    start_date: String,
+    end_date: String,
+) -> Result<insights::PaymentTypeReport, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    query(&db, |conn| insights::payment_types(conn, &start_date, &end_date))
+}
+
+#[tauri::command]
+pub fn reports_get_tax(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    start_date: String,
+    end_date: String,
+) -> Result<insights::TaxReport, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    query(&db, |conn| insights::tax_report(conn, &start_date, &end_date))
+}
+
+#[tauri::command]
+pub fn reports_get_voids(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    start_date: String,
+    end_date: String,
+) -> Result<insights::VoidReport, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    query(&db, |conn| insights::void_report(conn, &start_date, &end_date))
+}
+
+#[tauri::command]
+pub fn reports_get_stock_levels(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+) -> Result<insights::StockLevelReport, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    query(&db, insights::stock_levels)
+}
+
+#[tauri::command]
+pub fn reports_get_inventory_usage(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<insights::UsageRow>, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    query(&db, |conn| insights::inventory_usage(conn, &start_date, &end_date))
+}
+
+#[tauri::command]
+pub fn reports_get_expiry(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    within_days: i64,
+) -> Result<Vec<insights::ExpiryRow>, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    query(&db, |conn| insights::expiry_report(conn, within_days))
 }

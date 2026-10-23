@@ -196,7 +196,7 @@ pub struct Sent {
     pub token_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PayInput {
     pub order_item_ids: Vec<i64>,
     pub payment_method: String,
@@ -206,6 +206,11 @@ pub struct PayInput {
     pub shift_id: Option<i64>,
     pub tendered_minor: Option<i64>,
     pub change_minor: Option<i64>,
+    /// As `sales::CreateSaleInput`'s fields of the same names.
+    pub payments: Vec<sales::PaymentPart>,
+    pub customer_id: Option<i64>,
+    pub service_charge_minor: i64,
+    pub due_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1026,6 +1031,10 @@ pub fn pay_lines(tx: &Transaction, order_id: i64, expected_version: i64, input: 
             order_id: Some(order_id),
             tendered_minor: input.tendered_minor,
             change_minor: input.change_minor,
+            payments: &input.payments,
+            customer_id: input.customer_id,
+            service_charge_minor: input.service_charge_minor,
+            due_date: input.due_date.as_deref(),
         },
     )?;
     for &line_id in &ids {
@@ -1257,6 +1266,7 @@ mod tests {
             shift_id: None,
             tendered_minor: None,
             change_minor: None,
+            ..Default::default()
         }
     }
 
@@ -1316,6 +1326,7 @@ mod tests {
                     shift_id: None,
                     tendered_minor: None,
                     change_minor: None,
+                    ..Default::default()
                 },
             )
         })
@@ -1769,6 +1780,7 @@ mod tests {
             shift_id: None,
             tendered_minor: None,
             change_minor: None,
+            ..Default::default()
         };
         let a = run(&mut conn, |tx| pay_lines(tx, o.id, o.version, guest_a.clone())).unwrap();
         assert_eq!(a.order.payment_status, "partial");
@@ -1803,6 +1815,7 @@ mod tests {
                     shift_id: None,
                     tendered_minor: None,
                     change_minor: None,
+                    ..Default::default()
                 },
             )
         });

@@ -343,16 +343,8 @@ pub fn get_refund(conn: &Connection, refund_id: i64) -> Result<Refund, RefundErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::test_support::{ring_up, stock};
+    use crate::db::test_support::{ring_up, sale_item_id, stock};
     use crate::db::schema::test_conn;
-
-
-
-
-    fn sale_item_id(conn: &Connection, sale_id: i64) -> i64 {
-        conn.query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale_id], |row| row.get(0))
-            .unwrap()
-    }
 
     #[test]
     fn a_partial_refund_restores_exactly_the_refunded_stock() {

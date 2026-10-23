@@ -55,6 +55,12 @@ export async function call<TResult>(
   }
 }
 
+/** Desktop: tells Rust the main window has painted its first screen, so it
+ * closes the splash and shows this window (`commands::app_main_ready`). */
+export function signalMainReady(): Promise<void> {
+  return call<void>("app_main_ready");
+}
+
 /** Health check wired to the Rust `app_ping` command — proves the IPC bridge works. */
 export function ping(): Promise<string> {
   return call<string>("app_ping");

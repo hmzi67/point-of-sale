@@ -1,11 +1,12 @@
 import { Receipt, Wallet, Layers } from "lucide-react";
 import { ManagementSummary } from "../components/ui/ManagementSummary";
 import { formatMinor } from "../utils/format";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AddExpenseForm } from "../components/expenses/AddExpenseForm";
 import { CategoryBreakdown } from "../components/expenses/CategoryBreakdown";
 import { ExpenseList } from "../components/expenses/ExpenseList";
 import { useAppConfig } from "../hooks/useAppConfig";
+import { useReport } from "../hooks/useReport";
 import {
   getExpenseCategories,
   getExpenseTotalsByCategory,
@@ -13,6 +14,7 @@ import {
 } from "../services/expensesService";
 import { PRESET_LABELS, resolveDateRangePreset } from "../utils/dateRanges";
 import type { CategoryTotal, DateRangePreset, Expense } from "../types";
+import { DateRangeInputs } from "../components/ui/DateRangeInputs";
 
 const PRESETS: Exclude<DateRangePreset, "custom">[] = ["today", "thisWeek", "thisMonth"];
 
@@ -29,31 +31,17 @@ export function ExpensesPage() {
   const [endDate, setEndDate] = useState(initialRange.endDate);
   const [categoryFilter, setCategoryFilter] = useState<string>("");
 
-  const [categories, setCategories] = useState<string[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [totals, setTotals] = useState<CategoryTotal[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const reload = () => {
-    if (!startDate || !endDate || startDate > endDate) return;
-    setIsLoading(true);
-    setError(null);
-    Promise.all([
-      getExpenseCategories(),
-      getExpenses(startDate, endDate, categoryFilter || null),
-      getExpenseTotalsByCategory(startDate, endDate),
-    ])
-      .then(([cats, list, breakdown]) => {
-        setCategories(cats);
-        setExpenses(list);
-        setTotals(breakdown);
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(reload, [startDate, endDate, categoryFilter]);
+  const { data, isLoading, error, reload } = useReport(
+    () =>
+      Promise.all([
+        getExpenseCategories(),
+        getExpenses(startDate, endDate, categoryFilter || null),
+        getExpenseTotalsByCategory(startDate, endDate),
+      ]),
+    [startDate, endDate, categoryFilter],
+    { enabled: Boolean(startDate && endDate && startDate <= endDate) },
+  );
+  const [categories, expenses, totals]: [string[], Expense[], CategoryTotal[]] = data ?? [[], [], []];
 
   const applyPreset = (p: Exclude<DateRangePreset, "custom">) => {
     const range = resolveDateRangePreset(p);
@@ -96,31 +84,19 @@ export function ExpensesPage() {
           ))}
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <input
-            type="date"
-            aria-label="Expense start date"
-            value={startDate}
-            max={endDate || undefined}
-            onChange={(e) => {
-              setPreset("custom");
-              setStartDate(e.target.value);
-            }}
-            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
-          />
-          <span className="text-fg-muted">–</span>
-          <input
-            type="date"
-            aria-label="Expense end date"
-            value={endDate}
-            min={startDate || undefined}
-            onChange={(e) => {
-              setPreset("custom");
-              setEndDate(e.target.value);
-            }}
-            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
-          />
-        </div>
+        <DateRangeInputs
+          label="Expense"
+          start={startDate}
+          end={endDate}
+          onStartChange={(value) => {
+            setPreset("custom");
+            setStartDate(value);
+          }}
+          onEndChange={(value) => {
+            setPreset("custom");
+            setEndDate(value);
+          }}
+        />
 
         <select
           aria-label="Expense category"

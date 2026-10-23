@@ -84,18 +84,21 @@ fn get_sales_breakdown(
     end_ts: &str,
     net_sales_minor: i64,
 ) -> Result<(PaymentMethodBreakdown, SalesMetrics), rusqlite::Error> {
+    // By tender (`sale_payment_lines`), so a split sale counts once under
+    // each method it used.
     let mut stmt = conn.prepare(
         "SELECT
-            COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total_minor ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total_minor ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN payment_method = 'card' THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN payment_method NOT IN ('cash', 'card') THEN total_minor ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN payment_method NOT IN ('cash', 'card') THEN 1 ELSE 0 END), 0),
-            COALESCE(SUM(discount_minor), 0),
-            COALESCE(SUM(tax_minor), 0)
-         FROM sales
-         WHERE created_at >= ?1 AND created_at <= ?2",
+            COALESCE(SUM(CASE WHEN p.method = 'cash' THEN p.amount_minor ELSE 0 END), 0),
+            COUNT(DISTINCT CASE WHEN p.method = 'cash' THEN p.sale_id END),
+            COALESCE(SUM(CASE WHEN p.method = 'card' THEN p.amount_minor ELSE 0 END), 0),
+            COUNT(DISTINCT CASE WHEN p.method = 'card' THEN p.sale_id END),
+            COALESCE(SUM(CASE WHEN p.method NOT IN ('cash', 'card') THEN p.amount_minor ELSE 0 END), 0),
+            COUNT(DISTINCT CASE WHEN p.method NOT IN ('cash', 'card') THEN p.sale_id END),
+            (SELECT COALESCE(SUM(discount_minor), 0) FROM sales WHERE created_at >= ?1 AND created_at <= ?2),
+            (SELECT COALESCE(SUM(tax_minor), 0) FROM sales WHERE created_at >= ?1 AND created_at <= ?2)
+         FROM sale_payment_lines p
+         JOIN sales s ON s.id = p.sale_id
+         WHERE s.created_at >= ?1 AND s.created_at <= ?2",
     )?;
 
     let (cash_minor, cash_count, card_minor, card_count, other_minor, other_count, total_discount_minor, total_tax_minor) =
@@ -193,9 +196,7 @@ mod tests {
     /// The seeded sales fall within the last few weeks; reports cap how
     /// wide a range may be, so use a recent window rather than "all time".
     fn range() -> (String, String) {
-        let today = chrono::Local::now().date_naive();
-        let start = today - chrono::Duration::days(60);
-        (start.format("%Y-%m-%d").to_string(), today.format("%Y-%m-%d").to_string())
+        (crate::db::test_support::days_ago(60), crate::db::test_support::today())
     }
 
     #[test]

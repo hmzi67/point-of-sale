@@ -82,6 +82,7 @@ pub fn one_line_sale(item_id: i64, qty: f64) -> CreateSaleInput {
         shift_id: None,
         tendered_minor: None,
         change_minor: None,
+        ..Default::default()
     }
 }
 
@@ -97,4 +98,39 @@ pub fn ring_up(conn: &mut Connection, item: &str, qty: f64, payment_method: &str
     .unwrap();
     tx.commit().unwrap();
     sale.id
+}
+
+/// The single `sale_items` row of a one-line sale.
+pub fn sale_item_id(conn: &Connection, sale_id: i64) -> i64 {
+    conn.query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale_id], |row| row.get(0))
+        .unwrap()
+}
+
+/// `ring_up` for a cash sale, plus its one `sale_items` id — for tests that
+/// hang a refund off a real line.
+pub fn ring_up_with_line(conn: &mut Connection, item: &str, qty: f64) -> (i64, i64) {
+    let sale_id = ring_up(conn, item, qty, "cash", None);
+    (sale_id, sale_item_id(conn, sale_id))
+}
+
+/// Moves a sale (and its refunds, if any) to `timestamp`, so a report test
+/// can query a fixed day instead of "today" — which a run crossing midnight
+/// would split.
+pub fn backdate_sale(conn: &Connection, sale_id: i64, timestamp: &str) {
+    conn.execute("UPDATE sales SET created_at = ?1 WHERE id = ?2", params![timestamp, sale_id]).unwrap();
+}
+
+/// Today's local date, `YYYY-MM-DD`.
+pub fn today() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+/// A local date `days` before today, `YYYY-MM-DD`.
+pub fn days_ago(days: i64) -> String {
+    (chrono::Local::now().date_naive() - chrono::Duration::days(days)).format("%Y-%m-%d").to_string()
+}
+
+/// The current local month, `YYYY-MM`.
+pub fn this_month() -> String {
+    chrono::Local::now().format("%Y-%m").to_string()
 }

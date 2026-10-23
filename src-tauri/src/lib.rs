@@ -21,19 +21,28 @@ use crate::product_owner_session::ProductOwnerSession;
 use crate::vendor_gate::VendorGate;
 use crate::session::Session;
 
-/// Splash duration bounds. Shared with the Android-side splash
-/// (`SplashGate.tsx`'s `MIN_SPLASH_MS` / `MAX_SPLASH_MS`) so both platforms
-/// feel the same, even though the mechanism differs (a real second window
-/// here, an in-app overlay there — Tauri's secondary-window pattern isn't
-/// available on mobile).
-const MIN_SPLASH_MS: u64 = 400;
-const MAX_SPLASH_MS: u64 = 3000;
+/// Desktop splash duration bounds. The splash stays up until the main
+/// window's frontend has rendered its first screen (`app_main_ready`), but
+/// is on screen for at least `MIN_SPLASH_MS` from its own first paint —
+/// long enough for its entrance animation to land rather than flash — and
+/// is never held past `MAX_SPLASH_MS` from launch, the fallback if that
+/// signal never comes (a bundle that failed to load). The
+/// Android splash (`SplashGate.tsx`) is an in-app overlay with its own,
+/// shorter bounds — Tauri's secondary-window pattern isn't available on
+/// mobile.
+const MIN_SPLASH_MS: u64 = 1200;
+const MAX_SPLASH_MS: u64 = 12000;
 
 /// Process-launch timestamp, managed as app state so both the
-/// `splashscreen_ready` command (invoked by the splash's own script — see
+/// `app_splashscreen_ready` command (invoked by the splash's own script — see
 /// `public/splashscreen.html`) and the `MAX_SPLASH_MS` watchdog thread below
 /// measure the same clock.
 struct LaunchedAt(std::time::Instant);
+
+/// When the splash window reported its first paint (`app_splashscreen_ready`)
+/// — what `MIN_SPLASH_MS` is measured from, since a cold start can spend a
+/// good part of a second before the splash window even exists.
+struct SplashPaintedAt(std::sync::Mutex<Option<std::time::Instant>>);
 
 /// Guards `reveal_main_window` against actually revealing the window twice
 /// — the splash's "I've painted" signal and the `MAX_SPLASH_MS` ceiling both
@@ -52,7 +61,7 @@ const MAIN_WINDOW_WIDTH: f64 = 1280.0;
 const MAIN_WINDOW_HEIGHT: f64 = 800.0;
 
 /// How long `reveal_main_window` will poll for "main" to exist before giving
-/// up. Confirmed on Windows: `splashscreen_ready`'s IPC call can land before
+/// up. Confirmed on Windows: `app_splashscreen_ready`'s IPC call can land before
 /// `setup()` finishes `WebviewWindowBuilder::build()` for "main" — WebView2
 /// can paint the splash and fire its `load` handler faster than `setup()`
 /// gets through `Db::open()` + the window build on a slow disk/AV-scanned
@@ -228,6 +237,7 @@ pub fn run() {
         .manage(iap::AppleAccount::new())
         .manage(LaunchedAt(launched_at))
         .manage(SplashRevealed(std::sync::atomic::AtomicBool::new(false)))
+        .manage(SplashPaintedAt(std::sync::Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
         // Native "Save As" flow for exports (CSV/PDF reports) — the dialog
@@ -323,7 +333,7 @@ pub fn run() {
                     startup_log::log("setup(): \"main\" window built");
 
                     // Absolute ceiling, independent of whether the splash's
-                    // own "I've painted" signal (`splashscreen_ready`, the
+                    // own "I've painted" signal (`app_splashscreen_ready`, the
                     // primary path) ever arrives — so a splash that somehow
                     // never gets to render still can't hang the app open on
                     // it forever. A no-op on Android: no "splashscreen"
@@ -333,8 +343,11 @@ pub fn run() {
                         std::thread::spawn(move || {
                             let remaining = MAX_SPLASH_MS.saturating_sub(launched_at.elapsed().as_millis() as u64);
                             std::thread::sleep(std::time::Duration::from_millis(remaining));
-                            startup_log::log("MAX_SPLASH_MS ceiling reached — revealing main window");
-                            reveal_main_window(&app_handle);
+                            let revealed = app_handle.state::<SplashRevealed>();
+                            if !revealed.0.load(std::sync::atomic::Ordering::SeqCst) {
+                                startup_log::warn("MAX_SPLASH_MS ceiling reached before the app signalled ready — revealing main window");
+                                reveal_main_window(&app_handle);
+                            }
                         });
                     }
 
@@ -357,7 +370,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::app_ping,
-            commands::splashscreen_ready,
+            commands::app_splashscreen_ready,
+            commands::app_main_ready,
             commands::app_log_frontend_error,
             commands::app_log_frontend_warning,
             commands::app_db_version,
@@ -373,8 +387,8 @@ pub fn run() {
             commands::license_get_info,
             commands::license_refresh,
             commands::license_activate,
-            commands::pos_sync_now,
-            commands::pos_get_sync_status,
+            commands::sync_now,
+            commands::sync_get_status,
             commands::iap_get_products,
             commands::iap_purchase,
             commands::iap_restore,
@@ -489,6 +503,48 @@ pub fn run() {
             commands::salary_record_payment,
             commands::salary_get_payment_history,
             commands::dashboard_get_summary,
+            commands::customers_list,
+            commands::customers_search,
+            commands::customers_get,
+            commands::customers_add,
+            commands::customers_update,
+            commands::customers_set_active,
+            commands::customers_get_credit_sales,
+            commands::customers_get_payments,
+            commands::customers_record_payment,
+            commands::customers_get_statement,
+            commands::customers_get_overdue,
+            commands::customers_get_overdue_summary,
+            commands::purchasing_list_suppliers,
+            commands::purchasing_add_supplier,
+            commands::purchasing_update_supplier,
+            commands::purchasing_set_supplier_active,
+            commands::purchasing_list_orders,
+            commands::purchasing_create_order,
+            commands::purchasing_update_order,
+            commands::purchasing_set_order_status,
+            commands::purchasing_get_incoming,
+            commands::purchasing_receive_goods,
+            commands::purchasing_list_receipts,
+            commands::purchasing_record_payment,
+            commands::purchasing_list_payments,
+            commands::purchasing_get_statement,
+            commands::ledger_get_summary,
+            commands::stock_adjust,
+            commands::stock_list_movements,
+            commands::stock_submit_take,
+            commands::stock_list_takes,
+            commands::stock_get_take,
+            commands::stock_generate_barcodes,
+            commands::billing_lookup_scale_barcode,
+            commands::reports_get_profit_loss,
+            commands::reports_get_order_profit,
+            commands::reports_get_payment_types,
+            commands::reports_get_tax,
+            commands::reports_get_voids,
+            commands::reports_get_stock_levels,
+            commands::reports_get_inventory_usage,
+            commands::reports_get_expiry,
             commands::product_owner_get_status,
             commands::product_owner_setup,
             commands::product_owner_login,
@@ -541,7 +597,8 @@ pub fn run() {
                 .show();
             #[cfg(mobile)]
             eprintln!(
-                "Diwan failed to start: {error}\n\nDetails were written to: {}",
+                "Diwan failed to start: {}\n\nDetails were written to: {}",
+                startup_log::clip(&error.to_string()),
                 startup_log::active_log_path().display()
             );
             std::process::exit(1);

@@ -5,6 +5,7 @@ import { decimalToMinor } from "../../utils/format";
 import type { Expense } from "../../types";
 import { todayString } from "../../utils/dateRanges";
 import { runAction } from "../../utils/runAction";
+import { inputClass } from "../ui/ModalCard";
 
 interface AddExpenseFormProps {
   categories: string[];
@@ -133,7 +134,7 @@ export function AddExpenseForm({ categories, onAdded }: AddExpenseFormProps) {
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="e.g. Electricity bill"
-          className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+          className={`mt-1 ${inputClass}`}
         />
       </div>
 

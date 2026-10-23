@@ -11,6 +11,9 @@ const DESCRIPTIONS: Record<string, string> = {
   expenses: "Record business costs",
   salary: "Manage staff payments",
   shifts: "Open & close shifts",
+  customers: "Accounts, credit & installments",
+  purchasing: "Suppliers, orders & goods received",
+  ledger: "Receivables & payables",
 };
 
 /** Links respect the same enabled modules and role permissions as navigation. */

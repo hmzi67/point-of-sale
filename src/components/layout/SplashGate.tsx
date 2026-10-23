@@ -24,13 +24,13 @@ interface SplashGateProps {
  * real native window, already on screen before this bundle even starts
  * loading.
  *
- * Bounds match the desktop splash: never dismissed before `MIN_SPLASH_MS`
- * (so the fade/scale animation, shared with `public/splashscreen.html`,
- * isn't cut off on fast hardware), never held open past `MAX_SPLASH_MS`
- * regardless of how the readiness check below resolves. `app_ping` stands
- * in for the real signal desktop waits on (`Db::open` completing
- * natively); its failure — or just never resolving — is not a reason to
- * strand the user on the splash, which is what the hard timeout guards.
+ * Never dismissed before `MIN_SPLASH_MS` (so the fade/scale animation isn't
+ * cut off on fast hardware), never held open past `MAX_SPLASH_MS` however
+ * the readiness check below resolves. Shorter than desktop's bounds
+ * (`lib.rs`), which wait on the app's own first render instead. `app_ping`
+ * stands in for that signal here; its failure — or just never resolving —
+ * is not a reason to strand the user on the splash, which is what the hard
+ * timeout guards.
  */
 export function SplashGate({ children }: SplashGateProps) {
   const [visible, setVisible] = useState(true);

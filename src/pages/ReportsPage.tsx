@@ -1,8 +1,31 @@
-import { BarChart3, Bike, Boxes, CalendarDays, RotateCcw, Table2 } from "lucide-react";
+import {
+  Ban,
+  BarChart3,
+  Bike,
+  Boxes,
+  CalendarDays,
+  CreditCard,
+  Landmark,
+  PiggyBank,
+  ReceiptText,
+  RotateCcw,
+  Table2,
+  Warehouse,
+  type LucideIcon,
+} from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { DateRangePicker } from "../components/reports/DateRangePicker";
 import { DeliveryReport } from "../components/reports/DeliveryReport";
 import { ExportButtons } from "../components/reports/ExportButtons";
+import { InventoryReports } from "../components/reports/InventoryReports";
+import {
+  OrderProfitReport,
+  PaymentTypeReport,
+  ProfitLossReport,
+  TaxReportView,
+  VoidReportView,
+} from "../components/reports/SalesInsightReports";
+import { WorstSellers } from "../components/reports/WorstSellers";
 import { ProductWiseSalesTable } from "../components/reports/ProductWiseSalesTable";
 import { RefundsTable } from "../components/reports/RefundsTable";
 import { SummaryCards } from "../components/reports/SummaryCards";
@@ -13,7 +36,7 @@ import { useModuleEnabled } from "../hooks/useModules";
 import { getDashboardSummary } from "../services/dashboardService";
 import { getDeliveryReport } from "../services/deliveryService";
 import { getCategories } from "../services/inventoryService";
-import { devWarn } from "../services/logService";
+import { reportWarning } from "../services/logService";
 import { getProductSalesSummary, getRefundsSummary, getTableSalesSummary } from "../services/reportsService";
 import { useReportsStore } from "../store";
 import type {
@@ -33,7 +56,25 @@ const TopEntriesChart = lazy(() =>
   import("../components/reports/TopEntriesChart").then((m) => ({ default: m.TopEntriesChart })),
 );
 
-type View = "overview" | "tables" | "products" | "refunds" | "delivery";
+type SalesView = "overview" | "tables" | "products" | "refunds" | "delivery";
+type InsightView = "profit" | "orderProfit" | "payments" | "tax" | "voids" | "inventory";
+type View = SalesView | InsightView;
+
+const TABS: { key: View; label: string; icon: LucideIcon }[] = [
+  { key: "overview", label: "Overview", icon: BarChart3 },
+  { key: "profit", label: "Profit & Loss", icon: PiggyBank },
+  { key: "orderProfit", label: "Order Profit", icon: ReceiptText },
+  { key: "products", label: "Product Wise Sales", icon: Boxes },
+  { key: "tables", label: "Table Wise Sales", icon: Table2 },
+  { key: "delivery", label: "Deliveries", icon: Bike },
+  { key: "payments", label: "Payment Types", icon: CreditCard },
+  { key: "tax", label: "Tax & Service", icon: Landmark },
+  { key: "refunds", label: "Refunds", icon: RotateCcw },
+  { key: "voids", label: "Voids & Returns", icon: Ban },
+  { key: "inventory", label: "Inventory", icon: Warehouse },
+];
+
+const SALES_VIEWS: View[] = ["overview", "tables", "products", "refunds", "delivery"];
 
 const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border border-line bg-surface-2" />;
 
@@ -127,7 +168,7 @@ export function ReportsPage() {
     // Only feeds the category filter — degrade to "no filter options".
     getCategories()
       .then(setCategories)
-      .catch((error) => devWarn("[reports] could not load categories", error));
+      .catch((error) => reportWarning(`[reports] could not load categories: ${(error as Error).message}`));
   }, [view, categories.length]);
 
   useEffect(() => {
@@ -169,7 +210,7 @@ export function ReportsPage() {
           <p className="mt-2 text-sm text-fg-muted">Explore your sales, spot your best sellers, and track performance.</p>
         </div>
         <ExportButtons
-          view={view}
+          view={SALES_VIEWS.includes(view) ? (view as SalesView) : null}
           summary={summary}
           topItems={topItems}
           series={series}
@@ -189,27 +230,19 @@ export function ReportsPage() {
         </div>
 
         <div className="flex flex-wrap gap-2 border-t border-line pt-4">
-          {(["overview", "products", ...(tablesEnabled ? (["tables"] as const) : []), ...(deliveryEnabled ? (["delivery"] as const) : []), "refunds"] as const).map((v) => (
+          {TABS.filter((t) => (t.key !== "tables" || tablesEnabled) && (t.key !== "delivery" || deliveryEnabled)).map(({ key, label, icon: Icon }) => (
             <button
-              key={v}
+              key={key}
               type="button"
-              onClick={() => setView(v)}
-              aria-pressed={view === v}
+              onClick={() => setView(key)}
+              aria-pressed={view === key}
               className={[
                 "flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-semibold transition-colors",
-                view === v ? "border-accent/40 bg-accent-soft text-accent-text" : "border-transparent text-fg-muted hover:bg-surface-2",
+                view === key ? "border-accent/40 bg-accent-soft text-accent-text" : "border-transparent text-fg-muted hover:bg-surface-2",
               ].join(" ")}
             >
-              {v === "overview" ? <BarChart3 className="h-4 w-4" /> : v === "products" ? <Boxes className="h-4 w-4" /> : v === "tables" ? <Table2 className="h-4 w-4" /> : v === "delivery" ? <Bike className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
-              {v === "overview"
-                ? "Overview"
-                : v === "products"
-                  ? "Product Wise Sales"
-                  : v === "tables"
-                    ? "Table Wise Sales"
-                    : v === "delivery"
-                      ? "Deliveries"
-                      : "Refunds"}
+              <Icon className="h-4 w-4" />
+              {label}
             </button>
           ))}
         </div>
@@ -250,6 +283,7 @@ export function ReportsPage() {
             currency={config.currency}
             isLoading={isLoadingProductSales}
           />
+          <WorstSellers data={productSales} currency={config.currency} />
         </>
       ) : view === "tables" ? (
         <>
@@ -266,6 +300,18 @@ export function ReportsPage() {
           </Suspense>
           <TableWiseSalesTable data={tableSales} currency={config.currency} isLoading={isLoadingTableSales} />
         </>
+      ) : view === "profit" ? (
+        <ProfitLossReport startDate={startDate} endDate={endDate} currency={config.currency} />
+      ) : view === "orderProfit" ? (
+        <OrderProfitReport startDate={startDate} endDate={endDate} currency={config.currency} />
+      ) : view === "payments" ? (
+        <PaymentTypeReport startDate={startDate} endDate={endDate} currency={config.currency} />
+      ) : view === "tax" ? (
+        <TaxReportView startDate={startDate} endDate={endDate} currency={config.currency} />
+      ) : view === "voids" ? (
+        <VoidReportView startDate={startDate} endDate={endDate} currency={config.currency} />
+      ) : view === "inventory" ? (
+        <InventoryReports startDate={startDate} endDate={endDate} currency={config.currency} />
       ) : view === "delivery" ? (
         <>
           {deliveryError && (

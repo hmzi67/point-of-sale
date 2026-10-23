@@ -11,6 +11,21 @@ pub const DATE_FORMAT: &str = "%Y-%m-%d";
 /// The one timestamp format stored in every `*_at` TEXT column.
 pub const TIMESTAMP_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
+/// Later than any real `*_at` timestamp — the upper bound of an open-ended
+/// window ("everything since", "still open").
+pub const OPEN_END_TIMESTAMP: &str = "9999-12-31 23:59:59";
+
+/// The first `*_at` timestamp on `date` (`YYYY-MM-DD`), for an inclusive
+/// range comparison on an indexed timestamp column.
+pub fn day_start(date: &str) -> String {
+    format!("{date} 00:00:00")
+}
+
+/// The last `*_at` timestamp on `date` (`YYYY-MM-DD`).
+pub fn day_end(date: &str) -> String {
+    format!("{date} 23:59:59")
+}
+
 /// Parses a single `YYYY-MM-DD` date.
 pub fn parse_date(date: &str) -> Result<NaiveDate, String> {
     NaiveDate::parse_from_str(date, DATE_FORMAT).map_err(|_| format!("Invalid date: {date}"))

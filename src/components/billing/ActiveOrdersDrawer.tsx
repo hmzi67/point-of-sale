@@ -11,9 +11,9 @@ import {
   updateOrderPrepTime,
 } from "../../services/ordersService";
 import { useBillingStore } from "../../store";
-import type { Item, Order } from "../../types";
+import type { DeliveryStatus, Item, Order, OrderStatus } from "../../types";
 import { formatMinor } from "../../utils/format";
-import { isDeliveryOrder } from "../../utils/orderType";
+import { DEFAULT_PREP_MINUTES, isDeliveryOrder, ORDER_TYPE_LABELS, THIRD_PARTY_FALLBACK_LABEL } from "../../utils/orderType";
 import { runAction } from "../../utils/runAction";
 
 interface ActiveOrdersDrawerProps {
@@ -67,10 +67,12 @@ export function ActiveOrdersDrawer({
 
   if (!isOpen) return null;
 
-  const handleResume = async (order: Order) => {
-    setBusyOrderId(order.id);
-    setError(null);
-    try {
+  /** `runAction` with this drawer's per-order busy flag. */
+  const runForOrder = (orderId: number, action: () => Promise<unknown>) =>
+    runAction((busy) => setBusyOrderId(busy ? orderId : null), setError, action);
+
+  const handleResume = (order: Order) =>
+    runForOrder(order.id, async () => {
       // 1. Fetch live catalog to populate items correctly
       const catalog = await getItems({});
       const byId = new Map<number, Item>(catalog.map((i) => [i.id, i]));
@@ -112,78 +114,35 @@ export function ActiveOrdersDrawer({
 
       onOrderResumed(updated);
       onClose();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusyOrderId(null);
-    }
-  };
+    });
 
-  const handlePrintToken = async (orderId: number) => {
-    setBusyOrderId(orderId);
-    setError(null);
-    try {
-      await printOrderToken(orderId, false);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusyOrderId(null);
-    }
-  };
+  const handlePrintToken = (orderId: number) => runForOrder(orderId, () => printOrderToken(orderId, false));
 
-  const handleTransition = async (order: Order, toStatus: string) => {
-    setBusyOrderId(order.id);
-    setError(null);
-    try {
+  const handleTransition = (order: Order, toStatus: OrderStatus) =>
+    runForOrder(order.id, async () => {
       await transitionOrder(order.id, order.version, toStatus);
       await fetchOrders();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusyOrderId(null);
-    }
-  };
+    });
 
-  const handleExtendPrepTime = async (order: Order, addedMinutes: number) => {
-    setBusyOrderId(order.id);
-    setError(null);
-    try {
-      const newMinutes = (order.estimatedPrepMinutes || 15) + addedMinutes;
-      await updateOrderPrepTime(order.id, newMinutes);
+  const handleExtendPrepTime = (order: Order, addedMinutes: number) =>
+    runForOrder(order.id, async () => {
+      await updateOrderPrepTime(order.id, (order.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES) + addedMinutes);
       await fetchOrders();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusyOrderId(null);
-    }
-  };
+    });
 
-  const handleCancel = async (order: Order) => {
+  const handleCancel = (order: Order) => {
     if (!window.confirm(`Are you sure you want to cancel Order #${order.orderNo}?`)) return;
-    setBusyOrderId(order.id);
-    setError(null);
-    try {
+    return runForOrder(order.id, async () => {
       await cancelOrder(order.id, order.version, "Cancelled from active orders drawer");
       await fetchOrders();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusyOrderId(null);
-    }
+    });
   };
 
-  const handleDeliveryStatus = async (orderId: number, status: string) => {
-    setBusyOrderId(orderId);
-    setError(null);
-    try {
+  const handleDeliveryStatus = (orderId: number, status: DeliveryStatus) =>
+    runForOrder(orderId, async () => {
       await updateDeliveryStatus(orderId, status);
       await fetchOrders();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusyOrderId(null);
-    }
-  };
+    });
 
   const filteredOrders = orders.filter((o) => {
     if (filterType === "all") return true;
@@ -325,7 +284,7 @@ export function ActiveOrdersDrawer({
                 0,
                 Math.floor((now - (isNaN(createdTimestamp) ? now : createdTimestamp)) / 60000),
               );
-              const targetMinutes = order.estimatedPrepMinutes || 15;
+              const targetMinutes = order.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES;
               const remainingMinutes = targetMinutes - elapsedMinutes;
 
               const isLate = remainingMinutes < 0;
@@ -357,24 +316,22 @@ export function ActiveOrdersDrawer({
                               : order.orderType === "delivery"
                                 ? "bg-info-soft text-info-text"
                                 : order.orderType === "third_party_delivery"
-                                  ? "bg-primary-soft text-primary-text"
+                                  ? "bg-accent-soft text-accent-text"
                                   : "bg-surface-2 text-fg-muted"
                           }`}
                         >
                           {order.orderType === "delivery" ? (
                             <>
-                              <Bike className="h-3 w-3" /> Delivery
+                              <Bike className="h-3 w-3" /> {ORDER_TYPE_LABELS.delivery}
                             </>
                           ) : order.orderType === "third_party_delivery" ? (
                             <>
-                              <Store className="h-3 w-3" /> {order.deliveryPlatformName || "3rd-Party"}
+                              <Store className="h-3 w-3" /> {order.deliveryPlatformName || THIRD_PARTY_FALLBACK_LABEL}
                             </>
                           ) : order.orderType === "takeaway" ? (
-                            "Takeaway"
-                          ) : order.tableName ? (
-                            order.tableName
+                            ORDER_TYPE_LABELS.takeaway
                           ) : (
-                            "Dine-In"
+                            order.tableName ?? ORDER_TYPE_LABELS.dine_in
                           )}
                         </span>
                         {order.status === "ready" && (

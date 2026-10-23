@@ -220,9 +220,7 @@ mod tests {
     /// within the last ~12 days, last month's salary payment) but inside
     /// `reports::MAX_RANGE_DAYS`.
     fn wide_range() -> (String, String) {
-        let today = chrono::Local::now().date_naive();
-        let start = today - chrono::Duration::days(60);
-        (start.format("%Y-%m-%d").to_string(), today.format("%Y-%m-%d").to_string())
+        (crate::db::test_support::days_ago(60), crate::db::test_support::today())
     }
 
     #[test]
@@ -316,26 +314,11 @@ mod tests {
     #[test]
     fn a_refund_reduces_net_profit_by_exactly_its_amount() {
         use crate::db::refunds::{create_refund, CreateRefundInput, RefundLineInput};
-        use crate::db::sales::create_sale;
-        use chrono::Local;
 
         let mut conn = test_conn();
-        let today = Local::now().format("%Y-%m-%d").to_string();
+        let today = crate::db::test_support::today();
 
-        let (sale_id, sale_item_id) = {
-            let tx = conn.transaction().unwrap();
-            let cola = item_id(&tx, "Cola 500ml");
-            let sale = create_sale(
-                &tx,
-                one_line_sale(cola, 1.0),
-            )
-            .unwrap();
-            let sale_item_id: i64 = tx
-                .query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale.id], |row| row.get(0))
-                .unwrap();
-            tx.commit().unwrap();
-            (sale.id, sale_item_id)
-        };
+        let (sale_id, sale_item_id) = crate::db::test_support::ring_up_with_line(&mut conn, "Cola 500ml", 1.0);
 
         let before = get_summary(&conn, &today, &today, Platform::Desktop).unwrap();
 

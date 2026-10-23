@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { searchItems } from "../../services/billingService";
+import { lookupScaleBarcode } from "../../services/stockService";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useBillingStore } from "../../store";
 import type { Item } from "../../types";
@@ -33,6 +34,7 @@ export function ItemSearchBar({ onResultsChange }: ItemSearchBarProps) {
   const requestIdRef = useRef(0);
 
   const addItem = useBillingStore((state) => state.addItem);
+  const addItemQty = useBillingStore((state) => state.addItemQty);
 
   // Debounced so fast typing (or a barcode scanner, which types character by
   // character) doesn't fire a search per keystroke — only once typing pauses.
@@ -85,7 +87,34 @@ export function ItemSearchBar({ onResultsChange }: ItemSearchBarProps) {
       // have caught up with the very latest keystroke yet, but the exact
       // barcode match is always sorted first by the backend, so acting on
       // whatever the current top result is remains correct.
+      //
+      // A 13-digit code that isn't an item's own barcode may be a
+      // weight-scale label (item code + weight/price) — Rust decodes it
+      // against the configured layout, or says it isn't one.
       const top = results[0];
+      const code = query.trim();
+      if (/^\d{13}$/.test(code) && top?.barcode !== code) {
+        lookupScaleBarcode(code)
+          .then((match) => {
+            if (!match) {
+              if (top) addAndReset(top);
+              else setError(`No item matches ${code}`);
+              return;
+            }
+            if (match.item.stockQty <= 0) {
+              setError(`${match.item.name} is out of stock`);
+              return;
+            }
+            addItemQty(match.item, match.qty);
+            setQuery("");
+            setResults([]);
+            setError(null);
+            onResultsChange("", []);
+            inputRef.current?.focus();
+          })
+          .catch((e: Error) => setError(e.message));
+        return;
+      }
       if (top) addAndReset(top);
     } else if (event.key === "Escape") {
       setQuery("");

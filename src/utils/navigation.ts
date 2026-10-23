@@ -1,6 +1,8 @@
 import {
   Bike,
+  BookOpenText,
   Boxes,
+  Contact,
   CalendarCheck,
   Clock,
   IdCard,
@@ -10,6 +12,7 @@ import {
   ShoppingCart,
   Table2,
   TrendingUp,
+  Truck,
   Users,
   Wallet,
   type LucideIcon,
@@ -41,6 +44,9 @@ export const MODULE_NAV: Record<ModuleKey, NavItem> = {
   users: { key: "users", path: "/users", icon: Users },
   settings: { key: "settings", path: "/settings", icon: Settings },
   delivery: { key: "delivery", path: "/billing", icon: Bike },
+  customers: { key: "customers", path: "/customers", icon: Contact },
+  purchasing: { key: "purchasing", path: "/purchasing", icon: Truck },
+  ledger: { key: "ledger", path: "/ledger", icon: BookOpenText },
 };
 
 export function pathForModule(key: ModuleKey): string {

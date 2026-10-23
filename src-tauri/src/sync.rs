@@ -14,7 +14,7 @@ use crate::db::sync::{SyncResult, SyncSalePayload, SyncStatusInfo};
 use crate::db::Db;
 use crate::license::runtime::LicenseRuntime;
 
-pub const SYNC_COMPLETED_EVENT: &str = "pos:sync_completed";
+pub const SYNC_COMPLETED_EVENT: &str = "sync:completed";
 
 /// Guard against concurrent sync calls.
 static IS_SYNCING: AtomicBool = AtomicBool::new(false);
@@ -56,11 +56,31 @@ pub async fn perform_sync(app: &AppHandle) -> Result<SyncResult, String> {
     let result = perform_sync_inner(app).await;
     IS_SYNCING.store(false, Ordering::SeqCst);
 
-    if let Ok(ref outcome) = result {
-        let _ = app.emit(SYNC_COMPLETED_EVENT, outcome);
-    }
+    // Emitted on failure too, so an open screen can show it.
+    let outcome = match &result {
+        Ok(outcome) => outcome.clone(),
+        Err(err) => SyncResult {
+            success: false,
+            synced_sales: 0,
+            synced_summaries: 0,
+            server_customer_id: None,
+            message: crate::startup_log::clip(err),
+        },
+    };
+    let _ = app.emit(SYNC_COMPLETED_EVENT, &outcome);
 
     result
+}
+
+/// Pushes a just-recorded sale/refund/payment to the cloud in the background;
+/// a failure is logged, never surfaced to the write that triggered it.
+pub fn spawn_after_write(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = perform_sync(&app).await {
+            crate::startup_log::warn(&format!("post-write sync error: {}", crate::startup_log::clip(&err)));
+        }
+    });
 }
 
 async fn perform_sync_inner(app: &AppHandle) -> Result<SyncResult, String> {
@@ -96,7 +116,7 @@ async fn perform_sync_inner(app: &AppHandle) -> Result<SyncResult, String> {
             let config = crate::db::config::get(conn)?;
             Ok::<_, rusqlite::Error>((config.currency, config.business_name))
         })
-        .unwrap_or_else(|_| ("PKR".to_string(), "POS Terminal".to_string()));
+        .map_err(|e| e.to_string())?;
 
     let api_base = crate::license::client::api_base();
     let status_info = db
@@ -231,6 +251,12 @@ mod tests {
             items_count: 1,
             items_summary: "Tea x1".into(),
             sale_created_at: "2031-03-04 10:00:00".into(),
+            service_charge_minor: 0,
+            cash_minor: 100,
+            card_minor: 0,
+            other_minor: 0,
+            credit_minor: 0,
+            customer_name: None,
         }
     }
 

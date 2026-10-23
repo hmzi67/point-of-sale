@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { DeliveryDetails, Item, ParkedCartLine, PaymentMethod } from "../types";
+import type { CheckoutMode, Customer, DeliveryDetails, Item, ParkedCartLine } from "../types";
+import { defaultDueDate, type SplitRow } from "../utils/checkoutPayments";
 import { minorToDecimal, roundQty } from "../utils/format";
 
 export interface CartEntry {
@@ -64,7 +65,23 @@ interface BillingState {
    * whole percentage 0–100 when "percent". */
   discountValue: number;
 
-  paymentMethod: PaymentMethod;
+  /** A single method, `split` (see `splitRows`) or `credit` (pay later). */
+  paymentMethod: CheckoutMode;
+  /** The split-payment editor's rows, used when `paymentMethod` is `split`. */
+  splitRows: SplitRow[];
+  setSplitRows: (rows: SplitRow[]) => void;
+  /** When any of the bill is on credit, the date it's due. */
+  dueDate: string;
+  setDueDate: (date: string) => void;
+  /** The customer account this sale is for (the `customers` module) —
+   * required for any pay-later part. Selecting one also sets `customerName`. */
+  customer: Customer | null;
+  setCustomer: (customer: Customer | null) => void;
+  /** Per-sale switches: charge no tax / waive the service charge. */
+  taxExempt: boolean;
+  setTaxExempt: (exempt: boolean) => void;
+  serviceWaived: boolean;
+  setServiceWaived: (waived: boolean) => void;
   /** Cash tendered / given by customer when paymentMethod is 'cash'. Null means exact/default. */
   tenderedAmount: number | null;
   setTenderedAmount: (amount: number | null) => void;
@@ -103,6 +120,9 @@ interface BillingState {
    * only ever opens the popup for one, but this is the same defensive floor
    * `addItem` has via `item.stockQty <= 0`. */
   addItemByAmount: (item: Item, amountMinor: number) => void;
+  /** A weight-scale barcode's line: adds `qty` (possibly fractional) of
+   * `item`, capped at stock. */
+  addItemQty: (item: Item, qty: number) => void;
   /** The cart row's notes-pencil "edit" flow: sets (not adds) qty and notes
    * to exactly the given values, since this is editing an existing line
    * rather than adding more of it. */
@@ -127,7 +147,7 @@ interface BillingState {
   removeActiveLine: () => void;
   setDiscountMode: (mode: DiscountMode) => void;
   setDiscountValue: (value: number) => void;
-  setPaymentMethod: (method: PaymentMethod) => void;
+  setPaymentMethod: (method: CheckoutMode) => void;
   setTableId: (tableId: number | null) => void;
   setCustomerName: (name: string) => void;
   orderType: "dine_in" | "takeaway" | "delivery" | "third_party_delivery";
@@ -164,11 +184,16 @@ const initialCartState = {
   activeOrderId: null as number | null,
   activeOrderVersion: null as number | null,
   tenderedAmount: null as number | null,
+  splitRows: [] as SplitRow[],
+  customer: null as Customer | null,
+  taxExempt: false,
+  serviceWaived: false,
 };
 
 export const useBillingStore = create<BillingState>((set) => ({
   ...initialCartState,
-  paymentMethod: "cash",
+  paymentMethod: "cash" as CheckoutMode,
+  dueDate: defaultDueDate(),
   draftOrderNumber: 1,
   amountEntryItem: null,
   setActiveOrder: (activeOrderId, activeOrderVersion) => set({ activeOrderId, activeOrderVersion }),
@@ -262,6 +287,34 @@ export const useBillingStore = create<BillingState>((set) => ({
     });
   },
 
+  addItemQty: (item, qty) => {
+    if (item.stockQty <= 0 || qty <= 0) return;
+    set((state) => {
+      const existing = state.cart[item.id];
+      const next = Math.min((existing?.qty ?? 0) + qty, item.stockQty);
+      const entry: CartEntry = existing
+        ? { ...existing, qty: next, soldByAmount: existing.soldByAmount || !Number.isInteger(next) }
+        : {
+            itemId: item.id,
+            name: item.name,
+            barcode: item.barcode,
+            priceMinor: item.priceMinor,
+            stockQty: item.stockQty,
+            imagePath: item.imagePath,
+            qty: next,
+            notes: "",
+            // A weighed line is fractional even for an item not set up as
+            // sold-by-amount, and must stay editable as one.
+            soldByAmount: item.soldByAmount || !Number.isInteger(next),
+            unit: item.unit,
+          };
+      return {
+        cart: { ...state.cart, [item.id]: entry },
+        cartOrder: existing ? state.cartOrder : [...state.cartOrder, item.id],
+      };
+    });
+  },
+
   updateLine: (itemId, qty, notes) => {
     set((state) => {
       const existing = state.cart[itemId];
@@ -349,7 +402,17 @@ export const useBillingStore = create<BillingState>((set) => ({
 
   setDiscountMode: (discountMode) => set({ discountMode, discountValue: 0 }),
   setDiscountValue: (discountValue) => set({ discountValue: Math.max(0, discountValue) }),
-  setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
+  setPaymentMethod: (paymentMethod) =>
+    set((state) => ({
+      paymentMethod,
+      splitRows:
+        paymentMethod === "split" && state.splitRows.length === 0 ? [{ method: "cash", amount: "" }] : state.splitRows,
+    })),
+  setSplitRows: (splitRows) => set({ splitRows }),
+  setDueDate: (dueDate) => set({ dueDate }),
+  setCustomer: (customer) => set({ customer, customerName: customer?.name ?? "" }),
+  setTaxExempt: (taxExempt) => set({ taxExempt }),
+  setServiceWaived: (serviceWaived) => set({ serviceWaived }),
   setTenderedAmount: (tenderedAmount) => set({ tenderedAmount }),
   setTableId: (tableId) => set({ tableId }),
   setCustomerName: (customerName) => set({ customerName }),
@@ -391,7 +454,9 @@ export const useBillingStore = create<BillingState>((set) => ({
   clearCart: () =>
     set((state) => ({
       ...initialCartState,
-      paymentMethod: state.paymentMethod,
+      // A split or pay-later bill is a one-off; the next sale starts plain.
+      paymentMethod: state.paymentMethod === "split" || state.paymentMethod === "credit" ? "cash" : state.paymentMethod,
+      dueDate: defaultDueDate(),
       draftOrderNumber: state.draftOrderNumber + 1,
     })),
 

@@ -22,6 +22,9 @@ pub mod key {
     pub const USERS: &str = "users";
     pub const SETTINGS: &str = "settings";
     pub const DELIVERY: &str = "delivery";
+    pub const CUSTOMERS: &str = "customers";
+    pub const PURCHASING: &str = "purchasing";
+    pub const LEDGER: &str = "ledger";
 }
 
 /// Which installation surface a visibility flag applies to.
@@ -288,7 +291,7 @@ mod tests {
 
         assert!(!enabled_keys(&conn, Platform::Desktop).contains(&"inventory".to_string()));
         // The module itself still exists — only its visibility changed.
-        assert_eq!(list(&conn, Platform::Desktop).unwrap().len(), 13);
+        assert_eq!(list(&conn, Platform::Desktop).unwrap().len(), 16);
     }
 
     #[test]

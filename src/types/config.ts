@@ -50,6 +50,16 @@ export interface AppConfig {
    * only when `printerConnectionType` is `"windows"`. This *is* the address
    * on Windows, unlike Bluetooth's separate address/name pair. */
   printerWindowsName: string | null;
+  /** Added to every sale on (subtotal - discount) when > 0, like tax. */
+  serviceChargePercent: number;
+  /** Weight-scale barcodes: prefix + item code (matched to the item's short
+   * code or barcode) + an embedded weight or price + check digit. */
+  scaleBarcodeEnabled: boolean;
+  scaleBarcodePrefix: string;
+  scaleItemCodeDigits: number;
+  scaleValueKind: "weight" | "price";
+  /** Decimal places in the embedded value (3 = grams for a kg weight). */
+  scaleValueDecimals: number;
 }
 
 /** One paired-device entry in Settings' "Select printer" list — see

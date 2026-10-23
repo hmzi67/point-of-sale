@@ -348,8 +348,12 @@ CREATE TABLE IF NOT EXISTS sales (
     total_minor    INTEGER NOT NULL CHECK (total_minor >= 0),
     discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
     tax_minor      INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
+    -- 'split' = more than one tender, 'credit' = entirely pay-later; the
+    -- per-tender breakdown of every sale lives in `sale_payments` (an
+    -- install upgrading from v12 gets the widened CHECK from
+    -- `schema.rs::widen_sales_payment_methods`).
     payment_method TEXT    NOT NULL DEFAULT 'cash'
-                           CHECK (payment_method IN ('cash', 'card', 'other', 'platform')),
+                           CHECK (payment_method IN ('cash', 'card', 'other', 'platform', 'split', 'credit')),
     -- Kept even if the cashier's account is later removed, so a bill always
     -- has a total; ON DELETE SET NULL rather than losing the sale.
     cashier_id     INTEGER REFERENCES users (id) ON DELETE SET NULL,
@@ -368,7 +372,14 @@ CREATE TABLE IF NOT EXISTS sales (
     -- Amount given by customer and change returned (paisa/cents), if cash.
     tendered_minor INTEGER,
     change_minor   INTEGER,
-    created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    -- The customer this sale was rung up for, if any — required when any
+    -- part of it is on credit. Added via ADDED_COLUMNS on an existing install.
+    customer_id    INTEGER REFERENCES customers (id) ON DELETE SET NULL,
+    -- Part of total_minor: subtotal - discount + tax + service charge.
+    service_charge_minor INTEGER NOT NULL DEFAULT 0 CHECK (service_charge_minor >= 0),
+    -- 'YYYY-MM-DD' the credit (pay-later) part is due; NULL without one.
+    due_date       TEXT
 );
 
 -- Every report is a date-range scan over this column.
@@ -393,7 +404,10 @@ CREATE TABLE IF NOT EXISTS sale_items (
     price_at_sale_minor  INTEGER NOT NULL CHECK (price_at_sale_minor >= 0),
     -- A cashier's free-text note on this line ("no onions"). Purely
     -- informational — never affects pricing, stock or reporting.
-    notes                TEXT
+    notes                TEXT,
+    -- items.cost_minor as of checkout, for profit reports. NULL on lines
+    -- sold before this column existed — reports fall back to the live cost.
+    cost_at_sale_minor   INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items (sale_id);
@@ -726,3 +740,200 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 CREATE INDEX IF NOT EXISTS idx_expenses_date     ON expenses (expense_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses (category);
+
+-- ---------------------------------------------------------------------------
+-- Customers and pay-later (credit) sales
+--
+--   customers 1──* sales (sales.customer_id)
+--   sales 1──* sale_payments          one row per tender; method 'credit' is
+--                                     the pay-later part, owed by the sale's
+--                                     customer until customer_payments cover it
+--   customers 1──* customer_payments *──?1 sales (installments; sale_id NULL
+--                                     = on account, applied oldest-due first)
+--
+-- A sale's outstanding balance is derived, never stored: its credit part
+-- minus installments against it minus refunds (applied to credit first).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS customers (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    phone      TEXT,
+    email      TEXT,
+    address    TEXT,
+    notes      TEXT,
+    is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_customers_name  ON customers (name);
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers (phone);
+
+CREATE TABLE IF NOT EXISTS sale_payments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    sale_id      INTEGER NOT NULL REFERENCES sales (id) ON DELETE CASCADE,
+    method       TEXT    NOT NULL
+                         CHECK (method IN ('cash', 'card', 'other', 'platform', 'credit')),
+    amount_minor INTEGER NOT NULL CHECK (amount_minor > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sale_payments_sale ON sale_payments (sale_id);
+
+CREATE TABLE IF NOT EXISTS customer_payments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id  INTEGER NOT NULL REFERENCES customers (id) ON DELETE RESTRICT,
+    sale_id      INTEGER REFERENCES sales (id) ON DELETE RESTRICT,
+    amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+    method       TEXT    NOT NULL CHECK (method IN ('cash', 'card', 'other')),
+    note         TEXT,
+    received_by  INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    -- The receiver's open shift, so cash collected lands in that drawer's
+    -- reconciliation.
+    shift_id     INTEGER REFERENCES shifts (id) ON DELETE SET NULL,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_payments_customer ON customer_payments (customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_sale     ON customer_payments (sale_id);
+CREATE INDEX IF NOT EXISTS idx_customer_payments_shift    ON customer_payments (shift_id);
+
+-- ---------------------------------------------------------------------------
+-- Purchasing (suppliers, purchase orders, goods received notes)
+--
+--   suppliers 1──* purchase_orders 1──* purchase_order_items *──1 items
+--   suppliers 1──* goods_receipts 1──* goods_receipt_items *──1 items
+--   goods_receipts *──?1 purchase_orders (a GRN may receive against a PO or
+--                                         stand alone)
+--   suppliers 1──* supplier_payments
+--
+-- A GRN is what moves stock: each line adds qty to items.stock_qty, updates
+-- items.cost_minor to the latest unit cost, and writes a stock_movements row.
+-- Supplier balance (payable) = GRN totals - supplier payments.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS suppliers (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT    NOT NULL UNIQUE,
+    contact_person TEXT,
+    phone          TEXT,
+    email          TEXT,
+    address        TEXT,
+    notes          TEXT,
+    is_active      INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_id   INTEGER NOT NULL REFERENCES suppliers (id) ON DELETE RESTRICT,
+    -- draft -> ordered -> partial -> received; draft/ordered/partial -> cancelled.
+    status        TEXT    NOT NULL DEFAULT 'draft'
+                          CHECK (status IN ('draft', 'ordered', 'partial', 'received', 'cancelled')),
+    order_date    TEXT    NOT NULL,
+    expected_date TEXT,
+    notes         TEXT,
+    created_by    INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier ON purchase_orders (supplier_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_status   ON purchase_orders (status);
+
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    po_id           INTEGER NOT NULL REFERENCES purchase_orders (id) ON DELETE CASCADE,
+    item_id         INTEGER NOT NULL REFERENCES items (id) ON DELETE RESTRICT,
+    qty_ordered     REAL    NOT NULL CHECK (qty_ordered > 0),
+    unit_cost_minor INTEGER NOT NULL CHECK (unit_cost_minor >= 0),
+    qty_received    REAL    NOT NULL DEFAULT 0 CHECK (qty_received >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_order_items_po   ON purchase_order_items (po_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_order_items_item ON purchase_order_items (item_id);
+
+CREATE TABLE IF NOT EXISTS goods_receipts (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_id      INTEGER NOT NULL REFERENCES suppliers (id) ON DELETE RESTRICT,
+    po_id            INTEGER REFERENCES purchase_orders (id) ON DELETE SET NULL,
+    received_date    TEXT    NOT NULL,
+    -- The supplier's own invoice/delivery-note number.
+    invoice_ref      TEXT,
+    notes            TEXT,
+    total_cost_minor INTEGER NOT NULL CHECK (total_cost_minor >= 0),
+    received_by      INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_goods_receipts_supplier ON goods_receipts (supplier_id);
+CREATE INDEX IF NOT EXISTS idx_goods_receipts_date     ON goods_receipts (received_date);
+
+CREATE TABLE IF NOT EXISTS goods_receipt_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    grn_id          INTEGER NOT NULL REFERENCES goods_receipts (id) ON DELETE CASCADE,
+    item_id         INTEGER NOT NULL REFERENCES items (id) ON DELETE RESTRICT,
+    po_item_id      INTEGER REFERENCES purchase_order_items (id) ON DELETE SET NULL,
+    qty             REAL    NOT NULL CHECK (qty > 0),
+    unit_cost_minor INTEGER NOT NULL CHECK (unit_cost_minor >= 0),
+    batch_no        TEXT,
+    -- 'YYYY-MM-DD'; feeds the product expiry report.
+    expiry_date     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_goods_receipt_items_grn    ON goods_receipt_items (grn_id);
+CREATE INDEX IF NOT EXISTS idx_goods_receipt_items_item   ON goods_receipt_items (item_id);
+CREATE INDEX IF NOT EXISTS idx_goods_receipt_items_expiry ON goods_receipt_items (expiry_date);
+
+CREATE TABLE IF NOT EXISTS supplier_payments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_id  INTEGER NOT NULL REFERENCES suppliers (id) ON DELETE RESTRICT,
+    amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+    method       TEXT    NOT NULL CHECK (method IN ('cash', 'card', 'bank', 'other')),
+    reference    TEXT,
+    note         TEXT,
+    paid_date    TEXT    NOT NULL,
+    created_by   INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_payments_supplier ON supplier_payments (supplier_id);
+
+-- ---------------------------------------------------------------------------
+-- Stock movements and stock takes
+--
+-- stock_movements is the audit trail for every stock change that is not a
+-- sale or a refund (those have their own ledgers): goods received, manual
+-- additions, damage write-offs, corrections and stock-take variances.
+-- qty_change is signed (+ in, - out).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS stock_movements (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id      INTEGER NOT NULL REFERENCES items (id) ON DELETE CASCADE,
+    qty_change   REAL    NOT NULL,
+    reason       TEXT    NOT NULL
+                         CHECK (reason IN ('grn', 'add', 'damage', 'correction', 'stock_take')),
+    -- goods_receipts.id for 'grn', stock_takes.id for 'stock_take'.
+    reference_id INTEGER,
+    note         TEXT,
+    user_id      INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_movements_item       ON stock_movements (item_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_created_at ON stock_movements (created_at);
+
+CREATE TABLE IF NOT EXISTS stock_takes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    note       TEXT,
+    created_by INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS stock_take_lines (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    stock_take_id   INTEGER NOT NULL REFERENCES stock_takes (id) ON DELETE CASCADE,
+    item_id         INTEGER NOT NULL REFERENCES items (id) ON DELETE CASCADE,
+    expected_qty    REAL    NOT NULL,
+    counted_qty     REAL    NOT NULL CHECK (counted_qty >= 0),
+    -- items.cost_minor at count time, so the variance value stays fixed.
+    unit_cost_minor INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_take_lines_take ON stock_take_lines (stock_take_id);

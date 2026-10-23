@@ -1,16 +1,8 @@
 import { useEffect, useState } from "react";
 import { Cloud, CloudCheck, CloudAlert, RefreshCw, ExternalLink, CheckCircle2, AlertCircle } from "lucide-react";
+import { openExternal } from "../../services/externalLink";
 import { getSyncStatus, syncNow, onSyncCompleted } from "../../services/syncService";
 import type { SyncStatusInfo } from "../../types";
-
-async function openExternal(url: string) {
-  try {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(url);
-  } catch {
-    window.open(url, "_blank");
-  }
-}
 
 export function CloudSyncSection() {
   const [status, setStatus] = useState<SyncStatusInfo | null>(null);
@@ -33,7 +25,9 @@ export function CloudSyncSection() {
   useEffect(() => {
     void fetchStatus();
 
-    const unsub = onSyncCompleted((result) => {
+    let unlisten: (() => void) | null = null;
+    let disposed = false;
+    const subscription = onSyncCompleted((result) => {
       void fetchStatus();
       if (result.success) {
         setNotice({
@@ -43,8 +37,14 @@ export function CloudSyncSection() {
       }
     });
 
+    void subscription.then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+
     return () => {
-      unsub.then((fn) => fn?.()).catch(() => {});
+      disposed = true;
+      unlisten?.();
     };
   }, []);
 

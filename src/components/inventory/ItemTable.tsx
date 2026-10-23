@@ -1,4 +1,4 @@
-import { Flame, PackageSearch, Pencil, Trash2 } from "lucide-react";
+import { Flame, PackagePlus, PackageSearch, Pencil, Trash2 } from "lucide-react";
 import { categoryColor } from "../../utils/categoryColor";
 import { formatMinor, formatQty } from "../../utils/format";
 import { ItemThumbnail } from "./ItemThumbnail";
@@ -10,6 +10,8 @@ interface ItemTableProps {
   currency: string;
   onEdit: (item: Item) => void;
   onDelete: (item: Item) => void;
+  /** Opens the add/damage/correct stock dialog for one item. */
+  onAdjustStock?: (item: Item) => void;
   /** Selection is optional — omit both props to render the table with no
    * checkbox column at all (kept for any other place `ItemTable` might be
    * reused without multi-select). */
@@ -27,6 +29,7 @@ export function ItemTable({
   currency,
   onEdit,
   onDelete,
+  onAdjustStock,
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
@@ -121,6 +124,17 @@ export function ItemTable({
                 {!isReadOnly && (
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
+                      {onAdjustStock && (
+                        <button
+                          type="button"
+                          onClick={() => onAdjustStock(item)}
+                          className="rounded-lg border border-line p-2 text-fg-muted hover:bg-surface-3 hover:text-fg"
+                          aria-label={`Adjust stock for ${item.name}`}
+                          title="Add stock, write off damage, or correct the count"
+                        >
+                          <PackagePlus className="h-4 w-4" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => onEdit(item)}

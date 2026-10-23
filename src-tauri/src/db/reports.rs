@@ -37,7 +37,7 @@ pub(crate) fn validate_range(start_date: &str, end_date: &str) -> Result<(String
         return Err(ReportError::RangeTooLarge);
     }
 
-    Ok((format!("{} 00:00:00", start_date), format!("{} 23:59:59", end_date)))
+    Ok((dates::day_start(start_date), dates::day_end(end_date)))
 }
 
 // ---------------------------------------------------------------------------
@@ -956,18 +956,22 @@ mod tests {
     }
 
     #[test]
-    fn summary_over_the_full_seeded_range_matches_all_twelve_sales() {
+    fn summary_totals_and_averages_every_sale_in_the_range() {
         let conn = test_conn();
-        let summary = get_sales_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
-        assert_eq!(summary.transaction_count, 12);
-
-        let (total, count): (i64, i64) = conn
-            .query_row("SELECT SUM(total_minor), COUNT(*) FROM sales", [], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })
-            .unwrap();
-        assert_eq!(summary.total_sales_minor, total);
-        assert_eq!(summary.average_sale_minor, (total as f64 / count as f64).round() as i64);
+        // A fixed month the seed never touches: three sales on two days,
+        // plus one just outside each edge of the range.
+        conn.execute_batch(
+            "INSERT INTO sales (total_minor, created_at) VALUES (1000, '2031-06-01 09:00:00');
+             INSERT INTO sales (total_minor, created_at) VALUES (2000, '2031-06-01 18:00:00');
+             INSERT INTO sales (total_minor, created_at) VALUES (4001, '2031-06-02 12:00:00');
+             INSERT INTO sales (total_minor, created_at) VALUES (9999, '2031-05-31 23:59:59');
+             INSERT INTO sales (total_minor, created_at) VALUES (9999, '2031-06-03 00:00:00');",
+        )
+        .unwrap();
+        let summary = get_sales_summary(&conn, "2031-06-01", "2031-06-02").unwrap();
+        assert_eq!(summary.transaction_count, 3);
+        assert_eq!(summary.total_sales_minor, 7001);
+        assert_eq!(summary.average_sale_minor, 2334, "7001 / 3 rounds to whole minor units");
     }
 
     #[test]
@@ -1084,12 +1088,16 @@ mod tests {
     #[test]
     fn sales_over_time_zero_fills_a_day_with_no_sales() {
         let conn = test_conn();
-        // Seed data has no sale at exactly 4 or 11 days ago (gaps between the
-        // seeded clusters of 12/9/6/3/1/0) — assert the gap is present, not skipped.
-        let series = get_sales_over_time(&conn, &days_ago(11), &days_ago(11)).unwrap();
-        assert_eq!(series.len(), 1);
-        assert_eq!(series[0].transaction_count, 0);
-        assert_eq!(series[0].total_minor, 0);
+        conn.execute_batch(
+            "INSERT INTO sales (total_minor, created_at) VALUES (500, '2031-07-01 10:00:00');
+             INSERT INTO sales (total_minor, created_at) VALUES (700, '2031-07-03 10:00:00');",
+        )
+        .unwrap();
+        let series = get_sales_over_time(&conn, "2031-07-01", "2031-07-03").unwrap();
+        assert_eq!(series.len(), 3, "the empty middle day is present, not skipped");
+        assert_eq!((series[1].transaction_count, series[1].total_minor), (0, 0));
+        assert_eq!(series[0].total_minor, 500);
+        assert_eq!(series[2].total_minor, 700);
     }
 
     #[test]
@@ -1108,19 +1116,7 @@ mod tests {
     /// hang off something real without depending on which seeded sale IDs
     /// exist.
     fn seed_sale_today(conn: &mut Connection) -> (i64, i64) {
-        use crate::db::sales::create_sale;
-        let tx = conn.transaction().unwrap();
-        let cola = item_id(&tx, "Cola 500ml");
-        let sale = create_sale(
-            &tx,
-            one_line_sale(cola, 2.0),
-        )
-        .unwrap();
-        let sale_item_id: i64 = tx
-            .query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale.id], |row| row.get(0))
-            .unwrap();
-        tx.commit().unwrap();
-        (sale.id, sale_item_id)
+        crate::db::test_support::ring_up_with_line(conn, "Cola 500ml", 2.0)
     }
 
     #[test]

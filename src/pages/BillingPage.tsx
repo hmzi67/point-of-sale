@@ -1,5 +1,5 @@
 import { ArrowRight, Pause, ShoppingBag, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActiveOrdersDrawer } from "../components/billing/ActiveOrdersDrawer";
 import { BillingHeader } from "../components/billing/BillingHeader";
 import { CartPanel } from "../components/billing/CartPanel";
@@ -17,6 +17,7 @@ import { OrderTypeAndTable } from "../components/billing/OrderTypeAndTable";
 import { PaymentMethodSelector } from "../components/billing/PaymentMethodSelector";
 import { ReceiptModal } from "../components/billing/ReceiptModal";
 import { ShortcutsHelpOverlay } from "../components/billing/ShortcutsHelpOverlay";
+import { SplitPaymentEditor } from "../components/billing/SplitPaymentEditor";
 import { TableQuickSelectModal } from "../components/billing/TableQuickSelectModal";
 import { useBestSellerIds } from "../hooks/useBestSellerIds";
 import { useFastBillingHotkeys } from "../hooks/useFastBillingHotkeys";
@@ -28,11 +29,12 @@ import { useAppConfig } from "../hooks/useAppConfig";
 import { useBillingStore, useShiftStore } from "../store";
 import { IS_ANDROID } from "../services/platform";
 import { computeCartTotals } from "../utils/billingTotals";
+import { buildCheckoutPayments } from "../utils/checkoutPayments";
 import { decimalToMinor, formatMinor } from "../utils/format";
 import { reportWarning } from "../services/logService";
 import type { Category, Item, Sale } from "../types";
 import { runAction } from "../utils/runAction";
-import { isDeliveryOrder } from "../utils/orderType";
+import { DEFAULT_PREP_MINUTES, isDeliveryOrder } from "../utils/orderType";
 
 export function BillingPage() {
   const { config } = useAppConfig();
@@ -107,6 +109,13 @@ export function BillingPage() {
   const tenderedAmount = useBillingStore((state) => state.tenderedAmount);
   const orderType = useBillingStore((state) => state.orderType);
   const deliveryDetails = useBillingStore((state) => state.deliveryDetails);
+  const splitRows = useBillingStore((state) => state.splitRows);
+  const dueDate = useBillingStore((state) => state.dueDate);
+  const customer = useBillingStore((state) => state.customer);
+  const taxExempt = useBillingStore((state) => state.taxExempt);
+  const setTaxExempt = useBillingStore((state) => state.setTaxExempt);
+  const serviceWaived = useBillingStore((state) => state.serviceWaived);
+  const setServiceWaived = useBillingStore((state) => state.setServiceWaived);
 
   const editingEntry = editingItemId !== null ? cart[editingItemId] : undefined;
 
@@ -133,6 +142,8 @@ export function BillingPage() {
   const [isOpenActiveOrders, setIsOpenActiveOrders] = useState(false);
   const [showHoldModal, setShowHoldModal] = useState(false);
 
+  // Polled every 15s, so a lasting failure is logged once per streak.
+  const activeOrdersFailing = useRef(false);
   const refreshActiveOrdersCount = async () => {
     try {
       const active = await listActiveOrders();
@@ -141,11 +152,14 @@ export function BillingPage() {
       const anyLate = active.some((o) => {
         const created = new Date(o.createdAt).getTime();
         const elapsed = (currTime - created) / 60000;
-        return elapsed > (o.estimatedPrepMinutes || 15);
+        return elapsed > (o.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES);
       });
       setHasLateOrders(anyLate);
-    } catch {
-      // quiet fallback
+      activeOrdersFailing.current = false;
+    } catch (e) {
+      // Only the badge count depends on it — the till keeps working.
+      if (!activeOrdersFailing.current) reportWarning(`billing: active orders count unavailable: ${(e as Error).message}`);
+      activeOrdersFailing.current = true;
     }
   };
 
@@ -187,14 +201,34 @@ export function BillingPage() {
     cartLines,
     discountMode,
     discountValue,
-    config.taxPercent,
+    taxExempt ? 0 : config.taxPercent,
     deliveryChargeMinor,
+    serviceWaived ? 0 : config.serviceChargePercent,
   );
+  // What the server derives as the sale total — the delivery fee lives on
+  // the order, not the sale, so tenders must add up to this, not the total.
+  const payableMinor = totals.totalMinor - totals.deliveryChargeMinor;
 
   const completeSale = async () => {
     if (cartOrder.length === 0) return;
     // Set when the payment went through but a follow-up step didn't — shown after runAction clears the error line.
     let followUpError: string | null = null;
+    const checkout = buildCheckoutPayments(paymentMethod, payableMinor, splitRows, config.currency);
+    if (checkout.error) {
+      setError(checkout.error);
+      return;
+    }
+    if (checkout.creditMinor > 0 && !customer) {
+      setError("Choose a customer before selling on credit.");
+      return;
+    }
+    const tenders = {
+      paymentMethod: checkout.paymentMethod,
+      payments: checkout.payments,
+      customerId: customer?.id ?? null,
+      serviceChargeMinor: totals.serviceChargeMinor,
+      dueDate: checkout.creditMinor > 0 ? dueDate : null,
+    };
     const ok = await runAction(setIsSubmitting, setError, async () => {
       let sale: Sale;
       let tenderedMinor: number | null = null;
@@ -218,7 +252,7 @@ export function BillingPage() {
           orderId: activeOrderId,
           version: currentOrder.version,
           orderItemIds: unpaidActiveItemIds,
-          paymentMethod,
+          ...tenders,
           discountMinor: totals.discountMinor,
           taxMinor: totals.taxMinor,
           tenderedMinor,
@@ -243,7 +277,7 @@ export function BillingPage() {
           items: cartOrder.map((id) => ({ itemId: id, qty: cart[id].qty, notes: cart[id].notes || undefined })),
           discountMinor: totals.discountMinor,
           taxMinor: totals.taxMinor,
-          paymentMethod,
+          ...tenders,
           tableId,
           tenderedMinor,
           changeMinor,
@@ -332,7 +366,7 @@ export function BillingPage() {
             </button>
           </div>
         )}
-        <OrderSummaryHeader />
+        <OrderSummaryHeader currency={config.currency} />
 
         {activeOrderId && (
           <div className="flex items-center justify-between rounded-xl border border-accent/30 bg-accent-soft px-3.5 py-2 text-xs font-medium text-accent-text">
@@ -380,10 +414,20 @@ export function BillingPage() {
             <dd>{formatMinor(totals.subtotalMinor, config.currency)}</dd>
           </div>
           {config.taxPercent > 0 && (
-            <div className="flex justify-between text-fg-muted">
-              <dt>Tax ({config.taxPercent}%)</dt>
-              <dd>{formatMinor(totals.taxMinor, config.currency)}</dd>
-            </div>
+            <ChargeRow
+              label={`Tax (${config.taxPercent}%)`}
+              amount={formatMinor(totals.taxMinor, config.currency)}
+              on={!taxExempt}
+              onToggle={() => setTaxExempt(!taxExempt)}
+            />
+          )}
+          {config.serviceChargePercent > 0 && (
+            <ChargeRow
+              label={`Service (${config.serviceChargePercent}%)`}
+              amount={formatMinor(totals.serviceChargeMinor, config.currency)}
+              on={!serviceWaived}
+              onToggle={() => setServiceWaived(!serviceWaived)}
+            />
           )}
           {totals.discountMinor > 0 && (
             <div className="flex justify-between text-success-text">
@@ -408,6 +452,9 @@ export function BillingPage() {
           <PaymentMethodSelector />
           {paymentMethod === "cash" && (
             <CashTenderControl currency={config.currency} totalMinor={totals.totalMinor} />
+          )}
+          {(paymentMethod === "split" || paymentMethod === "credit") && (
+            <SplitPaymentEditor currency={config.currency} payableMinor={payableMinor} />
           )}
         </div>
 
@@ -536,6 +583,29 @@ export function BillingPage() {
           void refreshActiveOrdersCount();
         }}
       />
+    </div>
+  );
+}
+
+/** A tax/service-charge line in the totals box with an on/off switch for
+ * this sale only (a tax-exempt customer, a waived service charge). */
+function ChargeRow({ label, amount, on, onToggle }: { label: string; amount: string; on: boolean; onToggle: () => void }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-fg-muted">
+      <dt className="flex items-center gap-2">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label={`${on ? "Remove" : "Apply"} ${label}`}
+          onClick={onToggle}
+          className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${on ? "bg-accent" : "bg-surface-3"}`}
+        >
+          <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-surface transition-all ${on ? "left-3.5" : "left-0.5"}`} />
+        </button>
+        <span className={on ? "" : "line-through"}>{label}</span>
+      </dt>
+      <dd>{on ? amount : "—"}</dd>
     </div>
   );
 }

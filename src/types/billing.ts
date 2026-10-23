@@ -2,6 +2,20 @@
 
 export type PaymentMethod = "cash" | "card" | "other" | "platform";
 
+/** What a completed sale's `paymentMethod` may be: one of the above, or
+ * `split` (several tenders) / `credit` (all pay-later). */
+export type SalePaymentMethod = PaymentMethod | "split" | "credit";
+
+/** How the cashier is taking payment — a single method, several
+ * (`split`), or pay-later (`credit`). */
+export type CheckoutMode = PaymentMethod | "split" | "credit";
+
+/** One tender of a sale; `credit` is the pay-later part. */
+export interface PaymentPart {
+  method: "cash" | "card" | "other" | "platform" | "credit";
+  amountMinor: number;
+}
+
 export interface CartLine {
   itemId: number;
   qty: number;
@@ -19,6 +33,13 @@ export interface CreateSaleInput {
   tableId: number | null;
   tenderedMinor?: number | null;
   changeMinor?: number | null;
+  /** The tender breakdown; omit for a single-method sale. Must add up to
+   * the server's total. */
+  payments?: PaymentPart[];
+  customerId?: number | null;
+  serviceChargeMinor?: number;
+  /** Required when any part is `credit`. */
+  dueDate?: string | null;
 }
 
 export interface SaleLine {
@@ -40,7 +61,7 @@ export interface Sale {
   discountMinor: number;
   taxMinor: number;
   totalMinor: number;
-  paymentMethod: PaymentMethod;
+  paymentMethod: SalePaymentMethod;
   tenderedMinor?: number | null;
   changeMinor?: number | null;
   cashierId: number | null;
@@ -61,13 +82,18 @@ export interface Sale {
   deliveryPlatformName?: string | null;
   platformOrderRef?: string | null;
   deliveryChargeMinor?: number | null;
+  serviceChargeMinor: number;
+  payments: PaymentPart[];
+  customerId: number | null;
+  customerEmail: string | null;
+  dueDate: string | null;
 }
 
 /** One row of the "recent sales" list the refund flow searches. */
 export interface SaleListItem {
   id: number;
   totalMinor: number;
-  paymentMethod: PaymentMethod;
+  paymentMethod: SalePaymentMethod;
   cashierName: string | null;
   createdAt: string;
 }

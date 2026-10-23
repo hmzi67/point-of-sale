@@ -62,10 +62,12 @@ describe("roleCanAccessModule (cashier allowlist)", () => {
     }
   });
 
-  it("gives a Cashier the till, stock and the PIN-gated areas only", () => {
-    for (const key of ["billing", "inventory", "attendance", "expenses", "salary", "reports", "employees"] as const) {
+  it("gives a Cashier the till, stock, customers and the PIN-gated areas only", () => {
+    for (const key of ["billing", "inventory", "customers", "attendance", "expenses", "salary", "reports", "employees"] as const) {
       expect(roleCanAccessModule("cashier", key)).toBe(true);
     }
+    expect(roleCanAccessModule("cashier", "purchasing")).toBe(false);
+    expect(roleCanAccessModule("cashier", "ledger")).toBe(false);
     expect(roleCanAccessModule("cashier", "dashboard")).toBe(false);
     expect(roleCanAccessModule("cashier", "settings")).toBe(false);
     expect(roleCanAccessModule("cashier", "users")).toBe(false);

@@ -1,10 +1,9 @@
 //! Cashier shift open/close and the cash-drawer reconciliation summary.
 //!
-//! No credit/tab sales exist in this schema (`sales.payment_method` is
-//! `cash` | `card` | `other` — see `schema.sql`), so `credit_sales_minor`
-//! below is always `0`; it's still a real field (not omitted) so a receipt
-//! template that shows it doesn't need a special case for "this product
-//! doesn't have that concept" versus "it happened to be zero this shift".
+//! Sales are split by tender (`sale_payment_lines`, so a split sale's cash
+//! part counts as cash and its card part as card). `credit_sales_minor` is
+//! the pay-later part — sold, but no money in the drawer yet; installments
+//! collected in cash during the shift (`customer_payments.shift_id`) are.
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
@@ -128,9 +127,7 @@ pub struct ShiftSummary {
     pub cash_sales_minor: i64,
     pub card_sales_minor: i64,
     pub other_sales_minor: i64,
-    /// Always 0 — see the module doc comment. Present so a template that
-    /// shows it (matching a reference receipt with a "Credit Sale" line)
-    /// never needs a special case for this product not having the concept.
+    /// Pay-later part of this shift's sales — see the module doc comment.
     pub credit_sales_minor: i64,
     #[serde(default)]
     pub platform_sales_minor: i64,
@@ -141,10 +138,15 @@ pub struct ShiftSummary {
     /// Refunds recorded (by `created_at`, not by which shift the *original*
     /// sale happened in) during this shift's open window.
     pub refunds_minor: i64,
-    /// `opening_balance + cash_sales - refunds` — refunds are assumed to
-    /// come back out of the cash drawer regardless of how the original sale
-    /// was paid, same as a real till: a card sale refunded in cash still
-    /// empties the drawer by that amount. Third-party platform sales are excluded.
+    /// Pay-later installments received in cash during this shift.
+    #[serde(default)]
+    pub collected_cash_minor: i64,
+    /// `opening_balance + cash_sales + collected_cash - refunds paid out` —
+    /// refunds are assumed to come back out of the cash drawer regardless of
+    /// how the original sale was paid, same as a real till: a card sale
+    /// refunded in cash still empties the drawer by that amount. The part of
+    /// a refund that only cancels unpaid credit pays nothing out (see
+    /// `customers::refund_cash_out`). Third-party platform sales are excluded.
     pub expected_cash_minor: i64,
     /// `None` until the shift is closed (or a live preview amount is
     /// supplied — see `get_shift_summary`).
@@ -159,21 +161,44 @@ pub struct ShiftSummary {
 /// `refunds` — shared by `get_shift_summary` (reads the shift's own
 /// `opened_at`/`closed_at` window) and `close_shift` (same query, inside
 /// the transaction that's about to persist the closing values).
-fn aggregate(conn: &Connection, shift: &Shift) -> Result<(i64, i64, i64, i64, i64, i64), rusqlite::Error> {
+struct Aggregate {
+    cash: i64,
+    card: i64,
+    other: i64,
+    platform: i64,
+    credit: i64,
+    discount: i64,
+    refunds: i64,
+    refunds_paid_out: i64,
+    collected_cash: i64,
+}
+
+fn aggregate(conn: &Connection, shift: &Shift) -> Result<Aggregate, rusqlite::Error> {
     // Sales are attributed to a shift directly (`sales.shift_id`, set at
     // checkout time — see `sales::CreateSaleInput`), so this is an exact
     // match, not a time-window guess.
-    let (cash, card, other, platform, discount): (i64, i64, i64, i64, i64) = conn.query_row(
+    let (cash, card, other, platform, credit): (i64, i64, i64, i64, i64) = conn.query_row(
         "SELECT
-             COALESCE(SUM(CASE WHEN payment_method = 'cash'     THEN total_minor ELSE 0 END), 0),
-             COALESCE(SUM(CASE WHEN payment_method = 'card'     THEN total_minor ELSE 0 END), 0),
-             COALESCE(SUM(CASE WHEN payment_method = 'other'    THEN total_minor ELSE 0 END), 0),
-             COALESCE(SUM(CASE WHEN payment_method = 'platform' THEN total_minor ELSE 0 END), 0),
-             COALESCE(SUM(discount_minor), 0)
-           FROM sales
-          WHERE shift_id = ?1",
+             COALESCE(SUM(CASE WHEN p.method = 'cash'     THEN p.amount_minor ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN p.method = 'card'     THEN p.amount_minor ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN p.method = 'other'    THEN p.amount_minor ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN p.method = 'platform' THEN p.amount_minor ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN p.method = 'credit'   THEN p.amount_minor ELSE 0 END), 0)
+           FROM sale_payment_lines p
+           JOIN sales s ON s.id = p.sale_id
+          WHERE s.shift_id = ?1",
         params![shift.id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+    )?;
+    let discount: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(discount_minor), 0) FROM sales WHERE shift_id = ?1",
+        params![shift.id],
+        |row| row.get(0),
+    )?;
+    let collected_cash: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(amount_minor), 0) FROM customer_payments WHERE shift_id = ?1 AND method = 'cash'",
+        params![shift.id],
+        |row| row.get(0),
     )?;
 
     // Refunds have no shift_id of their own (a refund can be processed by
@@ -182,16 +207,22 @@ fn aggregate(conn: &Connection, shift: &Shift) -> Result<(i64, i64, i64, i64, i6
     // window instead. An open shift reconciles everything up to "now"; a
     // closed one is bounded by its own closed_at, so re-viewing a closed
     // shift's summary later never picks up a refund recorded after it closed.
-    let end_bound = shift.closed_at.clone().unwrap_or_else(|| "9999-12-31 23:59:59".to_string());
-    let refunds: i64 = conn.query_row(
-        "SELECT COALESCE(SUM(total_refund_amount_minor), 0)
+    let end_bound = shift.closed_at.clone().unwrap_or_else(|| crate::db::dates::OPEN_END_TIMESTAMP.to_string());
+    let mut stmt = conn.prepare(
+        "SELECT id, total_refund_amount_minor
            FROM refunds
           WHERE created_at >= ?1 AND created_at <= ?2",
-        params![shift.opened_at, end_bound],
-        |row| row.get(0),
     )?;
+    let refund_rows = stmt
+        .query_map(params![shift.opened_at, end_bound], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let refunds = refund_rows.iter().map(|(_, amount)| amount).sum();
+    let mut refunds_paid_out = 0;
+    for (id, _) in &refund_rows {
+        refunds_paid_out += crate::db::customers::refund_cash_out(conn, *id)?;
+    }
 
-    Ok((cash, card, other, platform, discount, refunds))
+    Ok(Aggregate { cash, card, other, platform, credit, discount, refunds, refunds_paid_out, collected_cash })
 }
 
 fn build_summary(
@@ -199,10 +230,13 @@ fn build_summary(
     shift: Shift,
     declared_override: Option<i64>,
 ) -> Result<ShiftSummary, ShiftError> {
+    let totals = aggregate(conn, &shift)?;
     let (cash_sales_minor, card_sales_minor, other_sales_minor, platform_sales_minor, discount_minor, refunds_minor) =
-        aggregate(conn, &shift)?;
-    let total_sales_minor = cash_sales_minor + card_sales_minor + other_sales_minor + platform_sales_minor;
-    let expected_cash_minor = shift.opening_balance_minor + cash_sales_minor - refunds_minor;
+        (totals.cash, totals.card, totals.other, totals.platform, totals.discount, totals.refunds);
+    let total_sales_minor =
+        cash_sales_minor + card_sales_minor + other_sales_minor + platform_sales_minor + totals.credit;
+    let expected_cash_minor =
+        shift.opening_balance_minor + cash_sales_minor + totals.collected_cash - totals.refunds_paid_out;
 
     let declared_cash_amount_minor = declared_override.or(shift.declared_cash_amount_minor);
     let difference_minor = declared_cash_amount_minor.map(|declared| declared - expected_cash_minor);
@@ -212,7 +246,8 @@ fn build_summary(
         cash_sales_minor,
         card_sales_minor,
         other_sales_minor,
-        credit_sales_minor: 0,
+        credit_sales_minor: totals.credit,
+        collected_cash_minor: totals.collected_cash,
         platform_sales_minor,
         total_sales_minor,
         discount_minor,
@@ -467,5 +502,64 @@ mod tests {
         assert_eq!(shifts.len(), 2);
         assert_eq!(shifts[0].id, second.id, "most recently opened shift must come first");
         assert_eq!(shifts[1].id, first.id);
+    }
+
+    #[test]
+    fn split_tenders_count_by_part_and_cash_installments_land_in_the_drawer() {
+        use crate::db::customers::{add_customer, record_payment, CustomerInput, PaymentInput};
+        use crate::db::sales::{create_sale, CreateSaleInput, PaymentPart};
+        use crate::db::test_support::{in_tx, item_id, one_line_sale};
+
+        let mut conn = test_conn();
+        let cashier = owner_id(&conn);
+        let shift = open_shift(&conn, cashier, 1000).unwrap();
+        let cola = item_id(&conn, "Cola 500ml");
+        let customer = add_customer(
+            &conn,
+            CustomerInput { name: "Ayesha".into(), phone: None, email: None, address: None, notes: None },
+        )
+        .unwrap();
+
+        // 8000 total: 3000 cash, 2000 card, 3000 on credit.
+        in_tx(&mut conn, |tx| {
+            create_sale(
+                tx,
+                CreateSaleInput {
+                    shift_id: Some(shift.id),
+                    customer_id: Some(customer.id),
+                    due_date: Some("2099-01-01".into()),
+                    payments: vec![
+                        PaymentPart { method: "cash".into(), amount_minor: 3000 },
+                        PaymentPart { method: "card".into(), amount_minor: 2000 },
+                        PaymentPart { method: "credit".into(), amount_minor: 3000 },
+                    ],
+                    ..one_line_sale(cola, 1.0)
+                },
+            )
+        })
+        .unwrap();
+        in_tx(&mut conn, |tx| {
+            record_payment(
+                tx,
+                PaymentInput {
+                    customer_id: customer.id,
+                    sale_id: None,
+                    amount_minor: 500,
+                    method: "cash",
+                    note: None,
+                    received_by: Some(cashier),
+                    shift_id: Some(shift.id),
+                },
+            )
+        })
+        .unwrap();
+
+        let summary = get_shift_summary(&conn, shift.id, None).unwrap();
+        assert_eq!(summary.cash_sales_minor, 3000);
+        assert_eq!(summary.card_sales_minor, 2000);
+        assert_eq!(summary.credit_sales_minor, 3000);
+        assert_eq!(summary.total_sales_minor, 8000);
+        assert_eq!(summary.collected_cash_minor, 500);
+        assert_eq!(summary.expected_cash_minor, 1000 + 3000 + 500);
     }
 }

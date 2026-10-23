@@ -17,6 +17,8 @@ import {
 } from "./printLayout";
 import { devWarn } from "../services/logService";
 import type { AppConfig, Sale } from "../types";
+import { paymentMethodLabel } from "./checkoutPayments";
+import { ORDER_TYPE_LABELS, THIRD_PARTY_FALLBACK_LABEL } from "./orderType";
 
 /** Resolves `config.logoPath` to a `{ dataUrl, width, height }` triple ready
  * for `drawLogo`, or `null` if there's no logo set, the file is missing, or
@@ -146,6 +148,9 @@ function drawReceiptContent(
   if (sale.taxMinor > 0) {
     y = drawMonoRow(doc, y, "Tax:", formatMinor(sale.taxMinor, config.currency));
   }
+  if (sale.serviceChargeMinor > 0) {
+    y = drawMonoRow(doc, y, "Service Charge:", formatMinor(sale.serviceChargeMinor, config.currency));
+  }
   if (sale.deliveryChargeMinor && sale.deliveryChargeMinor > 0) {
     y = drawMonoRow(doc, y, "Delivery Fee:", formatMinor(sale.deliveryChargeMinor, config.currency));
   }
@@ -160,7 +165,13 @@ function drawReceiptContent(
   doc.setFontSize(8.5);
   doc.text(`Paid by: ${sale.paymentMethod}`, MARGIN_MM, y + 1.4);
   y += 5;
-  if (sale.paymentMethod === "cash" && sale.tenderedMinor != null) {
+  if (hasTenderBreakdown(sale)) {
+    for (const part of sale.payments) {
+      y = drawMonoRow(doc, y, `${paymentMethodLabel(part.method)}:`, formatMinor(part.amountMinor, config.currency));
+    }
+    if (sale.dueDate) y = drawMonoRow(doc, y, "Balance due by:", sale.dueDate, { bold: true });
+  }
+  if (sale.payments.some((part) => part.method === "cash") && sale.tenderedMinor != null) {
     const change = sale.changeMinor ?? Math.max(0, sale.tenderedMinor - sale.totalMinor);
     y = drawMonoRow(doc, y, "Cash Received:", formatMinor(sale.tenderedMinor, config.currency));
     y = drawMonoRow(doc, y, "Change to Return:", formatMinor(change, config.currency), { bold: true });
@@ -194,9 +205,19 @@ function drawReceiptContent(
   }
 }
 
+/** Several tenders, or a pay-later sale — the receipt lists each part. */
+function hasTenderBreakdown(sale: Sale): boolean {
+  return sale.payments.length > 1 || sale.paymentMethod === "credit";
+}
+
 function estimatedHeightMm(sale: Sale, config: AppConfig, hasLogo: boolean): number {
   const contactRowCount = (config.phone ? 1 : 0) + (config.deliveryNumber ? 1 : 0);
-  const totalsRowCount = 2 + (sale.discountMinor > 0 ? 1 : 0) + (sale.taxMinor > 0 ? 1 : 0);
+  const totalsRowCount =
+    2 +
+    (sale.discountMinor > 0 ? 1 : 0) +
+    (sale.taxMinor > 0 ? 1 : 0) +
+    (sale.serviceChargeMinor > 0 ? 1 : 0) +
+    (hasTenderBreakdown(sale) ? sale.payments.length + (sale.dueDate ? 1 : 0) : 0);
   // logo + boxed contact card + two sale-info rows + the bordered item
   // table (header plus a row each) + totals + payment line + thank-you +
   // the developer credit, then a margin so nothing lands flush at the edge.
@@ -239,11 +260,10 @@ export function receiptOrderField(
   if (sale.tableName) {
     label = "Table";
     value = sale.tableName;
-  } else if (sale.orderType === "delivery") value = "Delivery";
-  else if (sale.orderType === "third_party_delivery") value = sale.deliveryPlatformName ?? "3rd-Party";
-  else if (sale.orderType === "takeaway") value = "Takeaway";
-  else if (sale.orderType === "dine_in") value = "Dine-In";
-  else value = tablesEnabled ? "Takeaway" : "Counter Sale";
+  } else if (sale.orderType === "third_party_delivery") value = sale.deliveryPlatformName ?? THIRD_PARTY_FALLBACK_LABEL;
+  else if (sale.orderType === "delivery" || sale.orderType === "takeaway" || sale.orderType === "dine_in") {
+    value = ORDER_TYPE_LABELS[sale.orderType];
+  } else value = tablesEnabled ? ORDER_TYPE_LABELS.takeaway : "Counter Sale";
   return sale.orderNo ? `${label}: ${value} (#${sale.orderNo})` : `${label}: ${value}`;
 }
 

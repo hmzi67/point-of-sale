@@ -10,13 +10,16 @@ import { useAppStore, useAuthStore, useLicenseStore, useModuleStore, useUiPrefsS
 import {
   AttendancePage,
   BillingPage,
+  CustomersPage,
   DashboardPage,
   EmployeesPage,
   ExpensesPage,
   InventoryPage,
+  LedgerPage,
   LoginPage,
   NotFoundPage,
   OnboardingPage,
+  PurchasingPage,
   ReportsPage,
   SalaryPage,
   SettingsPage,
@@ -102,6 +105,30 @@ export function App() {
                 element={
                   <ModuleRoute moduleKey="inventory">
                     <InventoryPage />
+                  </ModuleRoute>
+                }
+              />
+              <Route
+                path="customers"
+                element={
+                  <ModuleRoute moduleKey="customers">
+                    <CustomersPage />
+                  </ModuleRoute>
+                }
+              />
+              <Route
+                path="purchasing"
+                element={
+                  <ModuleRoute moduleKey="purchasing">
+                    <PurchasingPage />
+                  </ModuleRoute>
+                }
+              />
+              <Route
+                path="ledger"
+                element={
+                  <ModuleRoute moduleKey="ledger">
+                    <LedgerPage />
                   </ModuleRoute>
                 }
               />

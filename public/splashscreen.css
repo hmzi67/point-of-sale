@@ -1,0 +1,317 @@
+/* Desktop splash — see splashscreen.html. A fixed dark brand palette (not
+   the app's theme setting, which isn't readable yet): the app's dark
+   surface and accent green, so the hand-off to the main window feels like
+   one continuous surface. */
+
+@font-face {
+  font-family: "Plus Jakarta Sans Splash";
+  src: url("fonts/plus-jakarta-sans-latin.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #0a0f0d;
+  --bg-raised: #101915;
+  --accent: #00e5a0;
+  --accent-soft: rgba(0, 229, 160, 0.16);
+  --text: #f2f6f4;
+  --muted: #8fa39b;
+  --edge: rgba(255, 255, 255, 0.07);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Plus Jakarta Sans Splash", -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* A hairline inner edge so the borderless window reads as a deliberate
+   card against any desktop wallpaper. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  border: 1px solid var(--edge);
+  pointer-events: none;
+}
+
+/* --- Backdrop ------------------------------------------------------------ */
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 0%, var(--bg-raised) 0%, var(--bg) 60%);
+}
+
+/* Soft accent light, drawn as radial gradients rather than blurred discs:
+   WebKit clips `filter: blur` at the layer's bounds, which shows as a
+   hard-edged rectangle in the corner of the window. */
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0;
+  animation: glow-in 1.4s var(--ease-out) forwards;
+}
+
+.glow--a {
+  width: 620px;
+  height: 620px;
+  top: -330px;
+  left: -230px;
+  background: radial-gradient(circle, rgba(0, 229, 160, 0.2) 0%, rgba(0, 229, 160, 0.06) 40%, transparent 70%);
+}
+
+.glow--b {
+  width: 560px;
+  height: 560px;
+  bottom: -340px;
+  right: -200px;
+  background: radial-gradient(circle, rgba(0, 180, 130, 0.16) 0%, rgba(0, 180, 130, 0.04) 40%, transparent 70%);
+  animation-delay: 0.15s;
+}
+
+.grid {
+  position: absolute;
+  inset: -40px;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 45%, #000 20%, transparent 75%);
+  animation: drift 18s linear infinite;
+}
+
+/* --- Brand stage ---------------------------------------------------------- */
+
+.stage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 18px;
+}
+
+.mark {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  margin-bottom: 22px;
+  opacity: 0;
+  transform: translateY(10px) scale(0.92);
+  animation: rise 0.9s var(--ease-out) 0.1s forwards;
+}
+
+.mark__logo {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 26px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 18px 40px -12px rgba(0, 0, 0, 0.7),
+    0 0 48px -8px rgba(0, 229, 160, 0.35);
+}
+
+.mark__ring {
+  position: absolute;
+  inset: -10px;
+  border-radius: 34px;
+  border: 1px solid rgba(0, 229, 160, 0.35);
+  animation: breathe 2.6s ease-in-out 1s infinite;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  background: linear-gradient(180deg, #ffffff 0%, #cfe6dc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: rise 0.8s var(--ease-out) 0.28s forwards;
+}
+
+.tagline {
+  margin: 12px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0;
+  transform: translateY(8px);
+  animation: rise 0.8s var(--ease-out) 0.42s forwards;
+}
+
+/* --- Footer: progress + status ------------------------------------------ */
+
+.foot {
+  position: relative;
+  padding: 0 40px 30px;
+  opacity: 0;
+  animation: fade 0.8s ease-out 0.6s forwards;
+}
+
+.progress {
+  position: relative;
+  height: 3px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Indeterminate: the app doesn't report a percentage, so a sweeping
+   highlight says "working" without inventing a number. */
+.progress span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  box-shadow: 0 0 12px var(--accent);
+  animation: sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status {
+  font-weight: 500;
+}
+
+.dots::after {
+  content: "";
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: dots 1.4s steps(4, end) infinite;
+}
+
+.version {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  opacity: 0.8;
+}
+
+/* --- Motion --------------------------------------------------------------- */
+
+@keyframes rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes glow-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes sweep {
+  from {
+    left: -38%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+@keyframes drift {
+  to {
+    transform: translate(22px, 22px);
+  }
+}
+
+@keyframes dots {
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75% {
+    content: "...";
+  }
+}
+
+/* Honour "reduce motion": everything shown in its resting state, and the
+   progress bar becomes a calm static track. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+  }
+  .mark,
+  .wordmark,
+  .tagline,
+  .foot,
+  .glow {
+    opacity: 1;
+    transform: none;
+  }
+  .progress span {
+    left: 0;
+    width: 100%;
+    opacity: 0.5;
+  }
+  .dots::after {
+    content: "…";
+  }
+}

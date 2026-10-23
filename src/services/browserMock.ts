@@ -2,6 +2,7 @@ import type { User, ManagedUser } from "../types/auth";
 import type { DeliveryPlatform, Order, CreateAndHoldOrderInput, OrdersPayInput } from "../types/orders";
 import type { Sale } from "../types/billing";
 import type { Item, Category } from "../types/inventory";
+import { DEFAULT_PREP_MINUTES } from "../utils/orderType";
 
 const MOCK_USERS: ManagedUser[] = [
   { id: 1, name: "Owner", role: "owner", isActive: true },
@@ -232,7 +233,7 @@ export async function handleBrowserMock<TResult>(
         clientRef: input.clientRef || crypto.randomUUID(),
         customerName: input.customerName || null,
         notes: input.notes || null,
-        estimatedPrepMinutes: input.estimatedPrepMinutes || 15,
+        estimatedPrepMinutes: input.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES,
         paymentStatus: "unpaid",
         dueMinor,
         createdAt: new Date().toISOString(),
@@ -329,6 +330,11 @@ export async function handleBrowserMock<TResult>(
         taxMinor: input.taxMinor || 0,
         discountMinor: input.discountMinor || 0,
         paymentMethod: (input.paymentMethod as any) || "cash",
+        serviceChargeMinor: 0,
+        payments: [],
+        customerId: null,
+        customerEmail: null,
+        dueDate: null,
         createdAt: new Date().toISOString(),
         cashierId: currentUser?.id || 1,
         cashierName: currentUser?.name || "Owner",
@@ -358,6 +364,11 @@ export async function handleBrowserMock<TResult>(
         subtotalMinor: 50000,
         taxMinor: 0,
         discountMinor: 0,
+        serviceChargeMinor: 0,
+        payments: [],
+        customerId: null,
+        customerEmail: null,
+        dueDate: null,
         paymentMethod: "cash",
         createdAt: new Date().toISOString(),
         cashierId: currentUser?.id || 1,

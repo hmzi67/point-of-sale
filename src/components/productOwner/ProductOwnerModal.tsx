@@ -9,7 +9,7 @@ import {
   setup as setupProductOwner,
 } from "../../services/productOwnerService";
 import { useModuleStore } from "../../store";
-import { reportError } from "../../services/logService";
+import { reportWarning } from "../../services/logService";
 import type { ModuleState } from "../../types";
 import { runAction } from "../../utils/runAction";
 
@@ -107,7 +107,7 @@ export function ProductOwnerModal({ onClose }: ProductOwnerModalProps) {
     // once, then log it (same as staff sign-out in authStore).
     await productOwnerLogout()
       .catch(() => productOwnerLogout())
-      .catch((error: Error) => reportError(`[product-owner] logout did not reach the backend: ${error.message}`));
+      .catch((error: Error) => reportWarning(`[product-owner] logout did not reach the backend: ${error.message}`));
     onClose();
   };
 

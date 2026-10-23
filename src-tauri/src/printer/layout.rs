@@ -231,7 +231,7 @@ pub fn format_qty(qty: f64) -> String {
 /// Minor units -> a plain "12.34" string, without a currency symbol (every
 /// template prints the symbol once per section, not per line).
 pub fn format_minor(minor: i64) -> String {
-    format!("{}.{:02}", minor / 100, (minor % 100).abs())
+    crate::db::format_minor_plain(minor)
 }
 
 #[cfg(test)]
@@ -319,5 +319,7 @@ mod tests {
     fn format_minor_matches_the_receipt_convention() {
         assert_eq!(format_minor(945), "9.45");
         assert_eq!(format_minor(5), "0.05");
+        assert_eq!(format_minor(-50), "-0.50", "a sub-unit negative keeps its sign");
+        assert_eq!(format_minor(-1250), "-12.50");
     }
 }

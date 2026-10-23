@@ -36,6 +36,12 @@ const placeholderConfig: AppConfig = {
   printerUsbDevice: null,
   printerUsbName: null,
   printerWindowsName: null,
+  serviceChargePercent: 0,
+  scaleBarcodeEnabled: false,
+  scaleBarcodePrefix: "21",
+  scaleItemCodeDigits: 5,
+  scaleValueKind: "weight",
+  scaleValueDecimals: 3,
 };
 
 export const useAppStore = create<AppState>((set) => ({

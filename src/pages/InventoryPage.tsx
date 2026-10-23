@@ -1,11 +1,15 @@
 import { Boxes, LockKeyhole, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { BarcodeLabelsModal } from "../components/inventory/BarcodeLabelsModal";
 import { CsvImportModal } from "../components/inventory/CsvImportModal";
 import { EMPTY_INVENTORY_FILTERS, InventoryFilterChips } from "../components/inventory/InventoryFilterChips";
 import { InventorySnapshot } from "../components/inventory/InventorySnapshot";
 import { InventoryToolbar } from "../components/inventory/InventoryToolbar";
 import { ItemFormModal } from "../components/inventory/ItemFormModal";
 import { ItemTable } from "../components/inventory/ItemTable";
+import { StockAdjustModal } from "../components/inventory/StockAdjustModal";
+import { StockMovementsModal } from "../components/inventory/StockMovementsModal";
+import { StockTakeModal } from "../components/inventory/StockTakeModal";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useBestSellerIds } from "../hooks/useBestSellerIds";
@@ -34,6 +38,8 @@ export function InventoryPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [adjustingItem, setAdjustingItem] = useState<Item | null>(null);
+  const [openTool, setOpenTool] = useState<"stockTake" | "movements" | "labels" | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -143,6 +149,9 @@ export function InventoryPage() {
         isReadOnly={isReadOnly}
         onAddItem={() => setIsAdding(true)}
         onImportCsv={() => setIsImportingCsv(true)}
+        onStockTake={() => setOpenTool("stockTake")}
+        onMovements={() => setOpenTool("movements")}
+        onLabels={() => setOpenTool("labels")}
       />
 
       <div className="border-t border-line pt-4">
@@ -193,6 +202,7 @@ export function InventoryPage() {
           currency={config.currency}
           onEdit={setEditingItem}
           onDelete={setDeletingItem}
+          onAdjustStock={setAdjustingItem}
           bestSellerIds={bestSellerIds}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelect}
@@ -201,6 +211,28 @@ export function InventoryPage() {
       )}
 
       </div>
+
+      {adjustingItem && (
+        <StockAdjustModal
+          item={adjustingItem}
+          onClose={() => setAdjustingItem(null)}
+          onSaved={() => {
+            setToast(`Stock updated for ${adjustingItem.name}.`);
+            setAdjustingItem(null);
+            void load();
+          }}
+        />
+      )}
+      {openTool === "stockTake" && <StockTakeModal currency={config.currency} onSaved={() => void load()} onClose={() => setOpenTool(null)} />}
+      {openTool === "movements" && <StockMovementsModal currency={config.currency} onClose={() => setOpenTool(null)} />}
+      {openTool === "labels" && (
+        <BarcodeLabelsModal
+          items={selectedIds.size > 0 ? filteredItems.filter((item) => selectedIds.has(item.id)) : filteredItems}
+          currency={config.currency}
+          onBarcodesGenerated={() => void load()}
+          onClose={() => setOpenTool(null)}
+        />
+      )}
 
       {isImportingCsv && (
         <CsvImportModal onClose={() => setIsImportingCsv(false)} onImported={() => void load()} />

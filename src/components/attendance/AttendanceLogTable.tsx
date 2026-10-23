@@ -3,6 +3,8 @@ import { getAttendance, getEmployees } from "../../services/attendanceService";
 import { resolveDateRangePreset } from "../../utils/dateRanges";
 import { formatHours, formatTime } from "../../utils/format";
 import type { AttendanceRecord, Employee } from "../../types";
+import { DateRangeInputs } from "../ui/DateRangeInputs";
+import { useReport } from "../../hooks/useReport";
 
 /** The attendance log: every check-in/out in a date range, filterable by
  * employee. An open shift (no check-out yet) shows "—" for both the out time
@@ -14,25 +16,22 @@ export function AttendanceLogTable() {
   const [startDate, setStartDate] = useState(defaultRange.startDate);
   const [endDate, setEndDate] = useState(defaultRange.endDate);
 
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [employeesError, setEmployeesError] = useState<string | null>(null);
 
   useEffect(() => {
     getEmployees()
       .then(setEmployees)
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => setEmployeesError(e.message));
   }, []);
 
-  useEffect(() => {
-    if (!startDate || !endDate || startDate > endDate) return;
-    setIsLoading(true);
-    setError(null);
-    getAttendance(employeeId === "" ? null : employeeId, startDate, endDate)
-      .then(setRecords)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
-  }, [employeeId, startDate, endDate]);
+  const log = useReport(
+    () => getAttendance(employeeId === "" ? null : employeeId, startDate, endDate),
+    [employeeId, startDate, endDate],
+    { enabled: Boolean(startDate && endDate && startDate <= endDate) },
+  );
+  const records: AttendanceRecord[] = log.data ?? [];
+  const isLoading = log.isLoading;
+  const error = log.error ?? employeesError;
 
   return (
     <div className="space-y-3">
@@ -50,23 +49,7 @@ export function AttendanceLogTable() {
           ))}
         </select>
 
-        <div className="flex items-center gap-1.5">
-          <input
-            type="date"
-            value={startDate}
-            max={endDate || undefined}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
-          />
-          <span className="text-fg-muted">–</span>
-          <input
-            type="date"
-            value={endDate}
-            min={startDate || undefined}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="rounded-xl border border-line-strong px-3 py-2.5 text-sm"
-          />
-        </div>
+        <DateRangeInputs label="Attendance" start={startDate} end={endDate} onStartChange={setStartDate} onEndChange={setEndDate} />
       </div>
 
       {error && <p className="rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}

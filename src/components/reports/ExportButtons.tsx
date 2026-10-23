@@ -18,7 +18,9 @@ import { runAction } from "../../utils/runAction";
 type View = "overview" | "products" | "tables" | "refunds" | "delivery";
 
 interface ExportButtonsProps {
-  view: View;
+  /** `null` on a tab that carries its own export (the profit, payment,
+   * tax, void and inventory reports) — the tab-specific card is hidden. */
+  view: View | null;
   summary: SalesSummary | null;
   topItems: TopItem[];
   series: DailySales[];
@@ -244,14 +246,16 @@ export function ExportButtons({
   return (
     <div className="flex flex-col items-end gap-1.5">
       <div className="flex flex-wrap justify-end gap-2">
-        <ActionCard
-          title={currentViewTitle}
-          icon={view === "overview" ? Download : FileText}
-          onDownload={() => void downloadCurrentView()}
-          isDownloading={disabled || isDownloadingCurrent}
-          onPrint={canPrintCurrentView ? () => void printCurrentView() : undefined}
-          isPrinting={isPrintingCurrentView}
-        />
+        {view !== null && (
+          <ActionCard
+            title={currentViewTitle}
+            icon={view === "overview" ? Download : FileText}
+            onDownload={() => void downloadCurrentView()}
+            isDownloading={disabled || isDownloadingCurrent}
+            onPrint={canPrintCurrentView ? () => void printCurrentView() : undefined}
+            isPrinting={isPrintingCurrentView}
+          />
+        )}
 
         <ActionCard
           title="Category Wise Sale"

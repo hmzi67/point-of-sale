@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "tauri": {
+      "source": "Microck/ordinary-claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills_all/tauri/SKILL.md",
+      "computedHash": "f82b76eeabce7af9f2a8133874995c3f31110231cb379bbf422e39713c088b23"
+    }
+  }
+}

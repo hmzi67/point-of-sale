@@ -615,7 +615,7 @@ mod tests {
     #[test]
     fn monthly_summary_flags_an_incomplete_shift_instead_of_crashing() {
         let conn = test_conn();
-        let month = chrono::Local::now().format("%Y-%m").to_string();
+        let month = crate::db::test_support::this_month();
         let summaries = get_monthly_summary(&conn, &month).unwrap();
 
         let ahmed_summary = summaries
@@ -629,14 +629,28 @@ mod tests {
     #[test]
     fn monthly_summary_accounts_for_present_and_absent_days() {
         let conn = test_conn();
-        let month = chrono::Local::now().format("%Y-%m").to_string();
-        let summaries = get_monthly_summary(&conn, &month).unwrap();
-        assert_eq!(summaries.len(), conn.query_row("SELECT COUNT(*) FROM employees WHERE is_active = 1", [], |row| row.get::<_, i64>(0)).unwrap() as usize);
+        let id = employee_id(&conn, "Bilal Ahmed");
+        // A fixed, fully elapsed leap-year February (29 days), well clear of
+        // the seed's recent attendance.
+        conn.execute_batch(&format!(
+            "INSERT INTO attendance (employee_id, work_date, check_in, check_out) VALUES
+                 ({id}, '2020-02-03', '2020-02-03 09:00:00', '2020-02-03 17:30:00'),
+                 ({id}, '2020-02-04', '2020-02-04 09:00:00', '2020-02-04 13:00:00'),
+                 ({id}, '2020-02-05', '2020-02-05 09:00:00', NULL);"
+        ))
+        .unwrap();
 
-        for s in &summaries {
-            assert!(s.days_present >= 0);
-            assert!(s.days_absent >= 0);
-            assert!(s.total_hours >= 0.0);
+        let summaries = get_monthly_summary(&conn, "2020-02").unwrap();
+        let active: i64 = conn.query_row("SELECT COUNT(*) FROM employees WHERE is_active = 1", [], |row| row.get(0)).unwrap();
+        assert_eq!(summaries.len(), active as usize);
+
+        let bilal = summaries.iter().find(|s| s.employee_id == id).unwrap();
+        assert_eq!(bilal.days_present, 3);
+        assert_eq!(bilal.incomplete_days, 1, "the open check-in is flagged");
+        assert_eq!(bilal.days_absent, 29 - 3);
+        assert_eq!(bilal.total_hours, 12.5, "8.5h + 4h; the open shift adds nothing");
+        for other in summaries.iter().filter(|s| s.employee_id != id) {
+            assert_eq!((other.days_present, other.days_absent), (0, 29));
         }
     }
 
@@ -660,7 +674,7 @@ mod tests {
         assert_eq!(log.len(), 1);
         assert!(log[0].hours_worked.is_some());
 
-        let month = chrono::Local::now().format("%Y-%m").to_string();
+        let month = crate::db::test_support::this_month();
         let summary = get_monthly_summary(&conn, &month)
             .unwrap()
             .into_iter()

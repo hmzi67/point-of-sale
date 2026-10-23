@@ -18,7 +18,10 @@ export type ModuleKey =
   | "employees"
   | "users"
   | "settings"
-  | "delivery";
+  | "delivery"
+  | "customers"
+  | "purchasing"
+  | "ledger";
 
 export type Platform = "desktop" | "android";
 

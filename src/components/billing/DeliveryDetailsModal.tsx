@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Bike, X } from "lucide-react";
+import { Bike } from "lucide-react";
 import { getUsers } from "../../services/authService";
-import { devWarn } from "../../services/logService";
+import { reportWarning } from "../../services/logService";
 import { useBillingStore } from "../../store";
 import type { DeliveryDetails, User } from "../../types";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
+import { ModalHeader } from "../ui/ModalCard";
 import { ModalOverlay } from "../ui/ModalOverlay";
 
 interface DeliveryDetailsModalProps {
@@ -20,8 +21,10 @@ export function DeliveryDetailsModal({ onClose, onSaved }: DeliveryDetailsModalP
   const [name, setName] = useState(customerName || "");
   const [phone, setPhone] = useState(currentDetails?.customerPhone || "");
   const [address, setAddress] = useState(currentDetails?.deliveryAddress || "");
-  const [chargeDecimal, setChargeDecimal] = useState<number>(
-    currentDetails?.deliveryChargeMinor ? minorToDecimal(currentDetails.deliveryChargeMinor) : 0
+  // The raw text typed, converted once on save — so a bad entry is
+  // refused rather than silently becoming 0.
+  const [chargeInput, setChargeInput] = useState(
+    currentDetails?.deliveryChargeMinor ? String(minorToDecimal(currentDetails.deliveryChargeMinor)) : "",
   );
 
   const [riderSource, setRiderSource] = useState<"user" | "manual">(
@@ -51,7 +54,7 @@ export function DeliveryDetailsModal({ onClose, onSaved }: DeliveryDetailsModalP
         }
       })
       .catch((err) => {
-        devWarn("Failed to load riders", err);
+        reportWarning(`Failed to load riders: ${(err as Error).message}`);
       })
       .finally(() => {
         if (!cancelled) setIsLoadingRiders(false);
@@ -107,7 +110,12 @@ export function DeliveryDetailsModal({ onClose, onSaved }: DeliveryDetailsModalP
       riderPhone = manualRiderPhone.trim();
     }
 
-    const chargeMinor = decimalToMinor(Math.max(0, chargeDecimal || 0));
+    const charge = chargeInput.trim() === "" ? 0 : Number(chargeInput);
+    if (!Number.isFinite(charge) || charge < 0) {
+      setError("Delivery charge must be a positive amount");
+      return;
+    }
+    const chargeMinor = decimalToMinor(charge);
 
     const details: DeliveryDetails = {
       riderSource,
@@ -133,27 +141,13 @@ export function DeliveryDetailsModal({ onClose, onSaved }: DeliveryDetailsModalP
   return (
     <ModalOverlay>
       <div className="w-full max-w-lg rounded-2xl border border-line bg-surface p-6 shadow-soft-lg">
-        <div className="flex items-center justify-between border-b border-line pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="rounded-xl bg-accent-soft p-2 text-accent-text">
-              <Bike className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-fg">In-House Delivery Details</h2>
-              <p className="text-xs text-fg-muted">
-                Assign rider and customer delivery information
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-2"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <ModalHeader
+          icon={Bike}
+          title="In-House Delivery Details"
+          subtitle="Assign rider and customer delivery information"
+          onClose={onClose}
+          className="pb-4"
+        />
 
         <form onSubmit={handleSave} className="mt-5 space-y-4">
           {error && (
@@ -305,8 +299,8 @@ export function DeliveryDetailsModal({ onClose, onSaved }: DeliveryDetailsModalP
               min="0"
               step="10"
               placeholder="0"
-              value={chargeDecimal === 0 ? "" : chargeDecimal}
-              onChange={(e) => setChargeDecimal(parseFloat(e.target.value) || 0)}
+              value={chargeInput}
+              onChange={(e) => setChargeInput(e.target.value)}
               className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-fg outline-none transition focus:border-accent"
             />
           </div>

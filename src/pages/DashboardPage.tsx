@@ -1,10 +1,12 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, CalendarDays } from "lucide-react";
+import { PaymentAlerts } from "../components/dashboard/PaymentAlerts";
 import { QuickLinks } from "../components/dashboard/QuickLinks";
 import { SnapshotCards } from "../components/dashboard/SnapshotCards";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useModules } from "../hooks/useModules";
+import { useReport } from "../hooks/useReport";
 import { getDashboardSummary } from "../services/dashboardService";
 import { getSalesOverTime } from "../services/reportsService";
 import { resolveDateRangePreset } from "../utils/dateRanges";
@@ -23,28 +25,16 @@ export function DashboardPage() {
   const { config } = useAppConfig();
   const { visibleModules, canAccess } = useModules();
 
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [series, setSeries] = useState<DailySales[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
+  const { data, isLoading, error } = useReport(() => {
     const today = resolveDateRangePreset("today");
     const monthToDate = resolveDateRangePreset("thisMonth");
-
-    setIsLoading(true);
-    setError(null);
-    Promise.all([
+    return Promise.all([
       getDashboardSummary(today.startDate, today.endDate),
       getSalesOverTime(monthToDate.startDate, monthToDate.endDate),
-    ])
-      .then(([todaySummary, monthSeries]) => {
-        setSummary(todaySummary);
-        setSeries(monthSeries);
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setIsLoading(false));
+    ]);
   }, []);
+  const summary: DashboardSummary | null = data?.[0] ?? null;
+  const series: DailySales[] = data?.[1] ?? [];
 
   return (
     <section className="space-y-6">
@@ -68,6 +58,8 @@ export function DashboardPage() {
       </div>
 
       {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
+
+      {canAccess("customers") && <PaymentAlerts currency={config.currency} />}
 
       <SnapshotCards summary={summary} currency={config.currency} isLoading={isLoading} />
 

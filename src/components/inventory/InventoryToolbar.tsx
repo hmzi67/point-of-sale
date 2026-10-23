@@ -1,13 +1,19 @@
-import { Plus, Search, Upload } from "lucide-react";
+import { Barcode, ClipboardCheck, History, Plus, Search, Upload } from "lucide-react";
 import { useInventoryStore } from "../../store";
 
 interface InventoryToolbarProps {
   isReadOnly: boolean;
   onAddItem: () => void;
   onImportCsv: () => void;
+  onStockTake: () => void;
+  onMovements: () => void;
+  onLabels: () => void;
 }
 
-export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv }: InventoryToolbarProps) {
+const toolClass =
+  "flex items-center gap-1.5 rounded-xl border border-line bg-surface-2/50 px-3 py-3 text-sm font-medium text-fg-2 hover:bg-surface-2";
+
+export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv, onStockTake, onMovements, onLabels }: InventoryToolbarProps) {
   const search = useInventoryStore((state) => state.search);
   const setSearch = useInventoryStore((state) => state.setSearch);
   const categoryId = useInventoryStore((state) => state.categoryId);
@@ -43,6 +49,18 @@ export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv }: Invento
 
       {!isReadOnly && (
         <>
+          <button type="button" onClick={onStockTake} className={toolClass}>
+            <ClipboardCheck className="h-4 w-4" />
+            Stock take
+          </button>
+          <button type="button" onClick={onMovements} className={toolClass}>
+            <History className="h-4 w-4" />
+            Movements
+          </button>
+          <button type="button" onClick={onLabels} className={toolClass}>
+            <Barcode className="h-4 w-4" />
+            Labels
+          </button>
           <button
             type="button"
             onClick={onImportCsv}

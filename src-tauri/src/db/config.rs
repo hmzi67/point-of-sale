@@ -69,6 +69,18 @@ pub struct AppConfig {
     /// `OpenPrinterW` opens printers by this same name. Present only when
     /// `printer_connection_type == Some("windows")`.
     pub printer_windows_name: Option<String>,
+    /// Added to every sale on (subtotal - discount) when > 0, like tax.
+    pub service_charge_percent: f64,
+    /// Weight-scale barcodes: `prefix` + item code (`scale_item_code_digits`,
+    /// matched against `items.short_code`/`barcode`) + an embedded value —
+    /// a weight in `scale_value_decimals` decimals (`weight`) or a price in
+    /// minor units (`price`) — + one check digit. See
+    /// `db::items::parse_scale_barcode`.
+    pub scale_barcode_enabled: bool,
+    pub scale_barcode_prefix: String,
+    pub scale_item_code_digits: i64,
+    pub scale_value_kind: String,
+    pub scale_value_decimals: i64,
 }
 
 /// One paired-device entry in Settings' "Select printer" list — a plain
@@ -144,6 +156,12 @@ pub struct AppConfigUpdate {
     pub printer_usb_device: Option<String>,
     pub printer_usb_name: Option<String>,
     pub printer_windows_name: Option<String>,
+    pub service_charge_percent: Option<f64>,
+    pub scale_barcode_enabled: Option<bool>,
+    pub scale_barcode_prefix: Option<String>,
+    pub scale_item_code_digits: Option<i64>,
+    pub scale_value_kind: Option<String>,
+    pub scale_value_decimals: Option<i64>,
 }
 
 fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
@@ -163,6 +181,12 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
         printer_usb_device: row.get("printer_usb_device")?,
         printer_usb_name: row.get("printer_usb_name")?,
         printer_windows_name: row.get("printer_windows_name")?,
+        service_charge_percent: row.get("service_charge_percent")?,
+        scale_barcode_enabled: row.get::<_, i64>("scale_barcode_enabled")? != 0,
+        scale_barcode_prefix: row.get("scale_barcode_prefix")?,
+        scale_item_code_digits: row.get("scale_item_code_digits")?,
+        scale_value_kind: row.get("scale_value_kind")?,
+        scale_value_decimals: row.get("scale_value_decimals")?,
     })
 }
 
@@ -212,7 +236,9 @@ pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
         "SELECT business_name, business_type, logo_path, currency, tax_percent, receipt_footer,
                 phone, delivery_number, onboarding_completed,
                 printer_connection_type, printer_bluetooth_address, printer_bluetooth_name,
-                printer_usb_device, printer_usb_name, printer_windows_name
+                printer_usb_device, printer_usb_name, printer_windows_name,
+                service_charge_percent, scale_barcode_enabled, scale_barcode_prefix,
+                scale_item_code_digits, scale_value_kind, scale_value_decimals
            FROM app_config WHERE id = 1",
         [],
         from_row,
@@ -238,7 +264,13 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
                 printer_bluetooth_name = COALESCE(?12, printer_bluetooth_name),
                 printer_usb_device = COALESCE(?13, printer_usb_device),
                 printer_usb_name = COALESCE(?14, printer_usb_name),
-                printer_windows_name = COALESCE(?15, printer_windows_name)
+                printer_windows_name = COALESCE(?15, printer_windows_name),
+                service_charge_percent = COALESCE(?16, service_charge_percent),
+                scale_barcode_enabled = COALESCE(?17, scale_barcode_enabled),
+                scale_barcode_prefix = COALESCE(?18, scale_barcode_prefix),
+                scale_item_code_digits = COALESCE(?19, scale_item_code_digits),
+                scale_value_kind = COALESCE(?20, scale_value_kind),
+                scale_value_decimals = COALESCE(?21, scale_value_decimals)
           WHERE id = 1",
         params![
             patch.business_name,
@@ -256,6 +288,12 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
             patch.printer_usb_device,
             patch.printer_usb_name,
             patch.printer_windows_name,
+            patch.service_charge_percent,
+            patch.scale_barcode_enabled,
+            patch.scale_barcode_prefix,
+            patch.scale_item_code_digits,
+            patch.scale_value_kind,
+            patch.scale_value_decimals,
         ],
     )?;
 

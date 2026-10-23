@@ -1,18 +1,31 @@
-// A separate file (not an inline <script>) because the app's CSP is
-// `script-src 'self'` with no `'unsafe-inline'` — same-origin external
-// scripts are allowed, inline ones would just be silently blocked.
+// A separate file (not an inline <script>): the app's CSP is
+// `script-src 'self'` with no `'unsafe-inline'`.
 //
-// Tells the Rust side this window has actually painted (see
-// `commands::splashscreen_ready`) — the real "ready" signal the splash
-// timing waits on, rather than guessing how long a cold webview process
-// takes to render its first frame. Fires on `load` (after the logo image
-// itself has decoded and is visibly on screen), not any earlier point.
-window.addEventListener("load", () => {
-  // `__TAURI_INTERNALS__` is always injected; `window.__TAURI__` only exists with
-  // `withGlobalTauri`, which is off so the full API isn't a page global.
-  window.__TAURI_INTERNALS__?.invoke("splashscreen_ready")?.catch(() => {
-    // Nothing to do — the MAX_SPLASH_MS ceiling in lib.rs::run still
-    // reveals the main window regardless, so a failed/unreachable IPC
-    // bridge here can't strand anyone on the splash.
+// Wrapped in a function scope on purpose: a top-level `const ipc` would
+// collide with the `window.ipc` global wry injects, and WebKit rejects the
+// whole script for that (a SyntaxError before a single line runs).
+(() => {
+  // `__TAURI_INTERNALS__` is always injected; `window.__TAURI__` only exists
+  // with `withGlobalTauri`, which is off so the full API isn't a page global.
+  const tauri = window.__TAURI_INTERNALS__;
+  if (!tauri) return;
+
+  // The installed version, from tauri.conf.json — allowed for this window
+  // alone by capabilities/splashscreen.json (`core:app:allow-version`).
+  tauri
+    .invoke("plugin:app|version")
+    .then((version) => {
+      document.getElementById("version").textContent = `v${version}`;
+    })
+    .catch(() => {
+      // Cosmetic — the splash is complete without it.
+    });
+
+  // Diagnostic marker in pos-startup.log that the splash's assets resolved
+  // and it painted (see `commands::app_splashscreen_ready`). Revealing the
+  // main window doesn't wait on this — it waits on the app's own first
+  // render.
+  window.addEventListener("load", () => {
+    tauri.invoke("app_splashscreen_ready").catch(() => {});
   });
-});
+})();

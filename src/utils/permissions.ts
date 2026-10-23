@@ -7,7 +7,11 @@ import type { ModuleKey, Role } from "../types";
  * |--------------------------------|:-----:|:-----:|:-------:|
  * | Billing (search, sell, receipt)|   ✓   |   ✓   |    ✓    |
  * | Inventory — view stock          |   ✓   |   ✓   |    ✓    |
- * | Inventory — add/edit/delete     |   ✓   |   ✓   |         |
+ * | Inventory — add/edit/delete, stock adjust/take, barcodes | ✓ | ✓ |    |
+ * | Customers — accounts, take installments | ✓ |   ✓   |    ✓    |
+ * | Customers — archive             |   ✓   |   ✓   |         |
+ * | Purchasing (suppliers, PO, GRN) |   ✓   |   ✓   |         |
+ * | Ledger                          |   ✓   |   ✓   |         |
  * | Tables — bill against a table   |   ✓   |   ✓   |    ✓    |
  * | Tables — floor management       |   ✓   |   ✓   |         |
  * | Dashboard                       |   ✓   |   ✓   |         |
@@ -58,7 +62,7 @@ import type { ModuleKey, Role } from "../types";
  * that the route/nav link isn't hidden; actually opening one still requires
  * the shared area PIN (`AreaPinGate`), which every role goes through
  * equally. See this file's doc comment's "PIN" rows. */
-const CASHIER_MODULES: ModuleKey[] = ["billing", "inventory", "attendance", "expenses", "salary", "reports", "employees"];
+const CASHIER_MODULES: ModuleKey[] = ["billing", "inventory", "customers", "attendance", "expenses", "salary", "reports", "employees"];
 
 /** Modules a cashier may open but must not edit. */
 const CASHIER_READ_ONLY_MODULES: ModuleKey[] = ["inventory"];

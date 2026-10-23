@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AppearanceSection } from "../components/settings/AppearanceSection";
 import { AreaPinSection } from "../components/settings/AreaPinSection";
 import { BusinessSection } from "../components/settings/BusinessSection";
+import { CheckoutSettingsSection } from "../components/settings/CheckoutSettingsSection";
 import { CountersSection } from "../components/settings/CountersSection";
 import { DeliveryPlatformsSection } from "../components/settings/DeliveryPlatformsSection";
 import { LicenseSection } from "../components/settings/LicenseSection";
@@ -77,6 +78,7 @@ export function SettingsPage() {
           <>
             <StoreIdentitySection config={config} />
             <BusinessSection config={config} />
+            <CheckoutSettingsSection config={config} />
             <AppearanceSection />
           </>
         )}

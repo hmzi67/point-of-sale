@@ -742,6 +742,7 @@ mod tests {
                 shift_id: None,
                 tendered_minor: None,
                 change_minor: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -885,6 +886,7 @@ mod tests {
                 shift_id: None,
                 tendered_minor: None,
                 change_minor: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -912,6 +914,7 @@ mod tests {
             shift_id: None,
             tendered_minor: None,
             change_minor: None,
+            ..Default::default()
         };
         let sale = sales::create_sale(&tx, input).unwrap();
         tx.commit().unwrap();

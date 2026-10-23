@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Lock } from "lucide-react";
 import { revokeAreaAccess, verifyAreaPin } from "../../services/securityPinService";
-import { reportError } from "../../services/logService";
+import { reportWarning } from "../../services/logService";
 import { runAction } from "../../utils/runAction";
 
 interface AreaPinGateProps {
@@ -48,7 +48,7 @@ export function AreaPinGate({ label, children }: AreaPinGateProps) {
       // revoke is still logged rather than lost.
       if (wasUnlocked.current) {
         revokeAreaAccess().catch((error: Error) =>
-          reportError(`[area-pin] revoke did not reach the backend: ${error.message}`),
+          reportWarning(`[area-pin] revoke did not reach the backend: ${error.message}`),
         );
       }
     };

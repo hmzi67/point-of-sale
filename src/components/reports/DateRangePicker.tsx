@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useReportsStore } from "../../store";
 import { PRESET_LABELS } from "../../utils/dateRanges";
 import type { DateRangePreset } from "../../types";
+import { DateRangeInputs } from "../ui/DateRangeInputs";
 
 const PRESETS: Exclude<DateRangePreset, "custom">[] = ["today", "thisWeek", "thisMonth"];
 
@@ -45,33 +46,18 @@ export function DateRangePicker() {
         ))}
       </div>
 
-      <div className="flex items-center gap-1.5">
-        <input
-          type="date"
-          aria-label="Report start date"
-          value={draftStart}
-          max={draftEnd || undefined}
-          onChange={(e) => setDraftStart(e.target.value)}
-          onBlur={applyCustomRange}
-          className={[
-            "min-w-0 rounded-xl border bg-surface px-3 py-2.5 text-xs focus:outline-accent",
-            preset === "custom" ? "border-accent" : "border-line",
-          ].join(" ")}
-        />
-        <span className="text-fg-muted">–</span>
-        <input
-          type="date"
-          aria-label="Report end date"
-          value={draftEnd}
-          min={draftStart || undefined}
-          onChange={(e) => setDraftEnd(e.target.value)}
-          onBlur={applyCustomRange}
-          className={[
-            "min-w-0 rounded-xl border bg-surface px-3 py-2.5 text-xs focus:outline-accent",
-            preset === "custom" ? "border-accent" : "border-line",
-          ].join(" ")}
-        />
-      </div>
+      <DateRangeInputs
+        label="Report"
+        start={draftStart}
+        end={draftEnd}
+        onStartChange={setDraftStart}
+        onEndChange={setDraftEnd}
+        onBlur={applyCustomRange}
+        inputClassName={[
+          "min-w-0 rounded-xl border bg-surface px-3 py-2.5 text-xs focus:outline-accent",
+          preset === "custom" ? "border-accent" : "border-line",
+        ].join(" ")}
+      />
     </div>
   );
 }

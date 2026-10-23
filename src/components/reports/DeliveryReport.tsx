@@ -237,7 +237,7 @@ export function DeliveryReport({ data, currency, isLoading }: DeliveryReportProp
                       className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
                         o.orderType === "delivery"
                           ? "bg-info-soft text-info-text"
-                          : "bg-primary-soft text-primary-text"
+                          : "bg-accent-soft text-accent-text"
                       }`}
                     >
                       {o.orderType === "delivery" ? "In-House" : (o.platformName || "3rd-Party")}

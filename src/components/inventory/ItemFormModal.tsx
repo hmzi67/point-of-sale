@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ImagePlus, Plus, X } from "lucide-react";
+import { ImagePlus, Plus } from "lucide-react";
 import { useInventoryStore } from "../../store";
 import { suggestShortCode, uploadItemImage } from "../../services/inventoryService";
 import { useModuleEnabled } from "../../hooks/useModules";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import { readImageFile } from "../../utils/image";
 import type { Item, ItemInput } from "../../types";
+import { ModalHeader } from "../ui/ModalCard";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { runAction } from "../../utils/runAction";
 
@@ -221,19 +222,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   return (
     <ModalOverlay>
       <div className="w-full max-w-md overflow-hidden rounded-2xl border border-line bg-surface shadow-xl">
-        <div className="flex items-center justify-between border-b border-line bg-surface-2/50 px-5 py-5">
-          <h3 className="text-lg font-semibold tracking-tight text-fg">
-            {isEditing ? "Edit item" : "Add item"}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <ModalHeader title={isEditing ? "Edit item" : "Add item"} onClose={onClose} className="bg-surface-2/50 px-5 py-5" />
 
         <form
           className="max-h-[75dvh] space-y-4 overflow-y-auto px-5 py-4"

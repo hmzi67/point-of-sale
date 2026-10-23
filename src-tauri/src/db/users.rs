@@ -88,7 +88,8 @@ pub enum AuthError {
     /// account left who could create a new one.
     #[error("The Owner account can't be deactivated")]
     OwnerCannotBeDeactivated,
-    #[error("Could not process PIN: {0}")]
+    /// The detail is logged (see `db::hash_failure`), not shown.
+    #[error("Could not check the PIN — please try again. Details are in the support log.")]
     Hash(String),
     #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -180,7 +181,7 @@ pub fn authenticate(conn: &Connection, user_id: i64, pin: &str) -> Result<User, 
             other => AuthError::Sqlite(other),
         })?;
 
-    let parsed = PasswordHash::new(&pin_hash).map_err(|e| AuthError::Hash(e.to_string()))?;
+    let parsed = PasswordHash::new(&pin_hash).map_err(|e| AuthError::Hash(crate::db::hash_failure("user pin", e)))?;
     Argon2::default()
         .verify_password(pin.as_bytes(), &parsed)
         .map_err(|_| AuthError::InvalidPin)?;
@@ -193,7 +194,7 @@ pub fn create(conn: &Connection, name: &str, pin: &str, role: Role) -> Result<Us
         return Err(AuthError::OwnerRoleNotAssignable);
     }
     validate_pin(pin)?;
-    let pin_hash = hash_pin(pin).map_err(AuthError::Hash)?;
+    let pin_hash = hash_pin(pin).map_err(|e| AuthError::Hash(crate::db::hash_failure("user pin", e)))?;
 
     conn.execute(
         "INSERT INTO users (name, pin_hash, role) VALUES (?1, ?2, ?3)",
@@ -274,7 +275,7 @@ pub fn set_active(conn: &Connection, user_id: i64, is_active: bool) -> Result<()
 /// Changes a user's PIN. Used by onboarding to replace the seeded default.
 pub fn set_pin(conn: &Connection, user_id: i64, new_pin: &str) -> Result<(), AuthError> {
     validate_pin(new_pin)?;
-    let pin_hash = hash_pin(new_pin).map_err(AuthError::Hash)?;
+    let pin_hash = hash_pin(new_pin).map_err(|e| AuthError::Hash(crate::db::hash_failure("user pin", e)))?;
 
     let changed = conn.execute(
         "UPDATE users SET pin_hash = ?1 WHERE id = ?2",

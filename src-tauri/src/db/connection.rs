@@ -56,6 +56,13 @@ impl Db {
         })
     }
 
+    /// Wraps an already-migrated connection (`schema::test_conn()`) for
+    /// tests of code that takes a `&Db`.
+    #[cfg(test)]
+    pub(crate) fn from_connection(conn: Connection) -> Self {
+        Self { conn: Mutex::new(conn) }
+    }
+
     /// Runs `f` against the connection.
     pub fn with_conn<T, F>(&self, f: F) -> Result<T, DbError>
     where

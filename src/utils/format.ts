@@ -1,9 +1,5 @@
 /** Currency/date helpers shared across modules. Kept dependency-free and offline-safe. */
 
-export function formatCurrency(amount: number, currency = "PKR"): string {
-  return `${currency} ${amount.toFixed(2)}`;
-}
-
 /** Integer minor units (paisa) -> a decimal amount, for display or form inputs. */
 export function minorToDecimal(minor: number): number {
   return minor / 100;
@@ -16,7 +12,7 @@ export function decimalToMinor(amount: number): number {
 }
 
 export function formatMinor(minor: number, currency = "PKR"): string {
-  return formatCurrency(minorToDecimal(minor), currency);
+  return `${currency} ${minorToDecimal(minor).toFixed(2)}`;
 }
 
 /** A quantity rounded to 2 decimal places — the precision every fractional

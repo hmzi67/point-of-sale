@@ -615,6 +615,12 @@ pub fn build_receipt_bytes(
         out.extend(two_col("Tax:", &format!("{} {}", currency, format_minor(sale.tax_minor))).as_bytes());
         out.push(b'\n');
     }
+    if sale.service_charge_minor > 0 {
+        out.extend(
+            two_col("Service Charge:", &format!("{} {}", currency, format_minor(sale.service_charge_minor))).as_bytes(),
+        );
+        out.push(b'\n');
+    }
     if let Some(charge) = sale.delivery_charge_minor {
         if charge > 0 {
             out.extend(two_col("Delivery Fee:", &format!("{} {}", currency, format_minor(charge))).as_bytes());
@@ -635,7 +641,20 @@ pub fn build_receipt_bytes(
     out.extend(bold(true));
     out.extend(truncate_line(&format!("Paid by: {}", sale.payment_method)).as_bytes());
     out.push(b'\n');
-    if sale.payment_method == "cash" {
+    if sale.payments.len() > 1 || sale.payment_method == "credit" {
+        out.extend(bold(false));
+        for part in &sale.payments {
+            let label = if part.method == "credit" { "Pay later".to_string() } else { format!("{}:", part.method) };
+            out.extend(two_col(&label, &format!("{} {}", currency, format_minor(part.amount_minor))).as_bytes());
+            out.push(b'\n');
+        }
+        if let Some(due) = &sale.due_date {
+            out.extend(truncate_line(&format!("Balance due by: {due}")).as_bytes());
+            out.push(b'\n');
+        }
+        out.extend(bold(true));
+    }
+    if sale.payments.iter().any(|p| p.method == "cash") {
         if let Some(tendered) = sale.tendered_minor {
             let change = sale.change_minor.unwrap_or_else(|| (tendered - sale.total_minor).max(0));
             out.extend(bold(false));
@@ -782,61 +801,13 @@ pub fn build_refund_bytes(refund: &Refund, config: &AppConfig) -> Vec<u8> {
 /// header, bold badge box, item details and totals, formatted compactly for 80mm rolls.
 pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
     let mut out = Vec::new();
-
-    out.extend(wake_padding());
-    out.extend(init());
-
-    // Top double-ruled banner
-    out.extend(align_center());
-    out.extend(double_divider().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    if is_reprint {
-        out.extend(truncate_line("*** REPRINT ***").as_bytes());
-    } else {
-        out.extend(truncate_line("*** KITCHEN TICKET ***").as_bytes());
-    }
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(double_divider().as_bytes());
-    out.push(b'\n');
-
-    // Boxed Token badge (CP437 border, width 40 + 2 border chars = 42 LINE_WIDTH)
-    out.extend(align_left());
-    out.extend(box_line(&[40], BoxLinePosition::Top));
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(box_row(&[(&center_text(&format!("TOKEN #{}", token.token_number), 40), 40, false)]));
-    out.push(b'\n');
+    let title = if is_reprint { "*** REPRINT ***" } else { "*** KITCHEN TICKET ***" };
     let type_or_table = match &token.table_name {
         Some(table_name) => format!("Table: {}", table_name),
         None => "Takeaway".to_string(),
     };
-    out.extend(box_row(&[(&center_text(&type_or_table, 40), 40, false)]));
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(box_line(&[40], BoxLinePosition::Bottom));
-    out.push(b'\n');
-
-    // Compact date & time row
-    let (date_part, time_part) = token.printed_at.split_once(' ').unwrap_or((&token.printed_at, ""));
-    let dt_row = if !time_part.is_empty() {
-        two_col(&format!("Date: {date_part}"), &format!("Time: {time_part}"))
-    } else {
-        format!("Date: {date_part}")
-    };
-    out.extend(dt_row.as_bytes());
-    out.push(b'\n');
-
-    // Items table header
-    out.extend(divider().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(two_col("ITEM / DESCRIPTION", "QTY").as_bytes());
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(divider().as_bytes());
-    out.push(b'\n');
+    token_head(&mut out, title, token.token_number, &type_or_table, &token.printed_at);
+    token_items_header(&mut out);
 
     // Body: item + qty only — no rate, no total.
     let mut total_qty = 0.0;
@@ -846,17 +817,77 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
             Some(unit) => format!("{} {}", format_qty(line.qty), unit),
             None => format_qty(line.qty),
         };
-        out.extend(bold(true));
-        out.extend(two_col(&line.item_name, &qty_text).as_bytes());
-        out.extend(bold(false));
-        out.push(b'\n');
+        token_item(&mut out, &line.item_name, &qty_text);
         if line.sold_by_amount {
             out.extend(two_col("", &format!("({})", format_minor(line.amount_minor))).as_bytes());
             out.push(b'\n');
         }
     }
 
-    // Total items count and footer
+    token_foot(&mut out, total_qty, "*** PREPARE FRESH ***");
+    out
+}
+
+/// The part every token shares above its details: the titled double-ruled
+/// banner, the boxed `TOKEN #n` badge with its table/type line, and the
+/// date/time row.
+fn token_head(out: &mut Vec<u8>, title: &str, number: i64, type_or_table: &str, printed_at: &str) {
+    out.extend(wake_padding());
+    out.extend(init());
+
+    out.extend(align_center());
+    out.extend(double_divider().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(truncate_line(title).as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(double_divider().as_bytes());
+    out.push(b'\n');
+
+    // Boxed badge (CP437 border, width 40 + 2 border chars = 42 LINE_WIDTH)
+    out.extend(align_left());
+    out.extend(box_line(&[40], BoxLinePosition::Top));
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(box_row(&[(&center_text(&format!("TOKEN #{number}"), 40), 40, false)]));
+    out.push(b'\n');
+    out.extend(box_row(&[(&center_text(type_or_table, 40), 40, false)]));
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(box_line(&[40], BoxLinePosition::Bottom));
+    out.push(b'\n');
+
+    let (date_part, time_part) = printed_at.split_once(' ').unwrap_or((printed_at, ""));
+    let dt_row = if !time_part.is_empty() {
+        two_col(&format!("Date: {date_part}"), &format!("Time: {time_part}"))
+    } else {
+        format!("Date: {date_part}")
+    };
+    out.extend(dt_row.as_bytes());
+    out.push(b'\n');
+}
+
+fn token_items_header(out: &mut Vec<u8>) {
+    out.extend(divider().as_bytes());
+    out.push(b'\n');
+    out.extend(bold(true));
+    out.extend(two_col("ITEM / DESCRIPTION", "QTY").as_bytes());
+    out.push(b'\n');
+    out.extend(bold(false));
+    out.extend(divider().as_bytes());
+    out.push(b'\n');
+}
+
+fn token_item(out: &mut Vec<u8>, name: &str, qty_text: &str) {
+    out.extend(bold(true));
+    out.extend(two_col(name, qty_text).as_bytes());
+    out.extend(bold(false));
+    out.push(b'\n');
+}
+
+/// The item count, closing rules and the closing line, then feed and cut.
+fn token_foot(out: &mut Vec<u8>, total_qty: f64, closing: &str) {
     out.extend(divider().as_bytes());
     out.push(b'\n');
     out.extend(bold(true));
@@ -867,11 +898,18 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
     out.push(b'\n');
 
     out.extend(align_center());
-    out.extend(truncate_line("*** PREPARE FRESH ***").as_bytes());
+    out.extend(truncate_line(closing).as_bytes());
     out.push(b'\n');
 
-    close_out(&mut out, "");
-    out
+    close_out(out, "");
+}
+
+/// A `Label: value` detail line, skipped when the value is missing or blank.
+fn detail_line(out: &mut Vec<u8>, label: &str, value: Option<&str>) {
+    if let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) {
+        out.extend(truncate_line(&format!("{label}: {value}")).as_bytes());
+        out.push(b'\n');
+    }
 }
 
 /// Builds and sends one KOT token to this installation's configured
@@ -887,32 +925,7 @@ pub fn print_token(token: &TokenSummary, config: &AppConfig, is_reprint: bool) -
 /// Builds thermal print bytes for an active order token (takeaway or dine-in).
 pub fn build_order_token_bytes(order: &crate::db::orders::Order, _config: &AppConfig, is_kitchen: bool) -> Vec<u8> {
     let mut out = Vec::new();
-
-    out.extend(wake_padding());
-    out.extend(init());
-
-    // Top double-ruled banner
-    out.extend(align_center());
-    out.extend(double_divider().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    if is_kitchen {
-        out.extend(truncate_line("*** KITCHEN TICKET ***").as_bytes());
-    } else {
-        out.extend(truncate_line("*** CUSTOMER TOKEN ***").as_bytes());
-    }
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(double_divider().as_bytes());
-    out.push(b'\n');
-
-    // Boxed Token badge (CP437 border, width 40 + 2 border chars = 42 LINE_WIDTH)
-    out.extend(align_left());
-    out.extend(box_line(&[40], BoxLinePosition::Top));
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(box_row(&[(&center_text(&format!("TOKEN #{}", order.order_no), 40), 40, false)]));
-    out.push(b'\n');
+    let title = if is_kitchen { "*** KITCHEN TICKET ***" } else { "*** CUSTOMER TOKEN ***" };
     let type_or_table = match &order.table_name {
         Some(table_name) => format!("TABLE: {}", table_name.to_uppercase()),
         None => match order.order_type.as_str() {
@@ -924,124 +937,36 @@ pub fn build_order_token_bytes(order: &crate::db::orders::Order, _config: &AppCo
             _ => format!("TYPE: {}", order.order_type.to_uppercase()),
         },
     };
-    out.extend(box_row(&[(&center_text(&type_or_table, 40), 40, false)]));
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(box_line(&[40], BoxLinePosition::Bottom));
-    out.push(b'\n');
-
-    // Compact date & time row
-    let (date_part, time_part) = order.created_at.split_once(' ').unwrap_or((&order.created_at, ""));
-    let dt_row = if !time_part.is_empty() {
-        two_col(&format!("Date: {date_part}"), &format!("Time: {time_part}"))
-    } else {
-        format!("Date: {date_part}")
-    };
-    out.extend(dt_row.as_bytes());
-    out.push(b'\n');
+    token_head(&mut out, title, order.order_no, &type_or_table, &order.created_at);
 
     // Optional customer, contact, address, rider, prep time, notes
-    if let Some(ref name) = order.customer_name {
-        if !name.trim().is_empty() {
-            out.extend(truncate_line(&format!("Customer: {}", name.trim())).as_bytes());
-            out.push(b'\n');
-        }
+    detail_line(&mut out, "Customer", order.customer_name.as_deref());
+    detail_line(&mut out, "Phone", order.customer_phone.as_deref());
+    detail_line(&mut out, "Address", order.delivery_address.as_deref());
+    if let Some(rider) = order.delivery_rider_name.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
+        let phone = order.delivery_rider_phone.as_deref().map(str::trim);
+        detail_line(&mut out, "Rider", Some(&rider_text(rider, phone)));
     }
-
-    if let Some(ref phone) = order.customer_phone {
-        if !phone.trim().is_empty() {
-            out.extend(truncate_line(&format!("Phone: {}", phone.trim())).as_bytes());
-            out.push(b'\n');
-        }
-    }
-
-    if let Some(ref addr) = order.delivery_address {
-        if !addr.trim().is_empty() {
-            out.extend(truncate_line(&format!("Address: {}", addr.trim())).as_bytes());
-            out.push(b'\n');
-        }
-    }
-
-    if let Some(ref rider) = order.delivery_rider_name {
-        if !rider.trim().is_empty() {
-            let rider_info = if let Some(ref rphone) = order.delivery_rider_phone {
-                format!("Rider: {} ({})", rider.trim(), rphone.trim())
-            } else {
-                format!("Rider: {}", rider.trim())
-            };
-            out.extend(truncate_line(&rider_info).as_bytes());
-            out.push(b'\n');
-        }
-    }
-
-    if let Some(ref pref) = order.platform_order_ref {
-        if !pref.trim().is_empty() {
-            out.extend(truncate_line(&format!("Platform Ref: {}", pref.trim())).as_bytes());
-            out.push(b'\n');
-        }
-    }
-
+    detail_line(&mut out, "Platform Ref", order.platform_order_ref.as_deref());
     if order.estimated_prep_minutes > 0 {
         out.extend(truncate_line(&format!("Est. Prep: {} min", order.estimated_prep_minutes)).as_bytes());
         out.push(b'\n');
     }
+    detail_line(&mut out, "Notes", order.notes.as_deref());
 
-    if let Some(ref notes) = order.notes {
-        if !notes.trim().is_empty() {
-            out.extend(truncate_line(&format!("Notes: {}", notes.trim())).as_bytes());
+    token_items_header(&mut out);
+    let mut total_qty = 0.0;
+    for line in order.lines.iter().filter(|line| line.status != "voided") {
+        total_qty += line.qty;
+        token_item(&mut out, &line.item_name, &format!("{}x", format_qty(line.qty)));
+        if let Some(line_note) = line.notes.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            out.extend(truncate_line(&format!("  * {line_note}")).as_bytes());
             out.push(b'\n');
         }
     }
 
-    // Items table header
-    out.extend(divider().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(two_col("ITEM / DESCRIPTION", "QTY").as_bytes());
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(divider().as_bytes());
-    out.push(b'\n');
-
-    // Item lines with bold item name + qty
-    let mut total_qty = 0.0;
-    for line in &order.lines {
-        if line.status == "voided" {
-            continue;
-        }
-        total_qty += line.qty;
-        let qty_text = format!("{}x", format_qty(line.qty));
-        out.extend(bold(true));
-        out.extend(two_col(&line.item_name, &qty_text).as_bytes());
-        out.extend(bold(false));
-        out.push(b'\n');
-        if let Some(ref line_note) = line.notes {
-            if !line_note.trim().is_empty() {
-                out.extend(truncate_line(&format!("  * {}", line_note.trim())).as_bytes());
-                out.push(b'\n');
-            }
-        }
-    }
-
-    // Total items count and footer
-    out.extend(divider().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(two_col("TOTAL ITEMS:", &format_qty(total_qty)).as_bytes());
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(double_divider().as_bytes());
-    out.push(b'\n');
-
-    out.extend(align_center());
-    if is_kitchen {
-        out.extend(truncate_line("*** PREPARE FRESH ***").as_bytes());
-    } else {
-        out.extend(truncate_line("*** THANK YOU FOR YOUR ORDER ***").as_bytes());
-    }
-    out.push(b'\n');
-
-    close_out(&mut out, "");
+    let closing = if is_kitchen { "*** PREPARE FRESH ***" } else { "*** THANK YOU FOR YOUR ORDER ***" };
+    token_foot(&mut out, total_qty, closing);
     out
 }
 
@@ -1089,6 +1014,10 @@ pub fn build_shift_summary_bytes(summary: &ShiftSummary, config: &AppConfig) -> 
     out.push(b'\n');
     out.extend(two_col("Refund Today", &money(summary.refunds_minor)).as_bytes());
     out.push(b'\n');
+    if summary.collected_cash_minor > 0 {
+        out.extend(two_col("Credit Collected", &money(summary.collected_cash_minor)).as_bytes());
+        out.push(b'\n');
+    }
 
     out.extend(divider().as_bytes());
     out.push(b'\n');
@@ -1816,6 +1745,12 @@ mod tests {
             printer_usb_device: None,
             printer_usb_name: None,
             printer_windows_name: None,
+            service_charge_percent: 0.0,
+            scale_barcode_enabled: false,
+            scale_barcode_prefix: "21".into(),
+            scale_item_code_digits: 5,
+            scale_value_kind: "weight".into(),
+            scale_value_decimals: 3,
         }
     }
 
@@ -1883,6 +1818,11 @@ mod tests {
             delivery_platform_name: None,
             platform_order_ref: None,
             delivery_charge_minor: None,
+            service_charge_minor: 0,
+            payments: vec![crate::db::sales::PaymentPart { method: "cash".into(), amount_minor: 945 }],
+            customer_id: None,
+            customer_email: None,
+            due_date: None,
         }
     }
 
@@ -1956,6 +1896,7 @@ mod tests {
             card_sales_minor: 4_000,
             other_sales_minor: 0,
             credit_sales_minor: 0,
+            collected_cash_minor: 0,
             platform_sales_minor: 0,
             total_sales_minor: 19_000,
             discount_minor: 500,
@@ -2831,4 +2772,3 @@ mod tests {
         assert!(customer_text.contains("THANK YOU FOR YOUR ORDER"));
     }
 }
-

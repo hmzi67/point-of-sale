@@ -2,9 +2,14 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { RootErrorBoundary } from "./components/layout/RootErrorBoundary";
+import { MainReadySignal } from "./components/layout/MainReadySignal";
 import { SplashGate } from "./components/layout/SplashGate";
 import { ping } from "./services/tauriClient";
 import { IS_ANDROID } from "./services/platform";
+// Bundled, not fetched from Google Fonts: the production CSP only allows
+// same-origin styles, and an offline-first till can't depend on the network
+// for its own typeface.
+import "@fontsource-variable/plus-jakarta-sans";
 import "./styles.css";
 
 // Fire-and-forget, on every platform, before anything else in this file
@@ -28,7 +33,10 @@ const AppRoot = IS_ANDROID ? (
     <App />
   </SplashGate>
 ) : (
-  <App />
+  <>
+    <App />
+    <MainReadySignal />
+  </>
 );
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

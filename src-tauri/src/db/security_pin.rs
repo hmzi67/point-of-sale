@@ -32,7 +32,8 @@ pub enum SecurityPinError {
     /// PIN is not 4–6 digits — same rule as a login PIN (`db::users`).
     #[error("PIN must be 4-6 digits")]
     MalformedPin,
-    #[error("Could not process PIN: {0}")]
+    /// The detail is logged (see `db::hash_failure`), not shown.
+    #[error("Could not check the PIN — please try again. Details are in the support log.")]
     Hash(String),
     #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -69,7 +70,7 @@ fn stored_hash(conn: &Connection) -> Result<String, rusqlite::Error> {
 pub fn verify(conn: &Connection, pin: &str) -> Result<(), SecurityPinError> {
     validate(pin)?;
     let hash = stored_hash(conn)?;
-    let parsed = PasswordHash::new(&hash).map_err(|e| SecurityPinError::Hash(e.to_string()))?;
+    let parsed = PasswordHash::new(&hash).map_err(|e| SecurityPinError::Hash(crate::db::hash_failure("area pin", e)))?;
     Argon2::default()
         .verify_password(pin.as_bytes(), &parsed)
         .map_err(|_| SecurityPinError::InvalidPin)

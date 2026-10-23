@@ -8,7 +8,7 @@
 //! Dates are generated relative to today, so the demo always looks like a shop
 //! that traded this week no matter when the app is run.
 
-use chrono::{Duration, Local, NaiveDate};
+use chrono::{Datelike, Duration, Local, NaiveDate};
 use rusqlite::{params, Connection};
 
 /// Whole rupees to minor units. Demo figures read naturally at the call site.
@@ -113,6 +113,13 @@ fn timestamp(days_ago: i64, hour: u32) -> String {
 }
 
 /// Seeds demo data if the database is empty. Returns whether it wrote anything.
+/// The calendar month before `today`'s, as `YYYY-MM` — taken from the day
+/// before the 1st, since "today minus 30 days" is still this month on the
+/// 31st (and would seed this month's payroll as already paid).
+fn previous_month(today: NaiveDate) -> String {
+    (today - Duration::days(i64::from(today.day()))).format("%Y-%m").to_string()
+}
+
 pub fn seed_demo_data(conn: &Connection) -> Result<bool, rusqlite::Error> {
     if !demo_seeding_allowed() || !is_empty(conn)? {
         return Ok(false);
@@ -262,7 +269,7 @@ pub fn seed_demo_data(conn: &Connection) -> Result<bool, rusqlite::Error> {
     }
 
     // --- Last month's payroll, already paid ----------------------------------
-    let last_month = (Local::now() - Duration::days(30)).format("%Y-%m").to_string();
+    let last_month = previous_month(Local::now().date_naive());
     for (index, employee_id) in employee_ids.iter().enumerate() {
         let base = EMPLOYEES[index].3;
         tx.execute(
@@ -292,6 +299,15 @@ pub(crate) fn demo_expense_count() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn previous_month_is_the_calendar_month_before_even_on_the_31st() {
+        let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).unwrap();
+        assert_eq!(super::previous_month(day(2026, 10, 31)), "2026-09");
+        assert_eq!(super::previous_month(day(2026, 3, 31)), "2026-02");
+        assert_eq!(super::previous_month(day(2026, 1, 15)), "2025-12");
+        assert_eq!(super::previous_month(day(2026, 3, 1)), "2026-02");
+    }
+
     use super::*;
     use crate::db::schema::test_conn;
 

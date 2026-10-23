@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Printer, RotateCcw, X } from "lucide-react";
+import { Printer, RotateCcw } from "lucide-react";
 import {
   getAdhocTokenGroups,
   getPendingTokenItems,
@@ -11,6 +11,7 @@ import {
 import { getCounters } from "../../services/countersService";
 import { formatMinor, formatQty } from "../../utils/format";
 import type { AdhocTokenLine, CounterPrintResult, Counter, PendingCounterGroup, TokenSummary } from "../../types";
+import { ModalHeader } from "../ui/ModalCard";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { runAction } from "../../utils/runAction";
 
@@ -167,17 +168,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
   return (
     <ModalOverlay>
       <div className="w-full max-w-md rounded-lg bg-surface shadow-xl">
-        <div className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h3 className="text-base font-semibold text-fg">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <ModalHeader title={title} onClose={onClose} className="px-5 py-4" />
 
         <div className="max-h-[70dvh] space-y-4 overflow-y-auto px-5 py-4">
           {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}

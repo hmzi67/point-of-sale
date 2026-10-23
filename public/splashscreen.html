@@ -3,75 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <title>Diwan</title>
-    <style>
-      /*
-       * Desktop's native splash window (see tauri.conf.json's "splashscreen"
-       * window entry and lib.rs's reveal_main_window / splashscreen_ready).
-       * Plain, unprocessed HTML/CSS — no Vite build step, no framework
-       * mount — so it paints as fast as the webview itself can, which is
-       * the whole point of a splash: something on screen immediately.
-       *
-       * Android has no secondary-window support, so it never loads this
-       * file at all — see SplashGate.tsx for its in-app equivalent.
-       */
-      :root {
-        color-scheme: dark;
-      }
+    <!--
+      Desktop's native splash window (tauri.conf.json's "splashscreen"
+      window; lib.rs reveals "main" once the app has painted). Plain,
+      unprocessed HTML/CSS/JS — no Vite step, no framework — so it paints as
+      fast as the webview can. Styles and script are separate same-origin
+      files because the production CSP allows no inline code.
 
-      html,
-      body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        /* Fixed brand color, not theme-dependent, so the splash reads the
-           same in every environment regardless of OS theme. Deep green
-           matches brand-logo.png's own dark background so the square logo
-           blends into the window rather than showing a visible edge. */
-        background: #123326;
-      }
-
-      body {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .logo {
-        /* Proportional to the window, not a fixed tiny box: the splash
-           window is 320x320 (tauri.conf.json), so this fills most of it
-           while leaving breathing room — sized off vmin so it still scales
-           sensibly if that window size ever changes. brand-logo.png is a
-           square (512x512) app icon mark. */
-        width: min(70vmin, 240px);
-        height: min(70vmin, 240px);
-        border-radius: 20%;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-        opacity: 0;
-        transform: scale(0.95);
-        animation: reveal 500ms ease-out forwards;
-      }
-
-      @keyframes reveal {
-        to {
-          opacity: 1;
-          transform: scale(1);
-        }
-      }
-
-      /* Respect a "reduce motion" OS setting — show the logo plainly
-         rather than force the animation on someone who's opted out. */
-      @media (prefers-reduced-motion: reduce) {
-        .logo {
-          animation: none;
-          opacity: 1;
-          transform: scale(1);
-        }
-      }
-    </style>
+      Android has no secondary windows, so it never loads this file — see
+      SplashGate.tsx for its in-app equivalent.
+    -->
+    <link rel="stylesheet" href="splashscreen.css" />
   </head>
   <body>
-    <img class="logo" src="brand-logo.png" alt="" />
+    <div class="backdrop" aria-hidden="true">
+      <span class="glow glow--a"></span>
+      <span class="glow glow--b"></span>
+      <span class="grid"></span>
+    </div>
+
+    <main class="stage">
+      <div class="mark">
+        <span class="mark__ring" aria-hidden="true"></span>
+        <img class="mark__logo" src="brand-logo.png" alt="" />
+      </div>
+      <h1 class="wordmark">Diwan</h1>
+      <p class="tagline">Point of Sale</p>
+    </main>
+
+    <footer class="foot">
+      <div class="progress" role="progressbar" aria-label="Loading Diwan"><span></span></div>
+      <div class="meta">
+        <span class="status">Preparing your store<span class="dots" aria-hidden="true"></span></span>
+        <span class="version" id="version"></span>
+      </div>
+    </footer>
+
     <script src="splashscreen.js"></script>
   </body>
 </html>

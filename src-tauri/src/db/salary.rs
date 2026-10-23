@@ -256,12 +256,8 @@ pub fn get_payment_history(conn: &Connection, employee_id: i64) -> Result<Vec<Sa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::test_support::employee_id;
+    use crate::db::test_support::{employee_id, this_month};
     use crate::db::schema::test_conn;
-
-    fn this_month() -> String {
-        chrono::Local::now().format("%Y-%m").to_string()
-    }
 
     #[test]
     fn calculate_salary_uses_base_salary_calendar_days_and_attendance() {

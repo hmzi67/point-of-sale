@@ -5,6 +5,7 @@ import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import type { ManagedEmployee } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { runAction } from "../../utils/runAction";
+import { inputClass } from "../ui/ModalCard";
 
 /** A short list of common roles for a fast pick — the field stays free text
  * (a `<datalist>`, not a `<select>`) since a shop's actual staff titles
@@ -68,7 +69,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
-              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+              className={`mt-1 ${inputClass}`}
             />
           </div>
 
@@ -79,7 +80,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               onChange={(e) => setRole(e.target.value)}
               list="employee-role-suggestions"
               placeholder="e.g. Cashier"
-              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+              className={`mt-1 ${inputClass}`}
             />
             <datalist id="employee-role-suggestions">
               {ROLE_SUGGESTIONS.map((r) => (
@@ -94,7 +95,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               value={contact}
               onChange={(e) => setContact(e.target.value)}
               placeholder="Optional"
-              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+              className={`mt-1 ${inputClass}`}
             />
           </div>
 
@@ -109,7 +110,7 @@ export function EmployeeFormModal({ employee, currency, onSaved, onClose }: Empl
               value={baseSalary}
               onChange={(e) => setBaseSalary(e.target.value)}
               placeholder="0.00"
-              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+              className={`mt-1 ${inputClass}`}
             />
           </div>
 

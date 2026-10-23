@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Download, Printer, X } from "lucide-react";
+import { CheckCircle2, Download, Mail, MessageCircle, Printer, X } from "lucide-react";
 import { printReceiptThermal } from "../../services/billingService";
+import { openExternal } from "../../services/externalLink";
+import { paymentMethodLabel } from "../../utils/checkoutPayments";
+import { buildInvoiceText, mailtoUrl, whatsappUrl } from "../../utils/invoiceShare";
 import { formatMinor, formatQty } from "../../utils/format";
 import type { AppConfig, Sale } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
@@ -130,11 +133,31 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
                 <dd>{formatMinor(sale.taxMinor, config.currency)}</dd>
               </div>
             )}
+            {sale.serviceChargeMinor > 0 && (
+              <div className="flex justify-between text-fg-muted">
+                <dt>Service charge</dt>
+                <dd>{formatMinor(sale.serviceChargeMinor, config.currency)}</dd>
+              </div>
+            )}
             <div className="flex justify-between border-t border-line pt-1.5 text-base font-semibold text-fg">
               <dt>Total</dt>
               <dd>{formatMinor(sale.totalMinor, config.currency)}</dd>
             </div>
-            {sale.paymentMethod === "cash" && sale.tenderedMinor != null && (
+            {(sale.payments.length > 1 || sale.paymentMethod === "credit") && (
+              <div className="space-y-1 border-t border-line pt-2 text-xs">
+                {sale.payments.map((part) => (
+                  <div
+                    key={part.method}
+                    className={`flex justify-between ${part.method === "credit" ? "font-semibold text-warning-text" : "text-fg-muted"}`}
+                  >
+                    <dt>{paymentMethodLabel(part.method)}</dt>
+                    <dd>{formatMinor(part.amountMinor, config.currency)}</dd>
+                  </div>
+                ))}
+                {sale.dueDate && <p className="text-right text-warning-text">Due by {sale.dueDate}</p>}
+              </div>
+            )}
+            {sale.payments.some((part) => part.method === "cash") && sale.tenderedMinor != null && (
               <div className="space-y-1 border-t border-line pt-2 text-xs">
                 <div className="flex justify-between text-fg-muted">
                   <dt>Cash Received</dt>
@@ -154,8 +177,9 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
           </dl>
 
           <p className="mt-3 text-center text-xs text-fg-muted">
-            Paid by {sale.paymentMethod}
+            Paid by {paymentMethodLabel(sale.paymentMethod)}
             {sale.tableName ? ` · ${sale.tableName}` : ""}
+            {sale.customerName ? ` · ${sale.customerName}` : ""}
           </p>
         </div>
 
@@ -179,6 +203,28 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
             <Download className="h-4 w-4" />
             {isSavingPdf ? "Saving…" : "Save as PDF"}
           </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => void openExternal(whatsappUrl(sale.customerPhone, config.currency, buildInvoiceText(sale, config)))}
+              className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-sm font-medium text-fg-2 hover:bg-surface-2"
+            >
+              <MessageCircle className="h-4 w-4" />
+              WhatsApp
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void openExternal(
+                  mailtoUrl(sale.customerEmail, `${config.businessName} — invoice #${sale.id}`, buildInvoiceText(sale, config)),
+                )
+              }
+              className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-sm font-medium text-fg-2 hover:bg-surface-2"
+            >
+              <Mail className="h-4 w-4" />
+              Email
+            </button>
+          </div>
           <button
             type="button"
             onClick={onClose}

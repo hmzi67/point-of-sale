@@ -34,7 +34,16 @@ pub struct CartLine {
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// One tender of a sale. `credit` is the pay-later part, owed by the sale's
+/// customer — see schema.sql's "Customers and pay-later" section.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentPart {
+    pub method: String,
+    pub amount_minor: i64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSaleInput {
     pub items: Vec<CartLine>,
@@ -62,6 +71,19 @@ pub struct CreateSaleInput {
     pub tendered_minor: Option<i64>,
     #[serde(default)]
     pub change_minor: Option<i64>,
+    /// The tender breakdown. Empty means one part: all of the total under
+    /// `payment_method` (every caller from before split payments).
+    #[serde(default)]
+    pub payments: Vec<PaymentPart>,
+    #[serde(default)]
+    pub customer_id: Option<i64>,
+    /// Computed client-side from `AppConfig::service_charge_percent`, and
+    /// trusted the same way `tax_minor` is (see CLAUDE.md).
+    #[serde(default)]
+    pub service_charge_minor: i64,
+    /// Required when any part is `credit`.
+    #[serde(default)]
+    pub due_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -120,9 +142,15 @@ pub struct Sale {
     pub platform_order_ref: Option<String>,
     #[serde(default)]
     pub delivery_charge_minor: Option<i64>,
+    pub service_charge_minor: i64,
+    /// Tender breakdown; one line for a single-method sale.
+    pub payments: Vec<PaymentPart>,
+    pub customer_id: Option<i64>,
+    pub customer_email: Option<String>,
+    pub due_date: Option<String>,
 }
 
-const PAYMENT_METHODS: &[&str] = &["cash", "card", "other", "platform"];
+use crate::db::payment_methods::{SALE as PAYMENT_METHODS, TENDER as TENDER_METHODS};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SaleError {
@@ -140,6 +168,8 @@ pub enum SaleError {
     InvalidDiscount,
     #[error("Unknown payment method: {0}")]
     InvalidPaymentMethod(String),
+    #[error("{0}")]
+    InvalidPayments(String),
     #[error("Sale not found")]
     NotFound,
     #[error("database error: {0}")]
@@ -215,6 +245,10 @@ pub fn create_sale(tx: &Transaction, input: CreateSaleInput) -> Result<Sale, Sal
             order_id: None,
             tendered_minor: input.tendered_minor,
             change_minor: input.change_minor,
+            payments: &input.payments,
+            customer_id: input.customer_id,
+            service_charge_minor: input.service_charge_minor,
+            due_date: input.due_date.as_deref(),
         },
     )?;
 
@@ -256,6 +290,62 @@ pub struct PricedSale<'a> {
     pub order_id: Option<i64>,
     pub tendered_minor: Option<i64>,
     pub change_minor: Option<i64>,
+    pub payments: &'a [PaymentPart],
+    pub customer_id: Option<i64>,
+    pub service_charge_minor: i64,
+    pub due_date: Option<&'a str>,
+}
+
+/// Resolves a sale's tenders against its total: no parts means the whole
+/// total under `payment_method`. Returns the parts plus the value stored in
+/// `sales.payment_method` (`split` for several tenders).
+fn resolve_payments(
+    payment_method: &str,
+    parts: &[PaymentPart],
+    total_minor: i64,
+) -> Result<(Vec<PaymentPart>, String), SaleError> {
+    if parts.is_empty() {
+        if !PAYMENT_METHODS.contains(&payment_method) {
+            return Err(SaleError::InvalidPaymentMethod(payment_method.to_string()));
+        }
+        let parts = if total_minor > 0 {
+            vec![PaymentPart { method: payment_method.to_string(), amount_minor: total_minor }]
+        } else {
+            Vec::new()
+        };
+        return Ok((parts, payment_method.to_string()));
+    }
+
+    let mut merged: Vec<PaymentPart> = Vec::new();
+    for part in parts {
+        if !TENDER_METHODS.contains(&part.method.as_str()) {
+            return Err(SaleError::InvalidPaymentMethod(part.method.clone()));
+        }
+        if part.amount_minor < 0 {
+            return Err(SaleError::InvalidPayments("A payment amount cannot be negative".into()));
+        }
+        if part.amount_minor == 0 {
+            continue;
+        }
+        match merged.iter_mut().find(|p| p.method == part.method) {
+            Some(existing) => existing.amount_minor += part.amount_minor,
+            None => merged.push(part.clone()),
+        }
+    }
+    let paid: i64 = merged.iter().map(|p| p.amount_minor).sum();
+    if paid != total_minor {
+        return Err(SaleError::InvalidPayments(format!(
+            "Payments add up to {} but the total is {}",
+            crate::db::format_minor_plain(paid),
+            crate::db::format_minor_plain(total_minor)
+        )));
+    }
+    let stored = match merged.as_slice() {
+        [] => payment_method.to_string(),
+        [only] => only.method.clone(),
+        _ => "split".to_string(),
+    };
+    Ok((merged, stored))
 }
 
 /// The write half of a sale, shared by `create_sale` and `orders::pay_lines`:
@@ -266,10 +356,7 @@ pub fn insert_priced_sale(tx: &Transaction, sale: PricedSale) -> Result<Sale, Sa
     if sale.lines.is_empty() {
         return Err(SaleError::EmptyCart);
     }
-    if !PAYMENT_METHODS.contains(&sale.payment_method) {
-        return Err(SaleError::InvalidPaymentMethod(sale.payment_method.to_string()));
-    }
-    if sale.discount_minor < 0 || sale.tax_minor < 0 {
+    if sale.discount_minor < 0 || sale.tax_minor < 0 || sale.service_charge_minor < 0 {
         return Err(SaleError::InvalidDiscount);
     }
 
@@ -285,32 +372,59 @@ pub fn insert_priced_sale(tx: &Transaction, sale: PricedSale) -> Result<Sale, Sa
         return Err(SaleError::InvalidDiscount);
     }
 
-    let total_minor = subtotal_minor - sale.discount_minor + sale.tax_minor;
+    let total_minor = subtotal_minor - sale.discount_minor + sale.tax_minor + sale.service_charge_minor;
+    let (parts, stored_method) = resolve_payments(sale.payment_method, sale.payments, total_minor)?;
+
+    let credit_minor: i64 = parts.iter().filter(|p| p.method == "credit").map(|p| p.amount_minor).sum();
+    let due_date = sale.due_date.map(str::trim).filter(|d| !d.is_empty());
+    if credit_minor > 0 {
+        let customer_id = sale
+            .customer_id
+            .ok_or_else(|| SaleError::InvalidPayments("Pick a customer for a pay-later sale".into()))?;
+        let active: Option<i64> = tx
+            .query_row("SELECT is_active FROM customers WHERE id = ?1", params![customer_id], |row| row.get(0))
+            .optional()?;
+        if active != Some(1) {
+            return Err(SaleError::InvalidPayments("That customer no longer exists".into()));
+        }
+        let due = due_date.ok_or_else(|| SaleError::InvalidPayments("Set a due date for the pay-later amount".into()))?;
+        crate::db::dates::parse_date(due).map_err(SaleError::InvalidPayments)?;
+    }
 
     tx.execute(
-        "INSERT INTO sales (total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id, shift_id, order_id, tendered_minor, change_minor)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO sales (total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id, shift_id,
+                            order_id, tendered_minor, change_minor, customer_id, service_charge_minor, due_date)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             total_minor,
             sale.discount_minor,
             sale.tax_minor,
-            sale.payment_method,
+            stored_method,
             sale.cashier_id,
             sale.table_id,
             sale.shift_id,
             sale.order_id,
             sale.tendered_minor,
-            sale.change_minor
+            sale.change_minor,
+            sale.customer_id,
+            sale.service_charge_minor,
+            if credit_minor > 0 { due_date } else { None },
         ],
     )?;
     let sale_id = tx.last_insert_rowid();
+    for part in &parts {
+        tx.execute(
+            "INSERT INTO sale_payments (sale_id, method, amount_minor) VALUES (?1, ?2, ?3)",
+            params![sale_id, part.method, part.amount_minor],
+        )?;
+    }
 
     for line in sale.lines {
         // Read inside the transaction, so an earlier line of the same item
         // in this sale has already been taken off.
-        let (name, stock_qty): (String, f64) = tx
-            .query_row("SELECT name, stock_qty FROM items WHERE id = ?1", params![line.item_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
+        let (name, stock_qty, cost_minor): (String, f64, i64) = tx
+            .query_row("SELECT name, stock_qty, cost_minor FROM items WHERE id = ?1", params![line.item_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
             })
             .optional()?
             .ok_or(SaleError::ItemNotFound(line.item_id))?;
@@ -322,9 +436,9 @@ pub fn insert_priced_sale(tx: &Transaction, sale: PricedSale) -> Result<Sale, Sa
         // other optional text field in the schema uses.
         let notes = line.notes.as_deref().map(str::trim).filter(|s| !s.is_empty());
         tx.execute(
-            "INSERT INTO sale_items (sale_id, item_id, qty, price_at_sale_minor, notes)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![sale_id, line.item_id, line.qty, line.price_minor, notes],
+            "INSERT INTO sale_items (sale_id, item_id, qty, price_at_sale_minor, notes, cost_at_sale_minor)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![sale_id, line.item_id, line.qty, line.price_minor, notes, cost_minor],
         )?;
 
         // The `stock_qty >= ?1` guard makes this a compare-and-swap: if stock
@@ -351,24 +465,28 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                     s.cashier_id, u.name AS cashier_name, s.table_id, t.name AS table_name,
                     s.shift_id, s.created_at, s.tendered_minor, s.change_minor,
                     s.order_id, o.order_no,
-                    o.order_type, o.customer_name, o.customer_phone, o.delivery_address,
+                    o.order_type, COALESCE(c.name, o.customer_name), COALESCE(c.phone, o.customer_phone),
+                    o.delivery_address,
                     o.delivery_rider_name, o.delivery_rider_phone, o.delivery_platform_name,
-                    o.platform_order_ref, o.delivery_charge_minor
+                    o.platform_order_ref, o.delivery_charge_minor,
+                    s.service_charge_minor, s.customer_id, c.email, s.due_date
                FROM sales s
                LEFT JOIN users u ON u.id = s.cashier_id
                LEFT JOIN tables t ON t.id = s.table_id
                LEFT JOIN orders o ON o.id = s.order_id
+               LEFT JOIN customers c ON c.id = s.customer_id
               WHERE s.id = ?1",
             params![id],
             |row| {
                 let discount_minor: i64 = row.get(1)?;
                 let tax_minor: i64 = row.get(2)?;
                 let total_minor: i64 = row.get(3)?;
+                let service_charge_minor: i64 = row.get(24)?;
                 Ok(Sale {
                     id: row.get(0)?,
-                    // subtotal = total - tax + discount, recovered from the
-                    // three stored amounts rather than a fourth column.
-                    subtotal_minor: total_minor - tax_minor + discount_minor,
+                    // subtotal = total - tax - service + discount, recovered
+                    // from the stored amounts rather than another column.
+                    subtotal_minor: total_minor - tax_minor - service_charge_minor + discount_minor,
                     discount_minor,
                     tax_minor,
                     total_minor,
@@ -393,6 +511,11 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                     delivery_platform_name: row.get(21)?,
                     platform_order_ref: row.get(22)?,
                     delivery_charge_minor: row.get(23)?,
+                    service_charge_minor,
+                    payments: Vec::new(),
+                    customer_id: row.get(25)?,
+                    customer_email: row.get(26)?,
+                    due_date: row.get(27)?,
                 })
             },
         )
@@ -421,6 +544,13 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                 notes: row.get(4)?,
             })
         })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut stmt = conn.prepare(
+        "SELECT method, amount_minor FROM sale_payment_lines WHERE sale_id = ?1",
+    )?;
+    sale.payments = stmt
+        .query_map(params![id], |row| Ok(PaymentPart { method: row.get(0)?, amount_minor: row.get(1)? }))?
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Some(sale))

@@ -1,4 +1,4 @@
-import type { CreateAndHoldOrderInput, Order, OrdersPayInput, Sale } from "../types";
+import type { CreateAndHoldOrderInput, DeliveryStatus, Order, OrderStatus, OrdersPayInput, Sale } from "../types";
 import { call } from "./tauriClient";
 
 /** Creates an order, adds lines, and holds it in the active orders queue. */
@@ -22,7 +22,7 @@ export function resumeOrder(orderId: number, version: number): Promise<Order> {
 }
 
 /** Transitions order fulfillment status: "sent" | "preparing" | "ready" | "served". */
-export function transitionOrder(orderId: number, version: number, toStatus: string): Promise<Order> {
+export function transitionOrder(orderId: number, version: number, toStatus: OrderStatus): Promise<Order> {
   return call<Order>("orders_transition", { orderId, version, toStatus });
 }
 
@@ -47,6 +47,6 @@ export function printOrderToken(orderId: number, isKitchen = false): Promise<voi
 }
 
 /** Updates delivery lifecycle status: "placed" | "dispatched" | "delivered" | "cancelled". */
-export function updateDeliveryStatus(orderId: number, deliveryStatus: string): Promise<Order> {
+export function updateDeliveryStatus(orderId: number, deliveryStatus: DeliveryStatus): Promise<Order> {
   return call<Order>("orders_update_delivery_status", { orderId, deliveryStatus });
 }

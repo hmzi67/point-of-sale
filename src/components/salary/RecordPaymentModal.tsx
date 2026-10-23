@@ -6,6 +6,7 @@ import type { SalaryCalculation } from "../../types";
 import { todayString } from "../../utils/dateRanges";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { runAction } from "../../utils/runAction";
+import { inputClass } from "../ui/ModalCard";
 
 interface RecordPaymentModalProps {
   row: SalaryCalculation;
@@ -71,7 +72,7 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
               autoFocus
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+              className={`mt-1 ${inputClass}`}
             />
           </div>
 
@@ -82,7 +83,7 @@ export function RecordPaymentModal({ row, currency, onSaved, onClose }: RecordPa
               value={date}
               max={todayString()}
               onChange={(e) => setDate(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+              className={`mt-1 ${inputClass}`}
             />
           </div>
 

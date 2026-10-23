@@ -15,8 +15,9 @@ export interface CartTotals {
   subtotalMinor: number;
   discountMinor: number;
   taxMinor: number;
-  /** subtotal - discount, i.e. what tax is calculated on. */
+  /** subtotal - discount, i.e. what tax and service charge are calculated on. */
   taxableMinor: number;
+  serviceChargeMinor: number;
   deliveryChargeMinor: number;
   totalMinor: number;
 }
@@ -36,6 +37,7 @@ export function computeCartTotals(
   discountValue: number,
   taxPercent: number,
   deliveryChargeMinor = 0,
+  serviceChargePercent = 0,
 ): CartTotals {
   // Rounded per line, not once over the sum — this mirrors `db::sales::
   // create_sale`'s `(price_minor as f64 * line.qty).round()` exactly, so the
@@ -57,7 +59,8 @@ export function computeCartTotals(
 
   const taxableMinor = subtotalMinor - discountMinor;
   const taxMinor = Math.round((taxableMinor * taxPercent) / 100);
-  const totalMinor = taxableMinor + taxMinor + deliveryChargeMinor;
+  const serviceChargeMinor = Math.round((taxableMinor * serviceChargePercent) / 100);
+  const totalMinor = taxableMinor + taxMinor + serviceChargeMinor + deliveryChargeMinor;
 
-  return { subtotalMinor, discountMinor, taxMinor, taxableMinor, deliveryChargeMinor, totalMinor };
+  return { subtotalMinor, discountMinor, taxMinor, taxableMinor, serviceChargeMinor, deliveryChargeMinor, totalMinor };
 }

@@ -134,3 +134,13 @@ webpki-root-certs = "1"
 # types those functions use.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = ["Win32_Graphics_Printing", "Win32_Foundation", "Win32_Graphics_Gdi"] }
+
+# Smaller, faster release binaries (Tauri's recommended size settings), minus
+# `panic = "abort"`: `commands::catch_panic` and the printer transports rely
+# on `catch_unwind` to turn a panic into an error the cashier sees, which
+# abort would turn into a crash instead.
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+

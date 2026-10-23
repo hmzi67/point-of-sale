@@ -100,4 +100,8 @@ export interface OrdersPayInput {
   taxMinor: number;
   tenderedMinor?: number | null;
   changeMinor?: number | null;
+  payments?: import("./billing").PaymentPart[];
+  customerId?: number | null;
+  serviceChargeMinor?: number;
+  dueDate?: string | null;
 }

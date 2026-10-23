@@ -5,6 +5,7 @@ import { assignableRoles } from "../../utils/permissions";
 import type { ManagedUser, Role } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { runAction } from "../../utils/runAction";
+import { inputClass } from "../ui/ModalCard";
 
 const ROLE_LABEL: Record<Role, string> = {
   owner: "Owner",
@@ -86,7 +87,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
-              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+              className={`mt-1 ${inputClass}`}
             />
           </div>
 
@@ -103,7 +104,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as Role)}
-                className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+                className={`mt-1 ${inputClass}`}
               >
                 {selectableRoles.map((r) => (
                   <option key={r} value={r}>
@@ -126,7 +127,7 @@ export function UserFormModal({ user, actingRole, onSaved, onClose }: UserFormMo
               value={pin}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
               placeholder={isEditing ? "Leave blank to keep current PIN" : "4-6 digits"}
-              className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+              className={`mt-1 ${inputClass}`}
             />
           </div>
 
