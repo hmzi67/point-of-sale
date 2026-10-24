@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LogOut, PanelLeftClose, PanelLeftOpen, User } from "lucide-react";
+import { Lock, LogOut, PanelLeftClose, PanelLeftOpen, User } from "lucide-react";
 import { useLogoDataUrl } from "../../hooks/useLogoDataUrl";
 import { useNavItems } from "../../hooks/useNavItems";
 import { useAppStore, useAuthStore, useUiPrefsStore } from "../../store";
@@ -89,11 +89,17 @@ export function Sidebar() {
           !collapsed && <p className="px-3 py-2 text-sm text-fg-muted">Loading…</p>
         ) : (
           <ul className="space-y-1">
-            {items.map(({ key, path, label, icon: Icon, end }) => (
+            {items.map(({ key, path, label, icon: Icon, end, locked }) => (
               <li key={key}>
-                <NavLink to={path} end={end} className={linkClass} title={collapsed ? label : undefined}>
+                <NavLink
+                  to={path}
+                  end={end}
+                  className={linkClass}
+                  title={collapsed || locked ? `${label}${locked ? " — not in your plan" : ""}` : undefined}
+                >
                   <Icon className="h-4.5 w-4.5 shrink-0" />
                   {!collapsed && <span className="truncate">{label}</span>}
+                  {!collapsed && locked && <Lock className="ml-auto h-3.5 w-3.5 shrink-0 text-fg-faint" aria-label="Not in your plan" />}
                 </NavLink>
               </li>
             ))}

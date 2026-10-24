@@ -49,7 +49,13 @@ interface InventoryState {
   imageCache: Record<string, string>;
   /** Fetches and caches an image if not already cached; no-op otherwise. */
   ensureImage: (fileName: string) => void;
+  /** Tries again the images that could not be read (a photo set on another
+   * counter arrives a moment after its product). */
+  retryMissingImages: () => void;
 }
+
+/** Images asked for whose file was not there (yet). */
+const missingImages = new Set<string>();
 
 /**
  * List state plus CRUD, backed by the `inventory_*` commands. Filtering
@@ -137,11 +143,16 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     if (get().imageCache[fileName]) return;
     void getItemImage(fileName)
       .then((dataUrl) => {
+        missingImages.delete(fileName);
         set((state) => ({ imageCache: { ...state.imageCache, [fileName]: dataUrl } }));
       })
       .catch(() => {
         // A missing/corrupt image file shouldn't break the list — the row
         // just falls back to its placeholder icon.
+        missingImages.add(fileName);
       });
+  },
+  retryMissingImages: () => {
+    for (const fileName of [...missingImages]) get().ensureImage(fileName);
   },
 }));

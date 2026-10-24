@@ -55,6 +55,7 @@ pub fn item_input(name: &str, stock_qty: f64) -> ItemInput {
         sold_by_amount: false,
         unit: None,
         counter_id: None,
+        original_stock_qty: None,
     }
 }
 

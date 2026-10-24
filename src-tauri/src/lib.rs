@@ -11,6 +11,7 @@ mod session;
 mod startup_log;
 mod sync;
 mod vendor_gate;
+mod workspace;
 
 use tauri::Manager;
 
@@ -287,6 +288,9 @@ pub fn run() {
                     app_ref.manage(license);
                     license::runtime::spawn_background_refresh(app_ref.handle().clone());
                     sync::spawn_background_sync(app_ref.handle().clone());
+                    // Multi-counter sync with the business workspace (a no-op
+                    // until this counter is connected in Settings).
+                    workspace::runtime::spawn_loop(app_ref.handle().clone());
                     // iOS: redeem App Store purchases StoreKit is still
                     // holding (see `iap.rs`). A no-op everywhere else.
                     iap::spawn_unfinished_sweep(app_ref.handle().clone());
@@ -384,11 +388,20 @@ pub fn run() {
             commands::vendor_gate_status,
             commands::vendor_gate_verify,
             commands::license_get_state,
+            commands::license_get_plan,
             commands::license_get_info,
             commands::license_refresh,
             commands::license_activate,
             commands::sync_now,
             commands::sync_get_status,
+            commands::workspace_get_info,
+            commands::workspace_connect,
+            commands::workspace_upload,
+            commands::workspace_download,
+            commands::workspace_disconnect,
+            commands::workspace_rename_counter,
+            commands::workspace_sync_now,
+            commands::workspace_dismiss_issue,
             commands::iap_get_products,
             commands::iap_purchase,
             commands::iap_restore,
@@ -434,6 +447,7 @@ pub fn run() {
             commands::shifts_get_summary,
             commands::shifts_close,
             commands::shifts_list_recent,
+            commands::shifts_get_day_summary,
             commands::shifts_print_summary,
             commands::reports_get_sales_summary,
             commands::reports_get_top_items,
@@ -441,6 +455,7 @@ pub fn run() {
             commands::reports_get_category_sales,
             commands::reports_print_category_sales,
             commands::reports_get_table_sales_summary,
+            commands::reports_get_counter_sales_summary,
             commands::reports_print_table_sales_summary,
             commands::reports_get_refunds_summary,
             commands::reports_print_refunds_summary,

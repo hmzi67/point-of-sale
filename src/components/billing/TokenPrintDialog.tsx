@@ -179,7 +179,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
                 <li key={r.counterId} className="flex items-center justify-between">
                   <span className="font-medium text-fg-2">{r.counterName}</span>
                   {r.outcome.status === "printed" && (
-                    <span className="text-success-text">Printed — token #{r.outcome.token.tokenNumber}</span>
+                    <span className="text-success-text">Printed — token #{r.outcome.token.tillLabel ? `${r.outcome.token.tillLabel}-` : ""}{r.outcome.token.tokenNumber}</span>
                   )}
                   {r.outcome.status === "nothingPending" && (
                     <span className="text-fg-muted">Nothing pending</span>
@@ -253,7 +253,7 @@ export function TokenPrintDialog({ source, currency, onClose }: TokenPrintDialog
                 {printed.map((token) => (
                   <li key={token.id} className="flex items-center justify-between px-3 py-2 text-sm">
                     <span>
-                      #{token.tokenNumber} · {token.counterName}
+                      #{token.tillLabel ? `${token.tillLabel}-` : ""}{token.tokenNumber} · {token.counterName}
                     </span>
                     <button
                       type="button"

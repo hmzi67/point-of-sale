@@ -11,10 +11,30 @@ export type LicenseState =
   | { kind: "ok"; expiresAt: number | null; expiringSoon: boolean }
   | { kind: "expired"; expiredAt: number | null }
   | { kind: "revoked" }
+  | { kind: "suspended" }
   | { kind: "deviceMismatch" }
   | { kind: "clockTampered"; reason: "behindServerTime" | "behindLastSeenTime" }
   | { kind: "checkInRequired"; lastOnlineCheck: number; maxOfflineDays: number }
   | { kind: "invalid"; message: string };
+
+/**
+ * The licence's plan and what it unlocks, from the signed payload (Rust's
+ * `license::entitlements::Snapshot`). `restricted: false` = a licence issued
+ * before plans existed (or none yet): every module stays available.
+ * Presentation only — every command re-checks in Rust.
+ */
+export interface LicensePlan {
+  restricted: boolean;
+  planCode: string | null;
+  planName: string | null;
+  /** Module and capability keys the plan unlocks (empty when unrestricted). */
+  entitlements: string[];
+  /** key → the cheapest plan that includes it, for keys this plan lacks. */
+  upgrade: Record<string, string>;
+}
+
+/** Features checked inside a module (see `entitlements::capability`). */
+export type Capability = "inventory_advanced" | "reports_advanced" | "multi_user" | "mobile";
 
 export interface LicenseInfo {
   /** `DIWAN-XXXX-••••-••••-••••`, or null when no key is stored. */

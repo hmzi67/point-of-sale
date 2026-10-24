@@ -132,6 +132,13 @@ pub struct ItemInput {
     pub sold_by_amount: bool,
     pub unit: Option<String>,
     pub counter_id: Option<i64>,
+    /// On an edit: the stock the form was loaded with. When given, the
+    /// update applies the *difference* the person typed (`stock + (new -
+    /// original)`) instead of overwriting, so sales made meanwhile — on this
+    /// counter or, synced, on another — are not undone by saving a name
+    /// change. Ignored on create.
+    #[serde(default)]
+    pub original_stock_qty: Option<f64>,
 }
 
 /// Search/filter options for the list view.
@@ -413,7 +420,8 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
         .execute(
             "UPDATE items
                 SET name = ?1, barcode = ?2, short_code = ?3, description = ?4, price_minor = ?5, cost_minor = ?6,
-                    stock_qty = ?7, category_id = ?8, low_stock_threshold = ?9,
+                    stock_qty = CASE WHEN ?15 IS NULL THEN ?7 ELSE round(stock_qty + (?7 - ?15), 4) END,
+                    category_id = ?8, low_stock_threshold = ?9,
                     image_path = ?10, sold_by_amount = ?11, unit = ?12, counter_id = ?13,
                     updated_at = datetime('now', 'localtime')
               WHERE id = ?14",
@@ -431,7 +439,8 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
                 input.sold_by_amount as i64,
                 unit,
                 input.counter_id,
-                id
+                id,
+                input.original_stock_qty
             ],
         )
         .map_err(|err| map_unique_conflict(err, &barcode.map(str::to_string), &short_code.map(str::to_string)))?;
@@ -816,6 +825,21 @@ mod tests {
         clear_category.stock_qty = 42.0;
         let cleared = update_item(&conn, created.id, clear_category).unwrap();
         assert_eq!(cleared.category_id, None);
+    }
+
+    #[test]
+    fn an_edit_applies_the_typed_stock_difference_so_sales_made_meanwhile_stay() {
+        let conn = test_conn();
+        let created = add_item(&conn, basic_input("Busy Item")).unwrap(); // stock 5
+        // The form is open; meanwhile 2 are sold.
+        conn.execute("UPDATE items SET stock_qty = stock_qty - 2 WHERE id = ?1", [created.id]).unwrap();
+        let mut renamed = basic_input("Busy Item (renamed)");
+        renamed.original_stock_qty = Some(5.0);
+        assert_eq!(update_item(&conn, created.id, renamed).unwrap().stock_qty, 3.0, "renaming keeps the sale");
+        let mut restock = basic_input("Busy Item (renamed)");
+        restock.stock_qty = 15.0;
+        restock.original_stock_qty = Some(5.0);
+        assert_eq!(update_item(&conn, created.id, restock).unwrap().stock_qty, 13.0, "+10 typed, +10 applied");
     }
 
     #[test]

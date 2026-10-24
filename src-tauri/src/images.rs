@@ -7,19 +7,26 @@
 //! `app_config.logo_path` store just that generated filename, not a full
 //! path, so it stays valid across reinstalls and OS moves.
 //!
+//! A JPEG or PNG is shrunk to at most `MAX_DIMENSION` pixels on its longer
+//! side when it is saved (a phone photo goes from megabytes to a few hundred
+//! KB), and every file is named after a hash of its content. Counters of one
+//! business share photos (`workspace::media`), so the same photo has the same
+//! name everywhere and an upload retried is the same file. Two products may
+//! therefore share one file: delete through [`delete_if_unused`].
+//!
 //! Product photos and the business logo are two different upload contexts
 //! (different allowed formats, different size cap, different directory —
-//! see `images_dir` vs `logo_dir`) but share every mechanic below: base64
-//! decode, size/format validation, a collision-proof generated filename,
-//! read-back as a `data:` URL, best-effort delete.
+//! see `images_dir` vs `logo_dir`) but share every mechanic below.
 
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use image::codecs::jpeg::JpegEncoder;
+use image::{DynamicImage, GenericImageView, ImageFormat};
+use sha2::{Digest, Sha256};
 
 /// Hard cap on an uploaded product photo, applied before it ever touches
 /// disk. Large enough for a real product photo, small enough that a shop's
@@ -33,6 +40,15 @@ const ITEM_ALLOWED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
 pub const MAX_LOGO_BYTES: usize = 2 * 1024 * 1024;
 const LOGO_ALLOWED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "svg"];
 
+/// Longer side of a stored JPEG/PNG. Plenty for a product tile or a receipt
+/// logo, and it keeps a business's photos small enough to sync.
+pub const MAX_DIMENSION: u32 = 1024;
+/// A JPEG/PNG already this small and within `MAX_DIMENSION` is kept as is.
+const KEEP_AS_IS_BYTES: usize = 300 * 1024;
+const JPEG_QUALITY: u8 = 82;
+/// The most the business server accepts for one file.
+pub const MAX_SHARED_BYTES: usize = 3 * 1024 * 1024;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ImageError {
     #[error("Unsupported image format \"{0}\" — use JPG, PNG, WEBP or GIF")]
@@ -43,6 +59,8 @@ pub enum ImageError {
     InvalidBase64(String),
     #[error("Invalid image file name: {0}")]
     InvalidFileName(String),
+    #[error("The file is not a readable {0} image")]
+    NotAnImage(String),
     #[error("Could not save image: {0}")]
     Io(String),
 }
@@ -86,22 +104,73 @@ pub fn logo_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("logo")
 }
 
-/// Monotonic-enough unique filename: wall-clock nanoseconds plus a
-/// same-process counter, so two uploads in the same nanosecond still differ.
-/// `prefix` distinguishes which upload context generated it (purely
-/// cosmetic/debugging — nothing parses it back apart).
-fn generate_file_name(prefix: &str, extension: &str) -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{}-{}-{}.{}", prefix, nanos, seq, extension)
+/// Whether a stored name is one this app could have generated: letters,
+/// digits, `-` and `_`, then a known image extension. Names from the
+/// database are checked again before touching the filesystem (a name can
+/// arrive from another counter).
+pub fn is_valid_name(file_name: &str) -> bool {
+    let Some((stem, extension)) = file_name.rsplit_once('.') else { return false };
+    !stem.is_empty()
+        && stem.len() <= 91
+        && stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && stem.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && ["jpg", "jpeg", "png", "webp", "gif", "svg"].contains(&extension)
+}
+
+/// `<prefix>-<first 32 hex of sha256>.<extension>`: the same bytes always get
+/// the same name.
+fn content_name(prefix: &str, bytes: &[u8], extension: &str) -> String {
+    let digest = Sha256::digest(bytes);
+    let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
+    format!("{prefix}-{hex}.{extension}")
+}
+
+/// Shrinks a JPEG or PNG to at most `max_dimension` on its longer side and
+/// re-encodes it: PNG if it has see-through pixels, JPEG otherwise. A small
+/// image is returned untouched, and so is any other format (WEBP, GIF, SVG).
+/// Returns the bytes and their extension.
+pub fn shrink(bytes: &[u8], extension: &str, max_dimension: u32) -> Result<(Vec<u8>, String), ImageError> {
+    let format = match extension {
+        "jpg" | "jpeg" => ImageFormat::Jpeg,
+        "png" => ImageFormat::Png,
+        _ => return Ok((bytes.to_vec(), extension.to_string())),
+    };
+    let image = image::load_from_memory_with_format(bytes, format).map_err(|_| ImageError::NotAnImage(extension.to_ascii_uppercase()))?;
+    let (width, height) = image.dimensions();
+    if width.max(height) <= max_dimension && bytes.len() <= KEEP_AS_IS_BYTES {
+        return Ok((bytes.to_vec(), extension.to_string()));
+    }
+    let image = if width.max(height) > max_dimension {
+        image.resize(max_dimension, max_dimension, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+    let see_through = image.color().has_alpha() && image.to_rgba8().pixels().any(|p| p.0[3] < 255);
+    let mut out = Cursor::new(Vec::new());
+    if see_through {
+        image.write_to(&mut out, ImageFormat::Png).map_err(|e| ImageError::Io(e.to_string()))?;
+        return Ok((out.into_inner(), "png".into()));
+    }
+    let rgb = DynamicImage::ImageRgb8(image.to_rgb8());
+    rgb.write_with_encoder(JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY)).map_err(|e| ImageError::Io(e.to_string()))?;
+    Ok((out.into_inner(), "jpg".into()))
+}
+
+/// Writes `bytes` to `path` through a temporary file, so a crash never
+/// leaves half an image under a real name.
+pub fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), ImageError> {
+    let dir = path.parent().ok_or_else(|| ImageError::Io("no directory".into()))?;
+    fs::create_dir_all(dir).map_err(|e| ImageError::Io(e.to_string()))?;
+    let tmp = path.with_extension("partial");
+    fs::write(&tmp, bytes).map_err(|e| ImageError::Io(e.to_string()))?;
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        ImageError::Io(e.to_string())
+    })
 }
 
 /// Decodes and validates a base64-encoded image against `(allowed, max)`,
-/// writes it under `dir`, and returns the generated filename. Shared by
+/// shrinks it, writes it under `dir` and returns its name. Shared by
 /// [`save_image`] and [`save_logo`] — the two only differ in which allowed
 /// formats/size cap/filename prefix they call this with.
 fn save_image_as(
@@ -124,11 +193,17 @@ fn save_image_as(
     if bytes.len() > max_bytes {
         return Err(ImageError::TooLarge { bytes: bytes.len(), max: max_bytes });
     }
+    let (bytes, extension) = shrink(&bytes, &extension, MAX_DIMENSION)?;
+    // Only a WEBP/GIF can still be this big: it must fit the business server.
+    if bytes.len() > MAX_SHARED_BYTES {
+        return Err(ImageError::TooLarge { bytes: bytes.len(), max: MAX_SHARED_BYTES });
+    }
 
-    fs::create_dir_all(dir).map_err(|e| ImageError::Io(e.to_string()))?;
-    let file_name = generate_file_name(prefix, &extension);
-    fs::write(dir.join(&file_name), &bytes).map_err(|e| ImageError::Io(e.to_string()))?;
-
+    let file_name = content_name(prefix, &bytes, &extension);
+    let path = dir.join(&file_name);
+    if !path.exists() {
+        write_atomically(&path, &bytes)?;
+    }
     Ok(file_name)
 }
 
@@ -180,6 +255,7 @@ pub fn delete_image(dir: &Path, file_name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn tmp_dir(label: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -250,12 +326,53 @@ mod tests {
     }
 
     #[test]
-    fn two_uploads_in_the_same_process_never_collide() {
-        let dir = tmp_dir("uniqueness");
+    fn the_same_photo_gets_the_same_name_and_a_different_one_does_not() {
+        let dir = tmp_dir("content-names");
         let a = save_image(&dir, &tiny_png_base64(), "png").unwrap();
         let b = save_image(&dir, &tiny_png_base64(), "png").unwrap();
-        assert_ne!(a, b);
+        assert_eq!(a, b, "named by content, so every counter names it alike");
+        let other = BASE64.encode(png_bytes(3, 3, 255));
+        assert_ne!(save_image(&dir, &other, "png").unwrap(), a);
+        assert!(is_valid_name(&a));
         fs::remove_dir_all(&dir).ok();
+    }
+
+    fn png_bytes(width: u32, height: u32, alpha: u8) -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(width, height, image::Rgba([200, 30, 30, alpha]));
+        let mut out = Cursor::new(Vec::new());
+        image.write_to(&mut out, ImageFormat::Png).unwrap();
+        out.into_inner()
+    }
+
+    #[test]
+    fn a_large_photo_is_shrunk_and_stored_as_jpeg_unless_it_is_see_through() {
+        let dir = tmp_dir("shrink");
+        let name = save_image(&dir, &BASE64.encode(png_bytes(2400, 1200, 255)), "png").unwrap();
+        assert!(name.ends_with(".jpg"), "an opaque photo becomes a JPEG: {name}");
+        let stored = image::open(dir.join(&name)).unwrap();
+        assert_eq!(stored.dimensions(), (1024, 512), "longer side capped, aspect kept");
+
+        let name = save_image(&dir, &BASE64.encode(png_bytes(1600, 1600, 128)), "png").unwrap();
+        assert!(name.ends_with(".png"), "transparency keeps PNG: {name}");
+        assert_eq!(image::open(dir.join(&name)).unwrap().dimensions(), (1024, 1024));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_file_that_is_not_the_image_it_claims_is_refused() {
+        let dir = tmp_dir("not-an-image");
+        let err = save_image(&dir, &BASE64.encode(b"definitely not a png"), "png").unwrap_err();
+        assert!(matches!(err, ImageError::NotAnImage(_)));
+    }
+
+    #[test]
+    fn only_generated_looking_names_are_valid() {
+        for good in ["item-0a1b.png", "logo-x_y.svg", "item-1700000000-3.jpeg"] {
+            assert!(is_valid_name(good), "{good}");
+        }
+        for bad in ["../x.png", "a/b.png", ".png", "-x.png", "x.exe", "x.PNG", "", "x"] {
+            assert!(!is_valid_name(bad), "{bad}");
+        }
     }
 
     #[test]
@@ -266,6 +383,7 @@ mod tests {
         let logo_file = save_logo(&dir, &svg, "svg").unwrap();
         assert!(logo_file.ends_with(".svg"));
         assert!(logo_file.starts_with("logo-"));
+        assert!(is_valid_name(&logo_file));
 
         let err = save_image(&dir, &svg, "svg").unwrap_err();
         assert!(matches!(err, ImageError::UnsupportedFormat(_)), "product photos must not accept svg");

@@ -105,6 +105,12 @@ pub struct ModuleState {
     pub locked: bool,
     pub desktop_locked: bool,
     pub android_locked: bool,
+    /// Whether the licence's plan includes this module (always true here;
+    /// `commands::config_get_enabled_modules` fills it from the signed
+    /// entitlements). A module can be enabled but not entitled.
+    pub entitled: bool,
+    /// The cheapest plan that includes it, when `entitled` is false.
+    pub required_plan: Option<String>,
 }
 
 /// Every module in the catalogue with its stored visibility, ordered for the
@@ -137,6 +143,8 @@ pub fn list(conn: &Connection, platform: Platform) -> Result<Vec<ModuleState>, r
             locked: row.get::<_, i64>("locked")? != 0,
             desktop_locked: row.get::<_, i64>("desktop_locked")? != 0,
             android_locked: row.get::<_, i64>("android_locked")? != 0,
+            entitled: true,
+            required_plan: None,
         })
     })?;
 

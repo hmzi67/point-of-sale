@@ -33,6 +33,7 @@
 //! while the licence is not OK, so bypassing the UI lock changes nothing.
 
 pub mod client;
+pub mod entitlements;
 pub mod fingerprint;
 pub mod runtime;
 pub mod state;

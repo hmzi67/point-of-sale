@@ -11,6 +11,8 @@ export interface Shift {
   /** `null` until the shift is closed. */
   declaredCashAmountMinor: number | null;
   notes: string | null;
+  /** The counter whose drawer it is, when the business has several. */
+  tillName: string | null;
 }
 
 export interface ShiftSummary {
@@ -30,4 +32,22 @@ export interface ShiftSummary {
   declaredCashAmountMinor: number | null;
   /** `declared - expected`: negative is Short, positive is Over. `null` alongside `declaredCashAmountMinor`. */
   differenceMinor: number | null;
+}
+
+/** One day across every cash drawer of the business (all counters). */
+export interface DrawerDay {
+  day: string;
+  drawers: ShiftSummary[];
+  openDrawers: number;
+  openingBalanceMinor: number;
+  cashSalesMinor: number;
+  cardSalesMinor: number;
+  creditSalesMinor: number;
+  otherSalesMinor: number;
+  totalSalesMinor: number;
+  refundsMinor: number;
+  expectedCashMinor: number;
+  /** Counted cash of the drawers already closed, and how far off that is. */
+  declaredCashMinor: number;
+  differenceMinor: number;
 }

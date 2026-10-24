@@ -42,6 +42,7 @@ const placeholderConfig: AppConfig = {
   scaleItemCodeDigits: 5,
   scaleValueKind: "weight",
   scaleValueDecimals: 3,
+  offlineSales: "allow",
 };
 
 export const useAppStore = create<AppState>((set) => ({

@@ -81,6 +81,10 @@ pub struct AppConfig {
     pub scale_item_code_digits: i64,
     pub scale_value_kind: String,
     pub scale_value_decimals: i64,
+    /// A counter of a business that cannot reach the server: `allow` keeps
+    /// selling (stock is reconciled when it reconnects), `block` refuses
+    /// sales until then. See `workspace::runtime::reserve_for_sale`.
+    pub offline_sales: String,
 }
 
 /// One paired-device entry in Settings' "Select printer" list — a plain
@@ -162,6 +166,7 @@ pub struct AppConfigUpdate {
     pub scale_item_code_digits: Option<i64>,
     pub scale_value_kind: Option<String>,
     pub scale_value_decimals: Option<i64>,
+    pub offline_sales: Option<String>,
 }
 
 fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
@@ -187,6 +192,7 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
         scale_item_code_digits: row.get("scale_item_code_digits")?,
         scale_value_kind: row.get("scale_value_kind")?,
         scale_value_decimals: row.get("scale_value_decimals")?,
+        offline_sales: row.get("offline_sales")?,
     })
 }
 
@@ -238,7 +244,7 @@ pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
                 printer_connection_type, printer_bluetooth_address, printer_bluetooth_name,
                 printer_usb_device, printer_usb_name, printer_windows_name,
                 service_charge_percent, scale_barcode_enabled, scale_barcode_prefix,
-                scale_item_code_digits, scale_value_kind, scale_value_decimals
+                scale_item_code_digits, scale_value_kind, scale_value_decimals, offline_sales
            FROM app_config WHERE id = 1",
         [],
         from_row,
@@ -270,7 +276,8 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
                 scale_barcode_prefix = COALESCE(?18, scale_barcode_prefix),
                 scale_item_code_digits = COALESCE(?19, scale_item_code_digits),
                 scale_value_kind = COALESCE(?20, scale_value_kind),
-                scale_value_decimals = COALESCE(?21, scale_value_decimals)
+                scale_value_decimals = COALESCE(?21, scale_value_decimals),
+                offline_sales = COALESCE(?22, offline_sales)
           WHERE id = 1",
         params![
             patch.business_name,
@@ -294,6 +301,7 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
             patch.scale_item_code_digits,
             patch.scale_value_kind,
             patch.scale_value_decimals,
+            patch.offline_sales,
         ],
     )?;
 

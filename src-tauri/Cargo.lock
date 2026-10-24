@@ -4007,6 +4007,7 @@ dependencies = [
  "machine-uid",
  "reqwest",
  "rfd",
+ "ring",
  "rusb",
  "rusqlite",
  "rustls",

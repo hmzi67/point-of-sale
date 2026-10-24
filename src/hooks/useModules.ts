@@ -14,6 +14,10 @@ export interface VisibleModule extends ModuleState {
  * Combines the installation's enabled modules with the signed-in role. The
  * sidebar, the route guard and (later) the dashboard cards all read this, so
  * they can never disagree about whether a module is available.
+ *
+ * `visibleModules` keeps modules the licence's plan doesn't include
+ * (`entitled: false`) so the navigation can show them locked; `canAccess`
+ * excludes them, and `ModuleRoute` shows the upgrade notice instead.
  */
 export function useModules() {
   const modules = useModuleStore((state) => state.modules);
@@ -32,8 +36,14 @@ export function useModules() {
   }, [modules, role]);
 
   const canAccess = useMemo(() => {
-    const allowed = new Set(visibleModules.map((module) => module.key));
+    const allowed = new Set(visibleModules.filter((module) => module.entitled).map((module) => module.key));
     return (key: ModuleKey) => allowed.has(key);
+  }, [visibleModules]);
+
+  /** The visible module for `key` that the plan doesn't include, if any. */
+  const lockedModule = useMemo(() => {
+    const locked = new Map(visibleModules.filter((module) => !module.entitled).map((module) => [module.key, module]));
+    return (key: ModuleKey) => locked.get(key) ?? null;
   }, [visibleModules]);
 
   /**
@@ -41,9 +51,9 @@ export function useModules() {
    * core and always enabled, so this list is never empty for any role — which
    * is what stops a guard redirect from looping.
    */
-  const fallbackPath = visibleModules[0]?.nav.path ?? "/unavailable";
+  const fallbackPath = visibleModules.find((module) => module.entitled)?.nav.path ?? "/unavailable";
 
-  return { modules, visibleModules, canAccess, fallbackPath, isLoaded, isLoading, error };
+  return { modules, visibleModules, canAccess, lockedModule, fallbackPath, isLoaded, isLoading, error };
 }
 
 /** Whether module `key` is enabled on this installation, regardless of the

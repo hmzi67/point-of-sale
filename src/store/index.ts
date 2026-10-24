@@ -7,3 +7,4 @@ export { useReportsStore } from "./reportsStore";
 export { useShiftStore } from "./shiftStore";
 export { useLicenseStore } from "./licenseStore";
 export { useUiPrefsStore } from "./uiPrefsStore";
+export { useWorkspaceStore } from "./workspaceStore";

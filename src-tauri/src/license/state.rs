@@ -56,6 +56,9 @@ pub enum LicenseState {
     Expired { expired_at: Option<i64> },
     /// The server reported the licence revoked. Locks billing.
     Revoked,
+    /// Suspended by the Diwan team (licence or account). Locks billing
+    /// until they reactivate it; unlike `Revoked` it is expected to end.
+    Suspended,
     /// The stored payload was issued to a different machine. Locks billing.
     DeviceMismatch,
     /// The local clock is behind something we have already seen. Locks
@@ -121,6 +124,7 @@ pub fn evaluate(payload: &LicensePayload, this_device_fingerprint: &str, clocks:
 
     match payload.status {
         LicenseStatus::Revoked | LicenseStatus::Unknown => return LicenseState::Revoked,
+        LicenseStatus::Suspended => return LicenseState::Suspended,
         LicenseStatus::Expired => return LicenseState::Expired { expired_at: payload.expires_at },
         LicenseStatus::Active => {}
     }
@@ -190,6 +194,9 @@ mod tests {
             expires_at: Some(ISSUED + 30 * DAY),
             device_fingerprint: FP.into(),
             max_offline_days: 30,
+            plan: None,
+            entitlements: None,
+            upgrade: Default::default(),
         }
     }
 
@@ -397,5 +404,14 @@ mod tests {
         assert_eq!(json, r#"{"kind":"ok","expiresAt":1,"expiringSoon":true}"#);
         let json = serde_json::to_string(&LicenseState::ClockTampered { reason: ClockProblem::BehindServerTime }).unwrap();
         assert_eq!(json, r#"{"kind":"clockTampered","reason":"behindServerTime"}"#);
+    }
+
+    #[test]
+    fn a_suspended_licence_locks_billing() {
+        let mut p = payload();
+        p.status = LicenseStatus::Suspended;
+        let state = evaluate(&p, FP, Clocks { now: ISSUED + DAY, high_water: ISSUED, last_online_check: ISSUED });
+        assert_eq!(state, LicenseState::Suspended);
+        assert!(!state.allows_billing());
     }
 }

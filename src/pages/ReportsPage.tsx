@@ -6,10 +6,12 @@ import {
   CalendarDays,
   CreditCard,
   Landmark,
+  Lock,
   PiggyBank,
   ReceiptText,
   RotateCcw,
   Table2,
+  Monitor,
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
@@ -18,6 +20,8 @@ import { DateRangePicker } from "../components/reports/DateRangePicker";
 import { DeliveryReport } from "../components/reports/DeliveryReport";
 import { ExportButtons } from "../components/reports/ExportButtons";
 import { InventoryReports } from "../components/reports/InventoryReports";
+import { UpgradeNotice } from "../components/ui/UpgradeNotice";
+import { useCapability } from "../hooks/useCapability";
 import {
   OrderProfitReport,
   PaymentTypeReport,
@@ -26,6 +30,7 @@ import {
   VoidReportView,
 } from "../components/reports/SalesInsightReports";
 import { WorstSellers } from "../components/reports/WorstSellers";
+import { CounterSalesReport } from "../components/reports/CounterSalesReport";
 import { ProductWiseSalesTable } from "../components/reports/ProductWiseSalesTable";
 import { RefundsTable } from "../components/reports/RefundsTable";
 import { SummaryCards } from "../components/reports/SummaryCards";
@@ -56,7 +61,7 @@ const TopEntriesChart = lazy(() =>
   import("../components/reports/TopEntriesChart").then((m) => ({ default: m.TopEntriesChart })),
 );
 
-type SalesView = "overview" | "tables" | "products" | "refunds" | "delivery";
+type SalesView = "overview" | "counters" | "tables" | "products" | "refunds" | "delivery";
 type InsightView = "profit" | "orderProfit" | "payments" | "tax" | "voids" | "inventory";
 type View = SalesView | InsightView;
 
@@ -66,6 +71,7 @@ const TABS: { key: View; label: string; icon: LucideIcon }[] = [
   { key: "orderProfit", label: "Order Profit", icon: ReceiptText },
   { key: "products", label: "Product Wise Sales", icon: Boxes },
   { key: "tables", label: "Table Wise Sales", icon: Table2 },
+  { key: "counters", label: "Counter Wise Sales", icon: Monitor },
   { key: "delivery", label: "Deliveries", icon: Bike },
   { key: "payments", label: "Payment Types", icon: CreditCard },
   { key: "tax", label: "Tax & Service", icon: Landmark },
@@ -74,7 +80,7 @@ const TABS: { key: View; label: string; icon: LucideIcon }[] = [
   { key: "inventory", label: "Inventory", icon: Warehouse },
 ];
 
-const SALES_VIEWS: View[] = ["overview", "tables", "products", "refunds", "delivery"];
+const SALES_VIEWS: View[] = ["overview", "counters", "tables", "products", "refunds", "delivery"];
 
 const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border border-line bg-surface-2" />;
 
@@ -93,6 +99,11 @@ export function ReportsPage() {
   const load = useReportsStore((state) => state.load);
 
   const [view, setView] = useState<View>("overview");
+  // Profit, payment-type, tax, void and stock reports are Advanced Reports &
+  // Analytics (a plan feature). The tabs stay visible, marked, and explain
+  // the plan instead of failing; the commands refuse in Rust regardless.
+  const advanced = useCapability("reports_advanced");
+  const lockedInsight = !advanced.allowed && !SALES_VIEWS.includes(view);
 
   // Reuses the Dashboard's own net-profit math (`dashboard_get_summary`)
   // for whatever range Reports currently has selected, rather than this
@@ -210,7 +221,8 @@ export function ReportsPage() {
           <p className="mt-2 text-sm text-fg-muted">Explore your sales, spot your best sellers, and track performance.</p>
         </div>
         <ExportButtons
-          view={SALES_VIEWS.includes(view) ? (view as SalesView) : null}
+          // Counter Wise Sales has its own CSV button (see CounterSalesReport).
+          view={SALES_VIEWS.includes(view) && view !== "counters" ? (view as Exclude<SalesView, "counters">) : null}
           summary={summary}
           topItems={topItems}
           series={series}
@@ -243,6 +255,7 @@ export function ReportsPage() {
             >
               <Icon className="h-4 w-4" />
               {label}
+              {!advanced.allowed && !SALES_VIEWS.includes(key) && <Lock className="h-3 w-3 opacity-70" aria-label="Not in your plan" />}
             </button>
           ))}
         </div>
@@ -250,7 +263,9 @@ export function ReportsPage() {
 
       {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
-      {view === "overview" ? (
+      {lockedInsight ? (
+        <UpgradeNotice feature={TABS.find((t) => t.key === view)?.label ?? "This report"} requiredPlan={advanced.requiredPlan} />
+      ) : view === "overview" ? (
         <>
           <SummaryCards summary={summary} currency={config.currency} isLoading={isLoading} profit={profit} />
 
@@ -300,6 +315,8 @@ export function ReportsPage() {
           </Suspense>
           <TableWiseSalesTable data={tableSales} currency={config.currency} isLoading={isLoadingTableSales} />
         </>
+      ) : view === "counters" ? (
+        <CounterSalesReport startDate={startDate} endDate={endDate} currency={config.currency} />
       ) : view === "profit" ? (
         <ProfitLossReport startDate={startDate} endDate={endDate} currency={config.currency} />
       ) : view === "orderProfit" ? (

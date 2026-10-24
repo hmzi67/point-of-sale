@@ -6,7 +6,7 @@ import { formatMinor, formatQty } from "./format";
  * receipt, in a form a chat message or email body can carry. */
 export function buildInvoiceText(sale: Sale, config: AppConfig): string {
   const money = (minor: number) => formatMinor(minor, config.currency);
-  const lines: string[] = [config.businessName, `Invoice #${sale.id} — ${sale.createdAt}`];
+  const lines: string[] = [config.businessName, `Invoice #${sale.receiptNo} — ${sale.createdAt}`];
   if (sale.customerName) lines.push(`Customer: ${sale.customerName}`);
   lines.push("");
   for (const item of sale.items) {

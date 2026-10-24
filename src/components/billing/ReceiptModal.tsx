@@ -97,7 +97,8 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
         <div className="max-h-[60dvh] overflow-y-auto px-5 py-4">
           <p className="text-center text-sm text-fg-muted">{config.businessName}</p>
           <p className="text-center text-xs text-fg-muted">
-            Sale #{sale.id} · {sale.createdAt}
+            Sale #{sale.receiptNo} · {sale.createdAt}
+            {sale.tillName ? ` · ${sale.tillName}` : ""}
           </p>
           {sale.orderNo && (
             <p className="mt-1 text-center text-xs font-semibold text-accent-text">
@@ -216,7 +217,7 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
               type="button"
               onClick={() =>
                 void openExternal(
-                  mailtoUrl(sale.customerEmail, `${config.businessName} — invoice #${sale.id}`, buildInvoiceText(sale, config)),
+                  mailtoUrl(sale.customerEmail, `${config.businessName} — invoice #${sale.receiptNo}`, buildInvoiceText(sale, config)),
                 )
               }
               className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-sm font-medium text-fg-2 hover:bg-surface-2"

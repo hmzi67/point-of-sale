@@ -202,3 +202,27 @@ export interface DeliveryReport {
   riders: RiderSummary[];
   orders: DeliveryOrderRow[];
 }
+
+/** "Counter Wise Sales" — mirrors `db::reports::CounterSalesSummary`. */
+export interface CounterSalesRow {
+  label: string;
+  thisCounter: boolean;
+  totalMinor: number;
+  transactionCount: number;
+  refundsMinor: number;
+}
+
+export interface CashierSalesRow {
+  cashier: string;
+  counter: string;
+  totalMinor: number;
+  transactionCount: number;
+}
+
+export interface CounterSalesSummary {
+  startDate: string;
+  endDate: string;
+  counters: CounterSalesRow[];
+  cashiers: CashierSalesRow[];
+  grandTotalMinor: number;
+}

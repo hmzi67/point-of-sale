@@ -1,3 +1,4 @@
+import { Lock } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useModules } from "../../hooks/useModules";
 
@@ -36,7 +37,7 @@ export function BottomTabBar() {
         const Icon = module.nav.icon;
         return (
           <NavLink key={module.key} to={module.nav.path} end={module.nav.path === "/"} className={linkClass}>
-            <Icon className="h-5 w-5" />
+            {module.entitled ? <Icon className="h-5 w-5" /> : <Lock className="h-5 w-5" aria-label="Not in your plan" />}
             <span className="max-w-[72px] truncate">{module.name}</span>
           </NavLink>
         );

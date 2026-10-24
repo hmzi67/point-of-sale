@@ -438,6 +438,120 @@ pub struct TableSalesSummary {
     pub grand_total_minor: i64,
 }
 
+/// One counter (POS terminal) in the "Counter Wise Sales" report.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CounterSalesRow {
+    pub label: String,
+    pub this_counter: bool,
+    pub total_minor: i64,
+    pub transaction_count: i64,
+    /// Refunds given at this counter in the range (by when they were given).
+    pub refunds_minor: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CashierSalesRow {
+    pub cashier: String,
+    pub counter: String,
+    pub total_minor: i64,
+    pub transaction_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CounterSalesSummary {
+    pub start_date: String,
+    pub end_date: String,
+    pub counters: Vec<CounterSalesRow>,
+    pub cashiers: Vec<CashierSalesRow>,
+    pub grand_total_minor: i64,
+}
+
+/// Sales per counter and per cashier. A record's counter is the install-id
+/// prefix of its gid (see `workspace::local`), named from the business's
+/// counter list; a counter that has never connected is "This counter".
+/// The totals add up to the same gross figure as the sales summary, since
+/// every counter's sales are in this database.
+pub fn get_counter_sales_summary(conn: &Connection, start_date: &str, end_date: &str) -> Result<CounterSalesSummary, ReportError> {
+    let (start_ts, end_ts) = validate_range(start_date, end_date)?;
+    let here: String = conn.query_row("SELECT install_id FROM sync_state WHERE id = 1", [], |row| row.get(0))?;
+    let mut names = std::collections::HashMap::new();
+    for row in conn
+        .prepare("SELECT install_id, name FROM sync_terminals")?
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+    {
+        let (install, name) = row?;
+        names.insert(install, name);
+    }
+    let label = |origin: &str| -> String {
+        names.get(origin).cloned().unwrap_or_else(|| {
+            if origin == here { "This counter".to_string() } else { "Earlier installation".to_string() }
+        })
+    };
+
+    let mut by_counter: std::collections::BTreeMap<String, CounterSalesRow> = std::collections::BTreeMap::new();
+    let mut sales = conn.prepare(
+        "SELECT substr(gid, 1, 16), SUM(total_minor), COUNT(*) FROM sales
+          WHERE created_at >= ?1 AND created_at <= ?2 GROUP BY 1",
+    )?;
+    for row in sales.query_map(params![start_ts, end_ts], |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)))? {
+        let (origin, total, count) = row?;
+        let origin = origin.unwrap_or_default();
+        let entry = by_counter.entry(origin.clone()).or_insert_with(|| CounterSalesRow {
+            label: label(&origin), this_counter: origin == here, total_minor: 0, transaction_count: 0, refunds_minor: 0,
+        });
+        entry.total_minor += total;
+        entry.transaction_count += count;
+    }
+    let mut refunds = conn.prepare(
+        "SELECT substr(gid, 1, 16), SUM(total_refund_amount_minor) FROM refunds
+          WHERE created_at >= ?1 AND created_at <= ?2 GROUP BY 1",
+    )?;
+    for row in refunds.query_map(params![start_ts, end_ts], |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?)))? {
+        let (origin, total) = row?;
+        let origin = origin.unwrap_or_default();
+        by_counter
+            .entry(origin.clone())
+            .or_insert_with(|| CounterSalesRow {
+                label: label(&origin), this_counter: origin == here, total_minor: 0, transaction_count: 0, refunds_minor: 0,
+            })
+            .refunds_minor += total;
+    }
+    let mut counters: Vec<CounterSalesRow> = by_counter.into_values().collect();
+    counters.sort_by(|a, b| b.total_minor.cmp(&a.total_minor).then_with(|| a.label.cmp(&b.label)));
+
+    let mut cashier_stmt = conn.prepare(
+        "SELECT substr(s.gid, 1, 16), COALESCE(u.name, 'Unknown'), SUM(s.total_minor), COUNT(*)
+           FROM sales s LEFT JOIN users u ON u.id = s.cashier_id
+          WHERE s.created_at >= ?1 AND s.created_at <= ?2
+          GROUP BY 1, s.cashier_id",
+    )?;
+    let mut cashiers = cashier_stmt
+        .query_map(params![start_ts, end_ts], |row| {
+            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?))
+        })?
+        .map(|row| {
+            row.map(|(origin, cashier, total_minor, transaction_count)| CashierSalesRow {
+                cashier,
+                counter: label(&origin.unwrap_or_default()),
+                total_minor,
+                transaction_count,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    cashiers.sort_by_key(|c| std::cmp::Reverse(c.total_minor));
+
+    Ok(CounterSalesSummary {
+        start_date: start_date.to_string(),
+        end_date: end_date.to_string(),
+        grand_total_minor: counters.iter().map(|c| c.total_minor).sum(),
+        counters,
+        cashiers,
+    })
+}
+
 /// The label for sales with no table — deliberately not just "Counter" or
 /// just "Takeaway", since a retail client's non-table sales cover both and
 /// there's no `order_type` column to distinguish them: the billing UI's

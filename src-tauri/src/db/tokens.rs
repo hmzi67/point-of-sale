@@ -91,6 +91,10 @@ pub struct TokenSummary {
     pub status: String,
     pub shift_id: Option<i64>,
     pub items: Vec<TokenLine>,
+    /// The counter of the business that printed it (`C2`), once the business
+    /// has several: printed as `TOKEN #C2-14` so two counters' token 14s
+    /// can't be mixed up.
+    pub till_label: Option<String>,
 }
 
 /// One cart line to print an ad hoc (Takeaway) token for — the frontend's
@@ -381,10 +385,11 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
         Option<String>,
         String,
         Option<i64>,
+        Option<String>,
     )> = conn
         .query_row(
             "SELECT tk.token_number, tk.counter_id, c.name, tk.table_order_id, o.table_id, t.name,
-                    tk.printed_at, tk.printed_by, u.name, tk.status, tk.shift_id
+                    tk.printed_at, tk.printed_by, u.name, tk.status, tk.shift_id, tk.gid
                FROM tokens tk
                JOIN counters c ON c.id = tk.counter_id
                LEFT JOIN table_orders o ON o.id = tk.table_order_id
@@ -405,6 +410,7 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
                     row.get(8)?,
                     row.get(9)?,
                     row.get(10)?,
+                    row.get(11)?,
                 ))
             },
         )
@@ -421,10 +427,12 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
         printed_by_name,
         status,
         shift_id,
+        gid,
     )) = row
     else {
         return Err(TokenError::TokenNotFound);
     };
+    let till_label = crate::workspace::local::till_of(conn, gid.as_deref())?.map(|(label, _)| label);
 
     let mut stmt = conn.prepare(
         "SELECT ti.item_id, i.name, ti.qty_on_token, i.unit, i.sold_by_amount, i.price_minor
@@ -463,6 +471,7 @@ fn load_token(conn: &Connection, token_id: i64) -> Result<TokenSummary, TokenErr
         status,
         shift_id,
         items,
+        till_label,
     })
 }
 

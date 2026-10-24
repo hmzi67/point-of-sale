@@ -1,4 +1,5 @@
 import { Barcode, ClipboardCheck, History, Plus, Search, Upload } from "lucide-react";
+import { upgradeHint, useCapability } from "../../hooks/useCapability";
 import { useInventoryStore } from "../../store";
 
 interface InventoryToolbarProps {
@@ -11,13 +12,16 @@ interface InventoryToolbarProps {
 }
 
 const toolClass =
-  "flex items-center gap-1.5 rounded-xl border border-line bg-surface-2/50 px-3 py-3 text-sm font-medium text-fg-2 hover:bg-surface-2";
+  "flex items-center gap-1.5 rounded-xl border border-line bg-surface-2/50 px-3 py-3 text-sm font-medium text-fg-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50";
 
 export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv, onStockTake, onMovements, onLabels }: InventoryToolbarProps) {
   const search = useInventoryStore((state) => state.search);
   const setSearch = useInventoryStore((state) => state.setSearch);
   const categoryId = useInventoryStore((state) => state.categoryId);
   const setCategoryId = useInventoryStore((state) => state.setCategoryId);
+  // Stock takes, labels and CSV import are Full Inventory (a plan feature).
+  const advanced = useCapability("inventory_advanced");
+  const advancedTitle = advanced.allowed ? undefined : upgradeHint(advanced.planName, advanced.requiredPlan);
   const categories = useInventoryStore((state) => state.categories);
 
   return (
@@ -49,7 +53,7 @@ export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv, onStockTa
 
       {!isReadOnly && (
         <>
-          <button type="button" onClick={onStockTake} className={toolClass}>
+          <button type="button" onClick={onStockTake} className={toolClass} disabled={!advanced.allowed} title={advancedTitle}>
             <ClipboardCheck className="h-4 w-4" />
             Stock take
           </button>
@@ -57,14 +61,16 @@ export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv, onStockTa
             <History className="h-4 w-4" />
             Movements
           </button>
-          <button type="button" onClick={onLabels} className={toolClass}>
+          <button type="button" onClick={onLabels} className={toolClass} disabled={!advanced.allowed} title={advancedTitle}>
             <Barcode className="h-4 w-4" />
             Labels
           </button>
           <button
             type="button"
             onClick={onImportCsv}
-            className="flex items-center gap-1.5 rounded-xl border border-line bg-surface-2/50 px-3 py-3 text-sm font-medium text-fg-2 hover:bg-surface-2"
+            disabled={!advanced.allowed}
+            title={advancedTitle}
+            className={toolClass}
           >
             <Upload className="h-4 w-4" />
             Import CSV

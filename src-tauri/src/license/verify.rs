@@ -50,6 +50,8 @@ pub const ACCEPTED_PUBLIC_KEYS: &[(&str, [u8; 32])] = &[(
 #[serde(rename_all = "lowercase")]
 pub enum LicenseStatus {
     Active,
+    /// Paused by an administrator (or the account was); reversible.
+    Suspended,
     Revoked,
     Expired,
     #[serde(other)]
@@ -80,6 +82,23 @@ pub struct LicensePayload {
     /// How long the app may run without a successful online refresh before
     /// it insists on one. Server-controlled so policy needs no app release.
     pub max_offline_days: u32,
+    /// The licence's plan, or `None` for a licence issued before plans
+    /// existed (and from servers that predate them).
+    #[serde(default)]
+    pub plan: Option<PlanInfo>,
+    /// Module/capability keys the plan unlocks; `None` = unrestricted.
+    /// See [`super::entitlements`].
+    #[serde(default)]
+    pub entitlements: Option<Vec<String>>,
+    /// For each key the plan lacks, the cheapest plan that has it.
+    #[serde(default)]
+    pub upgrade: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanInfo {
+    pub code: String,
+    pub name: String,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -103,7 +122,43 @@ pub enum VerifyError {
 /// Verifies a payload from `api/license-status.php` (or the local cache of
 /// one) under the compiled-in [`ACCEPTED_PUBLIC_KEYS`].
 pub fn verify_signed(payload_b64: &str, signature_b64: &str) -> Result<LicensePayload, VerifyError> {
+    #[cfg(debug_assertions)]
+    if let Some((kid, key)) = dev_public_key() {
+        let mut keys = ACCEPTED_PUBLIC_KEYS.to_vec();
+        keys.push((kid.as_str(), *key));
+        return verify_with_keys(&keys, payload_b64, signature_b64);
+    }
     verify_with_keys(ACCEPTED_PUBLIC_KEYS, payload_b64, signature_b64)
+}
+
+/// Debug builds only: one extra trusted key from the environment, so a
+/// developer can test activation against a local `php -S` licence server
+/// that signs with its own throwaway key (the real private key never leaves
+/// the production `.env`). Set both, then launch `npm run tauri dev`:
+///
+/// ```text
+/// DIWAN_LICENSE_DEV_KEY_ID=<LICENSE_SIGNING_KEY_ID of the local server>
+/// DIWAN_LICENSE_DEV_PUBLIC_KEY=<base64 of its 32-byte public key>
+/// ```
+///
+/// Compiled out of release builds entirely, like the runtime
+/// `DIWAN_LICENSE_API_BASE` override in `client.rs`, so a shipped binary
+/// trusts nothing but [`ACCEPTED_PUBLIC_KEYS`]. Never shadows a production
+/// key id, and an invalid value is ignored.
+#[cfg(debug_assertions)]
+fn dev_public_key() -> Option<&'static (String, [u8; 32])> {
+    static KEY: std::sync::OnceLock<Option<(String, [u8; 32])>> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| {
+        let kid = std::env::var("DIWAN_LICENSE_DEV_KEY_ID").ok()?.trim().to_string();
+        let encoded = std::env::var("DIWAN_LICENSE_DEV_PUBLIC_KEY").ok()?;
+        let bytes: [u8; 32] = BASE64.decode(encoded.trim()).ok()?.try_into().ok()?;
+        VerifyingKey::from_bytes(&bytes).ok()?;
+        if kid.is_empty() || ACCEPTED_PUBLIC_KEYS.iter().any(|(accepted, _)| *accepted == kid) {
+            return None;
+        }
+        Some((kid, bytes))
+    })
+    .as_ref()
 }
 
 /// The kid a payload claims, read *before* verification. Nothing else is
@@ -235,6 +290,30 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_plan_payload_carries_its_plan_entitlements_and_upgrade_hints() {
+        // The exact shape license-status.php signs since plans (migration 016).
+        let json = sample_json().replace(
+            r#""max_offline_days":30}"#,
+            r#""max_offline_days":30,"plan":{"code":"basic","name":"BASIC"},"entitlements":["billing","inventory"],"upgrade":{"mobile":"ALL-IN-ONE"}}"#,
+        );
+        let parsed = verify(&json).unwrap();
+        assert_eq!(parsed.plan, Some(PlanInfo { code: "basic".into(), name: "BASIC".into() }));
+        assert_eq!(parsed.entitlements, Some(vec!["billing".to_string(), "inventory".to_string()]));
+        assert_eq!(parsed.upgrade.get("mobile").map(String::as_str), Some("ALL-IN-ONE"));
+    }
+
+    #[test]
+    fn a_pre_plan_payload_is_unrestricted_and_an_empty_upgrade_object_parses() {
+        let parsed = verify(&sample_json()).unwrap();
+        assert_eq!((parsed.plan, parsed.entitlements), (None, None));
+        let json = sample_json().replace(
+            r#""max_offline_days":30}"#,
+            r#""max_offline_days":30,"plan":null,"entitlements":null,"upgrade":{}}"#,
+        );
+        assert_eq!(verify(&json).unwrap().entitlements, None);
+    }
+
+    #[test]
     fn a_perpetual_licence_has_no_expiry() {
         let json = sample_json().replace(r#""expires_at":1760292000"#, r#""expires_at":null"#);
         assert_eq!(verify(&json).unwrap().expires_at, None);
@@ -246,7 +325,8 @@ pub(crate) mod tests {
             ("active", LicenseStatus::Active),
             ("revoked", LicenseStatus::Revoked),
             ("expired", LicenseStatus::Expired),
-            ("suspended", LicenseStatus::Unknown),
+            ("suspended", LicenseStatus::Suspended),
+            ("frozen", LicenseStatus::Unknown),
         ] {
             let json = sample_json().replace(r#""status":"active""#, &format!(r#""status":"{wire}""#));
             assert_eq!(verify(&json).unwrap().status, expected, "status {wire}");

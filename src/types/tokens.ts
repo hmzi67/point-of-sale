@@ -46,6 +46,8 @@ export interface TokenSummary {
   printedByName: string | null;
   status: "printed" | "cancelled";
   items: TokenLine[];
+  /** The business counter that printed it (`C2`), once there are several. */
+  tillLabel: string | null;
 }
 
 /** One cart line to print an ad hoc (Takeaway) token for — see

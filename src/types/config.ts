@@ -60,6 +60,9 @@ export interface AppConfig {
   scaleValueKind: "weight" | "price";
   /** Decimal places in the embedded value (3 = grams for a kg weight). */
   scaleValueDecimals: number;
+  /** A counter of a business that can't reach the server: keep selling
+   * (stock is reconciled later) or refuse sales until it reconnects. */
+  offlineSales: "allow" | "block";
 }
 
 /** One paired-device entry in Settings' "Select printer" list — see

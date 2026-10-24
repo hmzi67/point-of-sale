@@ -21,3 +21,4 @@ export * from "./purchasing";
 export * from "./stock";
 export * from "./sync";
 export * from "./vendorGate";
+export * from "./workspace";

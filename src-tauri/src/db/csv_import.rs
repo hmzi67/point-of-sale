@@ -183,6 +183,7 @@ pub fn import_csv(conn: &Connection, csv_content: &str) -> Result<ImportSummary,
                     // Not a CSV column either — set later via the item edit
                     // form if this row turns out to need a KOT token.
                     counter_id: None,
+                    original_stock_qty: None,
                 },
             )
             .map_err(|e| e.to_string())?;

@@ -17,6 +17,7 @@ use crate::db::expenses::{CategoryTotal, Expense};
 use crate::db::salary::SalaryCalculation;
 use crate::db::items::{Category, DeleteOutcome, Item, ItemInput, ItemQuery};
 use crate::db::modules::{key as module_key, ModuleState, Platform};
+use crate::license::entitlements;
 use crate::db::full_report::FullReport;
 use crate::db::refunds::{CreateRefundInput, Refund, RefundLineInput, RefundableSale};
 use crate::db::reports::{
@@ -43,6 +44,7 @@ use crate::license::runtime::LicenseRuntime;
 use crate::license::state::LicenseState;
 use crate::product_owner_session::{require_product_owner, ProductOwnerSession};
 use crate::vendor_gate::{self, VendorGate};
+use crate::workspace::{self, runtime::WorkspaceInfo};
 use crate::session::{require_role, require_signed_in, Session};
 
 /// Owner and Admin are this product's two "full access" roles — see
@@ -64,7 +66,20 @@ fn require_license(license: &LicenseRuntime) -> Result<(), String> {
     match license_block_reason(&license.current()) {
         None => Ok(()),
         Some(reason) => Err(reason),
+    }?;
+    // The phone/tablet app is itself a plan feature.
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        require_capability(entitlements::capability::MOBILE)?;
     }
+    Ok(())
+}
+
+/// Fails a command unless the licence's plan includes `capability` — a
+/// feature inside a module (stock takes, advanced reports, extra staff
+/// logins). Checked against the signed entitlements (`license::entitlements`),
+/// never anything the frontend sends.
+fn require_capability(capability: &str) -> Result<(), String> {
+    entitlements::require_any(&[capability])
 }
 
 /// `require_license`'s policy without the managed state, so every
@@ -78,6 +93,7 @@ fn license_block_reason(state: &LicenseState) -> Option<String> {
         LicenseState::Missing => "This installation has no licence. Enter a licence key in Settings.".into(),
         LicenseState::Expired { .. } => "This licence has expired. Renew it to continue billing.".into(),
         LicenseState::Revoked => "This licence has been revoked. Contact support.".into(),
+        LicenseState::Suspended => "This licence has been suspended. Contact the Diwan team to restore it.".into(),
         LicenseState::DeviceMismatch => "This licence is bound to a different device. Contact support.".into(),
         LicenseState::ClockTampered { .. } => {
             "This device's clock appears to have been set back. Correct it, or connect to the internet and re-check the licence.".into()
@@ -113,6 +129,9 @@ fn transact<T, E: std::fmt::Display>(
 
 /// Enforce module availability on the compiled platform, independently of UI routing.
 fn require_module(db: &Db, keys: &[&str]) -> Result<(), String> {
+    // The plan comes first: a module the plan doesn't include is refused
+    // with an upgrade message even if someone switched it on in Settings.
+    entitlements::require_any(keys)?;
     db.with_conn(|conn| Ok(modules::require_enabled(conn, keys, Platform::current())))
         .map_err(|e| e.to_string())?
 }
@@ -448,6 +467,11 @@ pub fn config_update(
             return Err("Scale item code must be 3 to 6 digits".into());
         }
     }
+    if let Some(policy) = &patch.offline_sales {
+        if policy != "allow" && policy != "block" {
+            return Err("Offline sales must be \"allow\" or \"block\"".into());
+        }
+    }
     if let Some(kind) = &patch.scale_value_kind {
         if kind != "weight" && kind != "price" {
             return Err("Scale value must be weight or price".into());
@@ -637,6 +661,76 @@ pub fn sync_get_status(app: AppHandle, session: State<'_, Session>) -> Result<cr
 }
 
 // ---------------------------------------------------------------------------
+// Business workspace — this counter's place among the business's counters
+// (`workspace/`). Connecting, uploading the first data and replacing this
+// counter's data with the business data are Owner/Admin actions; the status
+// is for everyone (the top bar shows it).
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn workspace_get_info(db: State<'_, Db>, session: State<'_, Session>) -> Result<WorkspaceInfo, String> {
+    require_signed_in(&session)?;
+    query(&db, workspace::runtime::info)
+}
+
+/// Registers this device as a counter of its licence's business and says
+/// what to do next (`upload`, `download`, `wait` or already `connected`).
+#[tauri::command]
+pub async fn workspace_connect(
+    app: AppHandle,
+    session: State<'_, Session>,
+    counter_name: Option<String>,
+) -> Result<workspace::runtime::ConnectOutcome, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    workspace::runtime::connect(&app, counter_name).await
+}
+
+/// The business is empty: this counter's data becomes the business data.
+#[tauri::command]
+pub async fn workspace_upload(app: AppHandle, session: State<'_, Session>) -> Result<WorkspaceInfo, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    workspace::runtime::upload(&app).await
+}
+
+/// Replaces this counter's data with the business data (backed up first;
+/// returns the backup's path). Signs everyone out.
+#[tauri::command]
+pub async fn workspace_download(app: AppHandle, session: State<'_, Session>) -> Result<String, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    workspace::runtime::download(&app).await
+}
+
+#[tauri::command]
+pub fn workspace_disconnect(db: State<'_, Db>, session: State<'_, Session>) -> Result<(), String> {
+    require_role(&session, ADMIN_ROLES)?;
+    workspace::runtime::disconnect(&db)
+}
+
+#[tauri::command]
+pub async fn workspace_rename_counter(app: AppHandle, session: State<'_, Session>, name: String) -> Result<WorkspaceInfo, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    workspace::runtime::rename(&app, name).await
+}
+
+/// Syncs now and returns the result (the loop also runs every few seconds).
+#[tauri::command]
+pub async fn workspace_sync_now(app: AppHandle, db: State<'_, Db>, session: State<'_, Session>) -> Result<WorkspaceInfo, String> {
+    require_signed_in(&session)?;
+    // A failed round is recorded in the info's lastError, which the UI shows.
+    let _ = workspace::runtime::round(&app).await;
+    query(&db, workspace::runtime::info)
+}
+
+#[tauri::command]
+pub fn workspace_dismiss_issue(db: State<'_, Db>, session: State<'_, Session>, id: i64) -> Result<WorkspaceInfo, String> {
+    require_role(&session, ADMIN_ROLES)?;
+    query(&db, |conn| {
+        conn.execute("UPDATE sync_issues SET resolved_at = datetime('now', 'localtime') WHERE id = ?1", [id])?;
+        workspace::runtime::info(conn)
+    })
+}
+
+// ---------------------------------------------------------------------------
 // App Store (iOS) — buying, restoring and moving a licence through Apple.
 // All the logic is in `iap.rs`; these are the role-checked entry points.
 // Owner/Admin only, like `license_activate`: a purchase replaces the
@@ -774,7 +868,19 @@ pub fn config_get_enabled_modules(
     platform: String,
 ) -> Result<Vec<ModuleState>, String> {
     let platform = parse_platform(&platform)?;
-    query(&db, |conn| modules::list(conn, platform))
+    let mut list = query(&db, |conn| modules::list(conn, platform))?;
+    for module in &mut list {
+        module.entitled = entitlements::allows(&module.key);
+        module.required_plan = entitlements::upgrade_for(&module.key);
+    }
+    Ok(list)
+}
+
+/// The licence's plan and what it unlocks, for the upgrade messages and the
+/// licence screen. Presentation only: every command re-checks in Rust.
+#[tauri::command]
+pub fn license_get_plan() -> entitlements::Snapshot {
+    entitlements::snapshot()
 }
 
 /// Settings-only write — Owner/Admin, same as the screen it backs.
@@ -840,7 +946,7 @@ pub fn inventory_update_item(
 
     if let Some(old_image) = previous_image {
         if updated.image_path.as_deref() != Some(old_image.as_str()) {
-            images::delete_image(&images_dir(&app)?, &old_image);
+            delete_photo_if_unused(&app, &db, &old_image)?;
         }
     }
 
@@ -866,7 +972,7 @@ pub fn inventory_delete_item(
 
     if outcome == DeleteOutcome::Deleted {
         if let Some(image) = existing_image {
-            images::delete_image(&images_dir(&app)?, &image);
+            delete_photo_if_unused(&app, &db, &image)?;
         }
     }
 
@@ -878,6 +984,18 @@ pub fn inventory_delete_item(
 /// the write itself reports a missing item.
 fn current_image_path(db: &Db, id: i64) -> Option<String> {
     query(db, |conn| items::get_item(conn, id)).ok().and_then(|item| item.image_path)
+}
+
+/// Photos are named by their content, so two products can share one file:
+/// it goes only when no product uses it any more.
+fn delete_photo_if_unused(app: &AppHandle, db: &Db, file_name: &str) -> Result<(), String> {
+    let in_use: bool = query(db, |conn| {
+        conn.query_row("SELECT EXISTS (SELECT 1 FROM items WHERE image_path = ?1)", [file_name], |row| row.get(0))
+    })?;
+    if !in_use {
+        images::delete_image(&images_dir(app)?, file_name);
+    }
+    Ok(())
 }
 
 fn images_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -963,6 +1081,7 @@ pub fn inventory_import_csv(
     csv_content: String,
 ) -> Result<csv_import::ImportSummary, String> {
     require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    require_capability(entitlements::capability::INVENTORY_ADVANCED)?;
     query(&db, |conn| csv_import::import_csv(conn, &csv_content))
 }
 
@@ -1016,6 +1135,11 @@ pub fn auth_login(
     let user = limiter.attempt(&format!("login:{user_id}"), || {
         query(&db, |conn| users::authenticate(conn, user_id, &pin))
     })?;
+    // A single-user plan signs in the Owner only. Checked after the PIN, so
+    // it never tells anyone without the PIN which accounts exist.
+    if user.role != Role::Owner {
+        require_capability(entitlements::capability::MULTI_USER)?;
+    }
     session.set(user.clone());
     Ok(user)
 }
@@ -1053,6 +1177,7 @@ pub fn users_create(
     role: Role,
 ) -> Result<User, String> {
     let caller = require_module_admin(&db, &[module_key::USERS], &session)?;
+    require_capability(entitlements::capability::MULTI_USER)?;
     authorize_create_user(caller.role, role)?;
     db.with_conn(move |conn| Ok(users::create(conn, &name, &pin, role)))
         .map_err(|e| e.to_string())?
@@ -1166,7 +1291,13 @@ pub fn billing_search_items(session: State<'_, Session>, db: State<'_, Db>, quer
 /// `refunds_create`, so a sale can't be attributed to another cashier or
 /// booked against someone else's cash drawer.
 #[tauri::command]
-pub fn billing_create_sale(
+///
+/// On a counter connected to its business, the sale's stock is first taken
+/// from the central balance (`workspace::runtime::reserve_for_sale`), so two
+/// counters cannot both sell the last unit; with no answer from the server
+/// the sale is recorded anyway and its stock syncs when the counter is back
+/// online.
+pub async fn billing_create_sale(
     app: AppHandle,
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -1184,7 +1315,13 @@ pub fn billing_create_sale(
     } else {
         None
     };
-    let sale = transact(&db, |tx| sales::create_sale(tx, input))?;
+    let lines: Vec<(i64, f64)> = input.items.iter().map(|line| (line.item_id, line.qty)).collect();
+    let reservation = workspace::runtime::reserve_for_sale(&db, &lines).await?;
+    let sale = transact(&db, |tx| workspace::runtime::record_sale(tx, reservation.as_deref(), |tx| sales::create_sale(tx, input)));
+    if let (Err(_), Some(key)) = (&sale, &reservation) {
+        workspace::runtime::abandon_sale(&db, key);
+    }
+    let sale = sale?;
     crate::sync::spawn_after_write(&app);
     Ok(sale)
 }
@@ -1580,6 +1717,17 @@ pub fn shifts_list_recent(db: State<'_, Db>, session: State<'_, Session>, limit:
     query(&db, |conn| shifts::list_shifts(conn, limit))
 }
 
+/// Every cash drawer of one day, across all counters of the business, with
+/// totals — Owner/Admin, like the rest of the Shifts page.
+#[tauri::command]
+pub fn shifts_get_day_summary(db: State<'_, Db>, session: State<'_, Session>, day: String) -> Result<shifts::DrawerDay, String> {
+    require_module_admin(&db, &[module_key::SHIFTS], &session)?;
+    if chrono::NaiveDate::parse_from_str(&day, "%Y-%m-%d").is_err() {
+        return Err("Pick a valid date".to_string());
+    }
+    query(&db, |conn| shifts::day_summary(conn, &day))
+}
+
 /// Prints a shift's close-out reconciliation receipt.
 #[tauri::command]
 pub fn shifts_print_summary(db: State<'_, Db>, session: State<'_, Session>, shift_id: i64) -> Result<(), String> {
@@ -1713,6 +1861,21 @@ pub fn reports_get_table_sales_summary(
 ) -> Result<TableSalesSummary, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
     query(&db, |conn| reports::get_table_sales_summary(conn, &start_date, &end_date))
+}
+
+/// "Counter Wise Sales": the range's sales per counter (POS terminal) and per
+/// cashier. On a counter connected to its business this covers every
+/// counter, since each holds the whole business.
+#[tauri::command]
+pub fn reports_get_counter_sales_summary(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    area_access: State<'_, AreaAccessSession>,
+    start_date: String,
+    end_date: String,
+) -> Result<reports::CounterSalesSummary, String> {
+    require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    query(&db, |conn| reports::get_counter_sales_summary(conn, &start_date, &end_date))
 }
 
 /// The "Product Wise Sales" report: every item sold in the range, ranked by
@@ -2128,6 +2291,7 @@ fn print_one_counter_token(
             status: "printed".to_string(),
             shift_id,
             items: pending.clone(),
+            till_label: crate::workspace::local::this_till(tx)?.map(|(label, _)| label),
         };
 
         // The critical ordering: if this fails, we return `Ok(Err(..))`
@@ -2417,7 +2581,7 @@ pub struct OrdersPayInput {
 }
 
 #[tauri::command]
-pub fn orders_pay(
+pub async fn orders_pay(
     app: AppHandle,
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -2432,7 +2596,10 @@ pub fn orders_pay(
     } else {
         None
     };
-    let paid = transact(&db, |tx| {
+    // The lines being paid take their stock centrally first, like a counter sale.
+    let lines = query(&db, |conn| orders::stock_lines(conn, input.order_id, &input.order_item_ids))?;
+    let reservation = workspace::runtime::reserve_for_sale(&db, &lines).await?;
+    let paid = transact(&db, |tx| workspace::runtime::record_sale(tx, reservation.as_deref(), |tx| {
         orders::pay_lines(
             tx,
             input.order_id,
@@ -2452,7 +2619,11 @@ pub fn orders_pay(
                 due_date: input.due_date,
             },
         )
-    })?;
+    }));
+    if let (Err(_), Some(key)) = (&paid, &reservation) {
+        workspace::runtime::abandon_sale(&db, key);
+    }
+    let paid = paid?;
     crate::sync::spawn_after_write(&app);
     Ok(paid)
 }
@@ -3045,7 +3216,12 @@ pub fn product_owner_get_modules(
 ) -> Result<Vec<ModuleState>, String> {
     require_product_owner(&po_session)?;
     let platform = parse_platform(&platform)?;
-    query(&db, |conn| modules::list(conn, platform))
+    let mut list = query(&db, |conn| modules::list(conn, platform))?;
+    for module in &mut list {
+        module.entitled = entitlements::allows(&module.key);
+        module.required_plan = entitlements::upgrade_for(&module.key);
+    }
+    Ok(list)
 }
 
 /// Sets a module's `enabled` and/or `locked` state on one platform,
@@ -3328,6 +3504,53 @@ mod guard_tests {
         );
         let off = db_with(&[module_key::REPORTS]);
         assert!(require_module_area(&off, &[module_key::REPORTS], &cashier, &granted()).is_err());
+    }
+
+    // -- plan entitlements (license::entitlements) --------------------------
+
+    /// Installs the BASIC plan's entitlements exactly as the server signs
+    /// them: a payload verified with the test key, then adopted. Per-thread
+    /// in tests, so it never leaks into another test.
+    fn install_signed_basic_plan() {
+        use crate::license::verify::{tests::{sample_json, sign_json, test_keyring}, verify_with_keys};
+        let json = sample_json().replace(
+            r#""max_offline_days":30}"#,
+            r#""max_offline_days":30,"plan":{"code":"basic","name":"BASIC"},"entitlements":["billing","dashboard","expenses","inventory","reports","settings","shifts","users"],"upgrade":{"customers":"ALL-IN-ONE","inventory_advanced":"ADVANCE","multi_user":"ADVANCE","purchasing":"ADVANCE","reports_advanced":"ADVANCE"}}"#,
+        );
+        let (payload, signature) = sign_json(&json);
+        let verified = verify_with_keys(&test_keyring(), &payload, &signature).unwrap();
+        entitlements::install(Some(entitlements::Entitlements::from_payload(&verified)));
+    }
+
+    #[test]
+    fn a_module_outside_the_plan_is_refused_even_when_switched_on() {
+        install_signed_basic_plan();
+        let db = db_with(&[]);
+        let err = require_module(&db, &[module_key::PURCHASING]).unwrap_err();
+        assert!(err.contains("BASIC") && err.contains("ADVANCE"), "{err}");
+        assert!(require_module(&db, &[module_key::BILLING]).is_ok());
+        assert!(require_module(&db, &[module_key::PURCHASING, module_key::INVENTORY]).is_ok(), "any one key is enough");
+        assert!(require_module_admin(&db, &[module_key::CUSTOMERS], &signed_in(Role::Owner)).is_err());
+        assert!(require_customers(&db, &signed_in(Role::Owner)).is_err(), "customers is ALL-IN-ONE");
+        entitlements::install(None);
+        assert!(require_module(&db, &[module_key::PURCHASING]).is_ok(), "a pre-plan licence keeps every module");
+    }
+
+    #[test]
+    fn capabilities_inside_a_module_follow_the_plan() {
+        install_signed_basic_plan();
+        for capability in [
+            entitlements::capability::INVENTORY_ADVANCED,
+            entitlements::capability::REPORTS_ADVANCED,
+            entitlements::capability::MULTI_USER,
+            entitlements::capability::MOBILE,
+        ] {
+            assert!(require_capability(capability).is_err(), "{capability} is not in BASIC");
+        }
+        let db = db_with(&[]);
+        assert!(require_module_area(&db, &[module_key::REPORTS], &signed_in(Role::Owner), &granted()).is_ok(), "basic reports stay open");
+        entitlements::install(None);
+        assert!(require_capability(entitlements::capability::MULTI_USER).is_ok());
     }
 
     #[test]
@@ -3788,18 +4011,21 @@ pub fn stock_submit_take(
     lines: Vec<stock::CountLine>,
 ) -> Result<stock::StockTake, String> {
     let user = require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    require_capability(entitlements::capability::INVENTORY_ADVANCED)?;
     transact(&db, |tx| stock::submit_stock_take(tx, note.as_deref(), &lines, Some(user.id)))
 }
 
 #[tauri::command]
 pub fn stock_list_takes(db: State<'_, Db>, session: State<'_, Session>) -> Result<Vec<stock::StockTake>, String> {
     require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    require_capability(entitlements::capability::INVENTORY_ADVANCED)?;
     query(&db, |conn| stock::list_stock_takes(conn, 100))
 }
 
 #[tauri::command]
 pub fn stock_get_take(db: State<'_, Db>, session: State<'_, Session>, id: i64) -> Result<stock::StockTake, String> {
     require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    require_capability(entitlements::capability::INVENTORY_ADVANCED)?;
     query(&db, |conn| stock::get_stock_take(conn, id))
 }
 
@@ -3812,6 +4038,7 @@ pub fn stock_generate_barcodes(
     item_ids: Option<Vec<i64>>,
 ) -> Result<i64, String> {
     require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    require_capability(entitlements::capability::INVENTORY_ADVANCED)?;
     transact(&db, |tx| stock::generate_barcodes(tx, item_ids.as_deref()))
 }
 
@@ -3845,6 +4072,7 @@ pub fn reports_get_profit_loss(
     grouping: String,
 ) -> Result<insights::ProfitLoss, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    require_capability(entitlements::capability::REPORTS_ADVANCED)?;
     let include_expenses = module_enabled(&db, module_key::EXPENSES)?;
     let include_salaries = module_enabled(&db, module_key::SALARY)?;
     query(&db, |conn| {
@@ -3861,6 +4089,7 @@ pub fn reports_get_order_profit(
     end_date: String,
 ) -> Result<Vec<insights::OrderProfitRow>, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    require_capability(entitlements::capability::REPORTS_ADVANCED)?;
     query(&db, |conn| insights::order_profit(conn, &start_date, &end_date))
 }
 
@@ -3873,6 +4102,7 @@ pub fn reports_get_payment_types(
     end_date: String,
 ) -> Result<insights::PaymentTypeReport, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    require_capability(entitlements::capability::REPORTS_ADVANCED)?;
     query(&db, |conn| insights::payment_types(conn, &start_date, &end_date))
 }
 
@@ -3885,6 +4115,7 @@ pub fn reports_get_tax(
     end_date: String,
 ) -> Result<insights::TaxReport, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    require_capability(entitlements::capability::REPORTS_ADVANCED)?;
     query(&db, |conn| insights::tax_report(conn, &start_date, &end_date))
 }
 
@@ -3897,6 +4128,7 @@ pub fn reports_get_voids(
     end_date: String,
 ) -> Result<insights::VoidReport, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    require_capability(entitlements::capability::REPORTS_ADVANCED)?;
     query(&db, |conn| insights::void_report(conn, &start_date, &end_date))
 }
 
@@ -3907,6 +4139,7 @@ pub fn reports_get_stock_levels(
     area_access: State<'_, AreaAccessSession>,
 ) -> Result<insights::StockLevelReport, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    require_capability(entitlements::capability::REPORTS_ADVANCED)?;
     query(&db, insights::stock_levels)
 }
 
@@ -3919,6 +4152,7 @@ pub fn reports_get_inventory_usage(
     end_date: String,
 ) -> Result<Vec<insights::UsageRow>, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    require_capability(entitlements::capability::REPORTS_ADVANCED)?;
     query(&db, |conn| insights::inventory_usage(conn, &start_date, &end_date))
 }
 
@@ -3930,5 +4164,6 @@ pub fn reports_get_expiry(
     within_days: i64,
 ) -> Result<Vec<insights::ExpiryRow>, String> {
     require_module_area(&db, &[module_key::REPORTS], &session, &area_access)?;
+    require_capability(entitlements::capability::REPORTS_ADVANCED)?;
     query(&db, |conn| insights::expiry_report(conn, within_days))
 }

@@ -139,6 +139,20 @@ fn with_bundled_roots(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder
     )
 }
 
+/// The same client (TLS set-up, user agent) and error wording for the other
+/// API this app talks to: the business workspace (`workspace::client`).
+pub(crate) fn shared_client() -> Result<&'static reqwest::Client, ClientError> {
+    client()
+}
+
+pub(crate) fn transport_error(e: reqwest::Error) -> String {
+    describe_transport_error(e)
+}
+
+pub(crate) fn clean_server_message(message: &str) -> String {
+    sanitize_server_message(message)
+}
+
 /// POSTs JSON to `<api base>/<path>`. Shared with the App Store flow
 /// (`iap.rs`), which talks to the same server with the same error rules.
 pub(crate) async fn post<T: serde::de::DeserializeOwned>(path: &str, body: &serde_json::Value) -> Result<T, ClientError> {

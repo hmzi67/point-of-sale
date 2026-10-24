@@ -35,14 +35,17 @@ pub struct Shift {
     pub opening_balance_minor: i64,
     pub declared_cash_amount_minor: Option<i64>,
     pub notes: Option<String>,
+    /// The counter whose drawer it is, when the business has several.
+    pub till_name: Option<String>,
 }
 
 /// The SELECT list + join every `Shift` read uses, in `shift_from_row`'s
 /// column order. Callers append their own WHERE/ORDER BY.
 const SHIFT_SELECT: &str = "SELECT s.id, s.cashier_id, u.name, s.opened_at, s.closed_at,
-        s.opening_balance_minor, s.declared_cash_amount_minor, s.notes
+        s.opening_balance_minor, s.declared_cash_amount_minor, s.notes, st.name
    FROM shifts s
-   LEFT JOIN users u ON u.id = s.cashier_id";
+   LEFT JOIN users u ON u.id = s.cashier_id
+   LEFT JOIN sync_terminals st ON st.install_id = substr(s.gid, 1, 16) AND (SELECT COUNT(*) FROM sync_terminals) > 1";
 
 fn shift_from_row(row: &rusqlite::Row) -> rusqlite::Result<Shift> {
     Ok(Shift {
@@ -54,6 +57,7 @@ fn shift_from_row(row: &rusqlite::Row) -> rusqlite::Result<Shift> {
         opening_balance_minor: row.get(5)?,
         declared_cash_amount_minor: row.get(6)?,
         notes: row.get(7)?,
+        till_name: row.get(8)?,
     })
 }
 
@@ -61,13 +65,19 @@ fn load_shift(conn: &Connection, id: i64) -> Result<Option<Shift>, rusqlite::Err
     conn.query_row(&format!("{SHIFT_SELECT} WHERE s.id = ?1"), params![id], shift_from_row).optional()
 }
 
+/// A shift is one cash drawer on one counter. On a counter connected to its
+/// business the other counters' shifts are here too (for reports), so
+/// "the open shift" only ever means one opened on this counter — its gid
+/// carries this installation's prefix.
+pub const OPENED_HERE: &str = "substr(gid, 1, 16) = (SELECT install_id FROM sync_state WHERE id = 1)";
+
 /// The cashier's currently-open shift, if any — used both to block opening a
 /// second one and to let the billing screen know whether to show "Open
 /// Shift" or "Close Shift".
 pub fn get_open_shift_for_cashier(conn: &Connection, cashier_id: i64) -> Result<Option<Shift>, ShiftError> {
     let id: Option<i64> = conn
         .query_row(
-            "SELECT id FROM shifts WHERE cashier_id = ?1 AND closed_at IS NULL",
+            &format!("SELECT id FROM shifts WHERE cashier_id = ?1 AND closed_at IS NULL AND {OPENED_HERE}"),
             params![cashier_id],
             |row| row.get(0),
         )
@@ -88,7 +98,7 @@ pub fn get_effective_open_shift_id(conn: &Connection, cashier_id: Option<i64>) -
     }
     let any_id: Option<i64> = conn
         .query_row(
-            "SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1",
+            &format!("SELECT id FROM shifts WHERE closed_at IS NULL AND {OPENED_HERE} ORDER BY id DESC LIMIT 1"),
             [],
             |row| row.get(0),
         )
@@ -208,13 +218,17 @@ fn aggregate(conn: &Connection, shift: &Shift) -> Result<Aggregate, rusqlite::Er
     // closed one is bounded by its own closed_at, so re-viewing a closed
     // shift's summary later never picks up a refund recorded after it closed.
     let end_bound = shift.closed_at.clone().unwrap_or_else(|| crate::db::dates::OPEN_END_TIMESTAMP.to_string());
+    // On a counter connected to its business, other counters' refunds are
+    // here too: only those recorded on this shift's counter (the same gid
+    // prefix) came out of this drawer.
     let mut stmt = conn.prepare(
         "SELECT id, total_refund_amount_minor
            FROM refunds
-          WHERE created_at >= ?1 AND created_at <= ?2",
+          WHERE created_at >= ?1 AND created_at <= ?2
+            AND COALESCE(substr(gid, 1, 16), '') = COALESCE((SELECT substr(gid, 1, 16) FROM shifts WHERE id = ?3), '')",
     )?;
     let refund_rows = stmt
-        .query_map(params![shift.opened_at, end_bound], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
+        .query_map(params![shift.opened_at, end_bound, shift.id], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
     let refunds = refund_rows.iter().map(|(_, amount)| amount).sum();
     let mut refunds_paid_out = 0;
@@ -315,6 +329,70 @@ pub fn list_shifts(conn: &Connection, limit: i64) -> Result<Vec<Shift>, rusqlite
     rows.collect()
 }
 
+/// One day across every cash drawer of the business: each counter's
+/// shifts and the totals, for closing the day. (A connected counter has
+/// every counter's shifts and sales, so this is business-wide.)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DrawerDay {
+    pub day: String,
+    pub drawers: Vec<ShiftSummary>,
+    pub open_drawers: i64,
+    pub opening_balance_minor: i64,
+    pub cash_sales_minor: i64,
+    pub card_sales_minor: i64,
+    pub credit_sales_minor: i64,
+    pub other_sales_minor: i64,
+    pub total_sales_minor: i64,
+    pub refunds_minor: i64,
+    pub expected_cash_minor: i64,
+    /// Counted cash of the drawers already closed, and how far that is
+    /// from what they should hold.
+    pub declared_cash_minor: i64,
+    pub difference_minor: i64,
+}
+
+/// Every shift opened on `day` (YYYY-MM-DD), on any counter.
+pub fn day_summary(conn: &Connection, day: &str) -> Result<DrawerDay, ShiftError> {
+    let mut stmt = conn.prepare(&format!("{SHIFT_SELECT} WHERE date(s.opened_at) = ?1 ORDER BY st.seq, s.id"))?;
+    let shifts = stmt.query_map(params![day], shift_from_row)?.collect::<Result<Vec<_>, _>>()?;
+    let mut totals = DrawerDay {
+        day: day.to_string(),
+        drawers: Vec::new(),
+        open_drawers: 0,
+        opening_balance_minor: 0,
+        cash_sales_minor: 0,
+        card_sales_minor: 0,
+        credit_sales_minor: 0,
+        other_sales_minor: 0,
+        total_sales_minor: 0,
+        refunds_minor: 0,
+        expected_cash_minor: 0,
+        declared_cash_minor: 0,
+        difference_minor: 0,
+    };
+    for shift in shifts {
+        let summary = build_summary(conn, shift, None)?;
+        totals.opening_balance_minor += summary.opening_balance_minor;
+        totals.cash_sales_minor += summary.cash_sales_minor;
+        totals.card_sales_minor += summary.card_sales_minor;
+        totals.credit_sales_minor += summary.credit_sales_minor;
+        totals.other_sales_minor += summary.other_sales_minor + summary.platform_sales_minor;
+        totals.total_sales_minor += summary.total_sales_minor;
+        totals.refunds_minor += summary.refunds_minor;
+        totals.expected_cash_minor += summary.expected_cash_minor;
+        match (summary.shift.closed_at.is_some(), summary.declared_cash_amount_minor, summary.difference_minor) {
+            (true, Some(declared), Some(difference)) => {
+                totals.declared_cash_minor += declared;
+                totals.difference_minor += difference;
+            }
+            _ => totals.open_drawers += 1,
+        }
+        totals.drawers.push(summary);
+    }
+    Ok(totals)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,6 +459,53 @@ mod tests {
         assert_eq!(summary.cash_sales_minor, 16_000, "gross cash sales are untouched by the refund");
         assert_eq!(summary.refunds_minor, 8_000);
         assert_eq!(summary.expected_cash_minor, 16_000 - 8_000, "expected cash nets the refund out");
+    }
+
+    #[test]
+    fn a_refund_rung_up_on_another_counter_is_not_taken_from_this_drawer() {
+        let mut conn = test_conn();
+        let cashier = owner_id(&conn);
+        let shift = open_shift(&conn, cashier, 0).unwrap();
+        let sale_id = ring_up(&mut conn, "Cola 500ml", 2.0, "cash", Some(shift.id));
+        let sale_item_id: i64 =
+            conn.query_row("SELECT id FROM sale_items WHERE sale_id = ?1", params![sale_id], |row| row.get(0)).unwrap();
+        let tx = conn.transaction().unwrap();
+        let refund = create_refund(
+            &tx,
+            CreateRefundInput { sale_id, items: vec![RefundLineInput { sale_item_id, qty: 1.0, amount_minor: 8000 }], reason: None, refunded_by: None },
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        // As if it had arrived from another counter of the business.
+        conn.execute("UPDATE refunds SET gid = 'ffff00000000ffff:3' WHERE id = ?1", params![refund.id]).unwrap();
+
+        let summary = get_shift_summary(&conn, shift.id, None).unwrap();
+        assert_eq!(summary.refunds_minor, 0, "that cash left the other counter's drawer");
+        assert_eq!(summary.expected_cash_minor, 16_000);
+    }
+
+    #[test]
+    fn the_day_summary_adds_up_every_drawer_and_counts_the_open_ones() {
+        let mut conn = test_conn();
+        let owner = owner_id(&conn);
+        let cashier = crate::db::users::create(&conn, "Sana", "4321", crate::db::users::Role::Cashier).unwrap().id;
+        let first = open_shift(&conn, owner, 1_000).unwrap();
+        let second = open_shift(&conn, cashier, 500).unwrap();
+        ring_up(&mut conn, "Cola 500ml", 1.0, "cash", Some(first.id)); // 8000
+        ring_up(&mut conn, "Cola 500ml", 2.0, "card", Some(second.id)); // 16000
+        let tx = conn.transaction().unwrap();
+        close_shift(&tx, first.id, 8_900).unwrap(); // expected 9000: 100 short
+        tx.commit().unwrap();
+
+        let day: String = conn.query_row("SELECT date(opened_at) FROM shifts WHERE id = ?1", params![first.id], |r| r.get(0)).unwrap();
+        let summary = day_summary(&conn, &day).unwrap();
+        assert_eq!(summary.drawers.len(), 2);
+        assert_eq!(summary.open_drawers, 1);
+        assert_eq!((summary.opening_balance_minor, summary.cash_sales_minor, summary.card_sales_minor), (1_500, 8_000, 16_000));
+        assert_eq!(summary.total_sales_minor, 24_000);
+        assert_eq!(summary.expected_cash_minor, 9_000 + 500);
+        assert_eq!((summary.declared_cash_minor, summary.difference_minor), (8_900, -100), "only closed drawers are counted");
+        assert!(day_summary(&conn, "1999-01-01").unwrap().drawers.is_empty());
     }
 
     #[test]

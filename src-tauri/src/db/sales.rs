@@ -148,6 +148,11 @@ pub struct Sale {
     pub customer_id: Option<i64>,
     pub customer_email: Option<String>,
     pub due_date: Option<String>,
+    /// What the receipt prints as the sale number: `C2-12` once the business
+    /// has several counters (the same on every counter), else the id.
+    pub receipt_no: String,
+    /// The counter that rang it up, when the business has several.
+    pub till_name: Option<String>,
 }
 
 use crate::db::payment_methods::{SALE as PAYMENT_METHODS, TENDER as TENDER_METHODS};
@@ -469,7 +474,7 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                     o.delivery_address,
                     o.delivery_rider_name, o.delivery_rider_phone, o.delivery_platform_name,
                     o.platform_order_ref, o.delivery_charge_minor,
-                    s.service_charge_minor, s.customer_id, c.email, s.due_date
+                    s.service_charge_minor, s.customer_id, c.email, s.due_date, s.gid
                FROM sales s
                LEFT JOIN users u ON u.id = s.cashier_id
                LEFT JOIN tables t ON t.id = s.table_id
@@ -482,7 +487,7 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                 let tax_minor: i64 = row.get(2)?;
                 let total_minor: i64 = row.get(3)?;
                 let service_charge_minor: i64 = row.get(24)?;
-                Ok(Sale {
+                let sale = Sale {
                     id: row.get(0)?,
                     // subtotal = total - tax - service + discount, recovered
                     // from the stored amounts rather than another column.
@@ -516,12 +521,18 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
                     customer_id: row.get(25)?,
                     customer_email: row.get(26)?,
                     due_date: row.get(27)?,
-                })
+                    receipt_no: String::new(),
+                    till_name: None,
+                };
+                Ok((sale, row.get::<_, Option<String>>(28)?))
             },
         )
         .optional()?;
 
-    let Some(mut sale) = sale else { return Ok(None) };
+    let Some((mut sale, gid)) = sale else { return Ok(None) };
+    let till = crate::workspace::local::till_of(conn, gid.as_deref())?;
+    sale.receipt_no = crate::workspace::local::receipt_number(sale.id, gid.as_deref(), till.as_ref());
+    sale.till_name = till.map(|(_, name)| name);
 
     let mut stmt = conn.prepare(
         "SELECT si.item_id, i.name, si.qty, si.price_at_sale_minor, si.notes, i.unit
@@ -745,6 +756,7 @@ mod tests {
                 sold_by_amount: true,
                 unit: Some("kg".into()),
                 counter_id: None,
+                original_stock_qty: None,
             },
         )
         .unwrap();

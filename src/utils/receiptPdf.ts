@@ -96,7 +96,8 @@ function drawReceiptContent(
 
   // Sale identity: number + timestamp on one line, cashier + order type on
   // the next — the same two-line data block the thermal path prints.
-  y = drawMonoRow(doc, y, `Sale #${sale.id}`, sale.createdAt);
+  y = drawMonoRow(doc, y, `Sale #${sale.receiptNo}`, sale.createdAt);
+  if (sale.tillName) y = drawMonoRow(doc, y, `Counter: ${sale.tillName}`, "");
   y = drawMonoRow(doc, y, `Cashier: ${sale.cashierName ?? "—"}`, receiptOrderField(sale, tablesEnabled));
   y += 1;
 
@@ -227,6 +228,7 @@ function estimatedHeightMm(sale: Sale, config: AppConfig, hasLogo: boolean): num
     (contactRowCount > 0 ? contactRowCount * 5.4 + 4 : 0) +
     10 +
     (12 + sale.items.length * 4.6) +
+    (sale.tillName ? 4.8 : 0) +
     totalsRowCount * 4.8 +
     16 +
     (sale.paymentMethod === "cash" && sale.tenderedMinor != null ? 10 : 0) +

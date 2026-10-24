@@ -207,6 +207,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
       soldByAmount: form.soldByAmount,
       unit: form.unit.trim() || null,
       counterId: form.counterId,
+      ...(item ? { originalStockQty: item.stockQty } : {}),
     };
 
     await runAction(setIsSaving, setError, async () => {

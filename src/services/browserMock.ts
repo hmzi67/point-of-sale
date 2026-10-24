@@ -158,6 +158,35 @@ export async function handleBrowserMock<TResult>(
         isTrial: false,
       } as unknown as TResult;
 
+    case "license_get_plan":
+      return { restricted: false, planCode: null, planName: null, entitlements: [], upgrade: {} } as unknown as TResult;
+
+    case "workspace_get_info":
+    case "workspace_sync_now":
+      return {
+        mode: "standalone",
+        state: "standalone",
+        businessName: null,
+        counterName: null,
+        counterCode: null,
+        pending: 0,
+        parked: 0,
+        lastOkAt: null,
+        lastError: null,
+        seeding: false,
+        counters: [],
+        issues: [],
+      } as unknown as TResult;
+
+    case "reports_get_counter_sales_summary":
+      return {
+        startDate: "",
+        endDate: "",
+        counters: [{ label: "This counter", thisCounter: true, totalMinor: 0, transactionCount: 0, refundsMinor: 0 }],
+        cashiers: [],
+        grandTotalMinor: 0,
+      } as unknown as TResult;
+
     case "license_get_info":
       return {
         licenseKey: "DEMO-KEY-1234",
@@ -322,6 +351,8 @@ export async function handleBrowserMock<TResult>(
 
       const sale: Sale = {
         id: saleId,
+        receiptNo: String(saleId),
+        tillName: null,
         tableId: found.tableId,
         tableName: found.tableName,
         shiftId: null,
@@ -357,6 +388,8 @@ export async function handleBrowserMock<TResult>(
       const saleId = nextSaleId++;
       const sale: Sale = {
         id: saleId,
+        receiptNo: String(saleId),
+        tillName: null,
         tableId: null,
         tableName: null,
         shiftId: null,

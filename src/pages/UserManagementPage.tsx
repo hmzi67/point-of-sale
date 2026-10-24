@@ -4,6 +4,7 @@ import { Plus, Users, UserCheck, UserMinus } from "lucide-react";
 import { UserFormModal } from "../components/users/UserFormModal";
 import { UserTable } from "../components/users/UserTable";
 import { useActivatableList } from "../hooks/useActivatableList";
+import { upgradeHint, useCapability } from "../hooks/useCapability";
 import { getAllUsers, setUserActive } from "../services/authService";
 import { useAuthStore } from "../store";
 import type { ManagedUser } from "../types";
@@ -20,6 +21,8 @@ export function UserManagementPage() {
     setUserActive,
   );
   const [editingUser, setEditingUser] = useState<ManagedUser | null | "new">(null);
+  // Extra staff logins are the plan's Multi-User Access feature.
+  const multiUser = useCapability("multi_user");
 
   if (!currentUser) return null;
 
@@ -34,7 +37,9 @@ export function UserManagementPage() {
         <button
           type="button"
           onClick={() => setEditingUser("new")}
-          className="flex items-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-accent-ink hover:bg-accent-hover"
+          disabled={!multiUser.allowed}
+          title={multiUser.allowed ? undefined : upgradeHint(multiUser.planName, multiUser.requiredPlan)}
+          className="flex items-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-accent-ink hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
           Add staff account

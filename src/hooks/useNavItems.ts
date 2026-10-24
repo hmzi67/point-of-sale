@@ -9,6 +9,8 @@ export interface NavEntry {
   icon: LucideIcon;
   /** `NavLink end` — only the Dashboard's "/" needs exact matching. */
   end: boolean;
+  /** Not in the licence's plan: shown with a lock, opens the upgrade notice. */
+  locked: boolean;
 }
 
 /**
@@ -28,6 +30,7 @@ export function useNavItems() {
       label: module.name,
       icon: module.nav.icon,
       end: module.nav.path === "/",
+      locked: !module.entitled,
     }));
     return list;
   }, [visibleModules]);

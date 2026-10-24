@@ -1,4 +1,4 @@
-import type { Shift, ShiftSummary } from "../types";
+import type { DrawerDay, Shift, ShiftSummary } from "../types";
 import { call } from "./tauriClient";
 
 /** The signed-in cashier's currently-open shift, if any. */
@@ -31,4 +31,9 @@ export function listRecentShifts(limit: number): Promise<Shift[]> {
 /** Prints a shift's close-out reconciliation receipt. */
 export function printShiftSummaryThermal(shiftId: number): Promise<void> {
   return call<void>("shifts_print_summary", { shiftId });
+}
+
+/** Every cash drawer of one day (YYYY-MM-DD) across the business's counters. */
+export function getDrawerDay(day: string): Promise<DrawerDay> {
+  return call<DrawerDay>("shifts_get_day_summary", { day });
 }

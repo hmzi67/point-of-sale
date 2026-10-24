@@ -43,5 +43,10 @@ export interface ModuleState {
    * platform's lock column, same as `enabled` is. */
   locked: boolean;
   desktopLocked: boolean;
+  /** Whether the licence's plan includes this module. Enabled-but-not-entitled
+   * modules stay in the navigation with a lock and an upgrade message. */
+  entitled: boolean;
+  /** The plan that includes it, when `entitled` is false. */
+  requiredPlan: string | null;
   androidLocked: boolean;
 }

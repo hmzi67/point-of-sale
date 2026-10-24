@@ -23,6 +23,7 @@ import type { LicenseState } from "../../types";
 export function LicenseSection() {
   const state = useLicenseStore((s) => s.state);
   const info = useLicenseStore((s) => s.info);
+  const plan = useLicenseStore((s) => s.plan);
   const isBusy = useLicenseStore((s) => s.isBusy);
   const loadInfo = useLicenseStore((s) => s.loadInfo);
   const refresh = useLicenseStore((s) => s.refresh);
@@ -89,6 +90,12 @@ export function LicenseSection() {
         <div>
           <dt className="text-fg-muted">Status</dt>
           <dd className="mt-0.5">{state ? <StatusLine state={state} /> : <span className="text-fg-muted">Loading…</span>}</dd>
+        </div>
+        <div>
+          <dt className="text-fg-muted">Plan</dt>
+          <dd className="mt-0.5 text-fg">
+            {plan?.planName ?? (plan && !plan.restricted ? "Full access (licence issued before plans)" : "—")}
+          </dd>
         </div>
         <div>
           <dt className="text-fg-muted">Licence key</dt>
@@ -195,6 +202,8 @@ function StatusLine({ state }: { state: LicenseState }) {
       return <Bad>Expired{state.expiredAt ? ` on ${formatUnixDateTime(state.expiredAt)}` : ""}</Bad>;
     case "revoked":
       return <Bad>Revoked</Bad>;
+    case "suspended":
+      return <Bad>Suspended — contact the Diwan team</Bad>;
     case "deviceMismatch":
       return <Bad>Bound to a different device</Bad>;
     case "clockTampered":

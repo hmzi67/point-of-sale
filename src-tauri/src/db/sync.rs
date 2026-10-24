@@ -193,6 +193,10 @@ pub fn get_sales_for_sync(
       LEFT JOIN users u ON u.id = s.cashier_id
       LEFT JOIN customers c ON c.id = s.customer_id
           WHERE s.id > ?1
+            -- Only sales rung up on this counter: a counter connected to its
+            -- business also holds every other counter's sales, which those
+            -- counters send themselves.
+            AND substr(s.gid, 1, 16) = (SELECT install_id FROM sync_state WHERE id = 1)
           ORDER BY s.id ASC
           LIMIT ?2",
     )?;

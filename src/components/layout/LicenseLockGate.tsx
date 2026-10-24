@@ -152,6 +152,14 @@ function describe(state: LockedState, canFixHere: boolean) {
         detail: "This licence has been revoked by the vendor.",
         nextStep: support,
       };
+    case "suspended":
+      return {
+        title: "Licence suspended",
+        detail: "The Diwan team has suspended this licence. Nothing has been deleted.",
+        nextStep: canFixHere
+          ? "Contact the Diwan team to restore it, then press Re-check now."
+          : "Ask the owner to contact the Diwan team.",
+      };
     case "deviceMismatch":
       return {
         title: "Licence belongs to another device",

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useWorkspaceDataChanged } from "../hooks/useWorkspaceDataChanged";
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { AddTableForm } from "../components/tables/AddTableForm";
@@ -56,6 +57,7 @@ export function TablesPage() {
   };
 
   useEffect(reload, []);
+  useWorkspaceDataChanged(reload);
 
   const withBusy = async (table: TableSummary, action: () => Promise<void>) => {
     setBusyId(table.id);

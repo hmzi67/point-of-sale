@@ -64,6 +64,9 @@ export interface ItemInput {
   unit: string | null;
   /** Counter this item's token prints to, or `null` for a token-less item. */
   counterId: number | null;
+  /** On an edit: the stock the form loaded. The difference typed is what is
+   * applied, so sales made meanwhile (here or on another counter) stay. */
+  originalStockQty?: number;
 }
 
 /** Result of a bulk CSV import — see `db::csv_import` on the Rust side. */

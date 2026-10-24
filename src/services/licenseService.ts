@@ -1,8 +1,12 @@
-import type { LicenseInfo, LicenseRefreshOutcome, LicenseState } from "../types";
+import type { LicenseInfo, LicensePlan, LicenseRefreshOutcome, LicenseState } from "../types";
 import { call, subscribe } from "./tauriClient";
 
 export function getLicenseState(): Promise<LicenseState> {
   return call<LicenseState>("license_get_state");
+}
+
+export function getLicensePlan(): Promise<LicensePlan> {
+  return call<LicensePlan>("license_get_plan");
 }
 
 export function getLicenseInfo(): Promise<LicenseInfo> {

@@ -53,11 +53,16 @@ sha2 = "0.10"
 # Windows cross-builds don't have and don't need. Same major versions tauri
 # already pulls in, so this adds no second copy of either crate.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
-# Only for `tokio::time::sleep` in the licence background loop; tauri's
+# `tokio::time::sleep` for the licence and workspace loops, `sync::Notify` to
+# wake the workspace loop after a local write. tauri's
 # async runtime IS tokio, so this is the same crate, not a second runtime.
-tokio = { version = "1", features = ["time", "rt"] }
+tokio = { version = "1", features = ["time", "rt", "sync"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 thiserror = "2"
+# Staff PIN hashes are encrypted before they leave a counter
+# (`workspace::pins`): HKDF + ChaCha20-Poly1305. The same `ring` rustls
+# already uses above, so no new crate.
+ring = "0.17"
 
 # `rfd` (the fatal-startup-error dialog in `lib.rs`) is desktop-only because
 # it has no backend implementation at all for Android or iOS —
@@ -120,6 +125,11 @@ webpki-root-certs = "1"
 # Apple targets via reqwest's TLS verifier, so this adds no new copy.
 [target.'cfg(target_os = "ios")'.dependencies]
 tauri-plugin-storekit = { path = "plugins/storekit" }
+
+# The Keychain: the licence device id on iOS (above), and the counter's
+# sync token on iOS and macOS (`workspace::vault`). Already in the tree on
+# Apple targets via reqwest's TLS verifier, so this adds no new copy.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 security-framework = "3"
 
 [dev-dependencies]
@@ -133,7 +143,9 @@ webpki-root-certs = "1"
 # WritePrinter/etc.; `Win32_Foundation` has the shared HANDLE/BOOL/error
 # types those functions use.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61", features = ["Win32_Graphics_Printing", "Win32_Foundation", "Win32_Graphics_Gdi"] }
+# `Win32_Security_Credentials`: the Credential Manager, which holds the
+# counter's sync token (`workspace::vault`).
+windows = { version = "0.61", features = ["Win32_Graphics_Printing", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security_Credentials"] }
 
 # Smaller, faster release binaries (Tauri's recommended size settings), minus
 # `panic = "abort"`: `commands::catch_panic` and the printer transports rely

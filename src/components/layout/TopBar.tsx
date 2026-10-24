@@ -3,6 +3,7 @@ import { LogOut, Menu, Moon, Sun } from "lucide-react";
 import { useLogoDataUrl } from "../../hooks/useLogoDataUrl";
 import { useSecretTapTrigger } from "../../hooks/useSecretTapTrigger";
 import { useAppStore, useAuthStore, useUiPrefsStore } from "../../store";
+import { WorkspaceStatusChip } from "./WorkspaceStatusChip";
 
 // Lazy so this never loads for the overwhelming majority of app sessions
 // that never trigger it — see `useSecretTapTrigger`'s doc comment.
@@ -70,10 +71,7 @@ export function TopBar({ onOpenNav }: TopBarProps) {
       )}
 
       <div className="flex items-center gap-4 text-sm">
-        <span className="hidden items-center gap-1.5 text-fg-muted sm:inline-flex">
-          <span className="h-2 w-2 rounded-full bg-success" />
-          Offline ready
-        </span>
+        <WorkspaceStatusChip />
 
         {/* Quick theme flip — the same preference Settings → Appearance
             sets, just one tap away for a cashier mid-shift. Icon shows

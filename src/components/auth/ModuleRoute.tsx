@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import { useModules } from "../../hooks/useModules";
 import { useAuthStore } from "../../store";
 import { isAdminRole } from "../../utils/permissions";
+import { UpgradeNotice } from "../ui/UpgradeNotice";
 import type { ModuleKey } from "../../types";
 
 interface ModuleRouteProps {
@@ -20,7 +21,7 @@ interface ModuleRouteProps {
  * it — that is the whole point of the config-driven architecture.
  */
 export function ModuleRoute({ moduleKey, adminOnly = false, children }: ModuleRouteProps) {
-  const { canAccess, fallbackPath, isLoaded } = useModules();
+  const { canAccess, lockedModule, fallbackPath, isLoaded } = useModules();
   const role = useAuthStore((state) => state.user?.role ?? null);
 
   // Redirecting before the config has loaded would bounce a valid deep link.
@@ -28,6 +29,13 @@ export function ModuleRoute({ moduleKey, adminOnly = false, children }: ModuleRo
 
   if (adminOnly && !isAdminRole(role)) {
     return <Navigate to={fallbackPath} replace />;
+  }
+
+  // Enabled and allowed for this role, but not in the licence's plan: say
+  // so (and which plan has it) rather than silently bouncing elsewhere.
+  const locked = moduleKey ? lockedModule(moduleKey) : null;
+  if (locked) {
+    return <UpgradeNotice feature={locked.name} requiredPlan={locked.requiredPlan} />;
   }
 
   if (moduleKey && !canAccess(moduleKey)) {

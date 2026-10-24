@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Download, Printer } from "lucide-react";
+import { DrawerDayPanel } from "../components/shifts/DrawerDayPanel";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useShiftSummaryOutput } from "../hooks/useShiftSummaryOutput";
 import { getShiftSummary, listRecentShifts } from "../services/shiftsService";
@@ -50,6 +51,8 @@ export function ShiftsPage() {
         <p className="text-sm text-fg-muted">Every cashier shift, opening balance, and close-out reconciliation.</p>
       </div>
 
+      <DrawerDayPanel currency={config.currency} />
+
       {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
       {isLoading ? (
@@ -70,6 +73,7 @@ export function ShiftsPage() {
                 <span>
                   <span className="block font-medium text-fg">
                     Shift #{shift.id} · {shift.cashierName ?? "—"}
+                    {shift.tillName ? ` · ${shift.tillName}` : ""}
                   </span>
                   <span className="block text-xs text-fg-muted">
                     {shift.openedAt} {shift.closedAt ? `– ${shift.closedAt}` : "(open)"}

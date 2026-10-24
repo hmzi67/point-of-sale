@@ -400,14 +400,14 @@ pub fn create_order(
         None => {
             if let Some(uid) = user_id {
                 tx.query_row(
-                    "SELECT id FROM shifts WHERE cashier_id = ?1 AND closed_at IS NULL",
+                    &format!("SELECT id FROM shifts WHERE cashier_id = ?1 AND closed_at IS NULL AND {}", crate::db::shifts::OPENED_HERE),
                     params![uid],
                     |row| row.get(0),
                 )
                 .optional()?
                 .or_else(|| {
                     tx.query_row(
-                        "SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1",
+                        &format!("SELECT id FROM shifts WHERE closed_at IS NULL AND {} ORDER BY id DESC LIMIT 1", crate::db::shifts::OPENED_HERE),
                         [],
                         |row| row.get(0),
                     )
@@ -416,7 +416,7 @@ pub fn create_order(
                 })
             } else {
                 tx.query_row(
-                    "SELECT id FROM shifts WHERE closed_at IS NULL ORDER BY id DESC LIMIT 1",
+                    &format!("SELECT id FROM shifts WHERE closed_at IS NULL AND {} ORDER BY id DESC LIMIT 1", crate::db::shifts::OPENED_HERE),
                     [],
                     |row| row.get(0),
                 )
@@ -991,6 +991,25 @@ pub fn cancel(
         free_table_if_idle(tx, table_id)?;
     }
     get_order(tx, order_id)
+}
+
+/// (item id, qty) of the given unpaid lines of an order — the stock paying
+/// them will take (see `commands::orders_pay`). Lines that are not
+/// payable are skipped here; `pay_lines` refuses them with a reason.
+pub fn stock_lines(conn: &Connection, order_id: i64, order_item_ids: &[i64]) -> Result<Vec<(i64, f64)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT item_id, qty FROM order_items WHERE id = ?1 AND order_id = ?2 AND status <> ?3 AND sale_id IS NULL",
+    )?;
+    let mut ids = order_item_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut lines = Vec::new();
+    for id in ids {
+        if let Some(line) = stmt.query_row(params![id, order_id, LINE_VOIDED], |row| Ok((row.get(0)?, row.get(1)?))).optional()? {
+            lines.push(line);
+        }
+    }
+    Ok(lines)
 }
 
 /// One sale for the given active, unpaid lines at their order prices.

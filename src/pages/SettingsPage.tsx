@@ -8,6 +8,7 @@ import { CountersSection } from "../components/settings/CountersSection";
 import { DeliveryPlatformsSection } from "../components/settings/DeliveryPlatformsSection";
 import { LicenseSection } from "../components/settings/LicenseSection";
 import { CloudSyncSection } from "../components/settings/CloudSyncSection";
+import { BusinessCountersSection } from "../components/settings/BusinessCountersSection";
 import { ModulesSection } from "../components/settings/ModulesSection";
 import { PrinterSettingsSection } from "../components/settings/PrinterSettingsSection";
 import { SettingsTabs, type SettingsTab } from "../components/settings/SettingsTabs";
@@ -20,7 +21,7 @@ type TabKey = "general" | "printer" | "license" | "security" | "modules";
 const TABS: SettingsTab<TabKey>[] = [
   { key: "general", label: "General", icon: SlidersHorizontal, description: "Store details & appearance" },
   { key: "printer", label: "Printer", icon: Printer, description: "Devices & receipt printing" },
-  { key: "license", label: "Licence & Sync", icon: ShieldCheck, description: "Licence, cloud sync & web dashboard" },
+  { key: "license", label: "Licence & Sync", icon: ShieldCheck, description: "Licence, business & counters, web dashboard" },
   { key: "security", label: "Security", icon: KeyRound, description: "Protected areas & PINs" },
   { key: "modules", label: "Modules", icon: LayoutGrid, description: "Features & kitchen counters" },
 ];
@@ -88,6 +89,7 @@ export function SettingsPage() {
         {active === "license" && (
           <>
             <LicenseSection />
+            <BusinessCountersSection />
             <CloudSyncSection />
           </>
         )}

@@ -217,6 +217,153 @@ CREATE TABLE IF NOT EXISTS pos_sync_meta (
     updated_at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
+-- ---------------------------------------------------------------------------
+-- Business workspace (multi-counter sync) — see src/workspace/.
+--
+-- A counter connected to its business keeps a full copy of the business data
+-- in the ordinary tables above and below; these tables are the bookkeeping:
+-- what this counter still has to send (sync_outbox), how far it has read
+-- (sync_state.cursor), records it could not apply yet (sync_parked), and the
+-- central stock balances it last saw. Every shared table also gets a `gid`
+-- column and change-capture triggers, added by `workspace::local::install`.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sync_state (
+    id             INTEGER PRIMARY KEY CHECK (id = 1),
+    -- Prefix of every gid this installation mints. Random; renewed when the
+    -- counter replaces its data with the business data.
+    install_id     TEXT    NOT NULL,
+    -- standalone: not connected · pending: registered, has not loaded or
+    -- uploaded the business data yet · connected: syncing.
+    mode           TEXT    NOT NULL DEFAULT 'standalone' CHECK (mode IN ('standalone', 'pending', 'connected')),
+    token          TEXT,
+    business_id    INTEGER,
+    business_name  TEXT,
+    terminal_code  TEXT,
+    terminal_name  TEXT,
+    cursor         INTEGER NOT NULL DEFAULT 0,
+    -- This counter is uploading its data as the business's first data.
+    seed_pending   INTEGER NOT NULL DEFAULT 0 CHECK (seed_pending IN (0, 1)),
+    last_ok_at     TEXT,
+    last_error     TEXT,
+    last_error_at  TEXT,
+    -- 1 while downloaded changes are being applied: the change-capture
+    -- triggers stay quiet so a downloaded change is not sent back.
+    applying       INTEGER NOT NULL DEFAULT 0 CHECK (applying IN (0, 1)),
+    -- Set while a sale is being recorded: tags its stock changes with the
+    -- sale's reservation key (see sync_reservations).
+    stock_tag      TEXT,
+    connected_at   TEXT,
+    -- 1 once this counter's photos and logo were queued for sending (they
+    -- stayed on the device before photo sync existed).
+    media_queued   INTEGER NOT NULL DEFAULT 0,
+    -- 1 once this counter re-sent its staff PIN hashes sealed (see
+    -- workspace::pins; they went in the clear before).
+    pins_sealed    INTEGER NOT NULL DEFAULT 0
+);
+
+-- What this counter changed and has not had acknowledged by the server.
+-- 'row': re-read and send the row (or its deletion); 'stock': a signed stock
+-- change; 'release': give a reservation's stock back.
+CREATE TABLE IF NOT EXISTS sync_outbox (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT    NOT NULL CHECK (kind IN ('row', 'stock', 'release')),
+    entity     TEXT,
+    row_id     INTEGER,
+    gid        TEXT,
+    op         TEXT    NOT NULL DEFAULT 'upsert' CHECK (op IN ('upsert', 'delete')),
+    qty        REAL,
+    tag        TEXT,
+    -- An update: the columns it changed (",price_minor,name,") and this
+    -- counter's sync cursor when it changed them, so the server replaces only
+    -- those fields and can tell a same-field edit this counter never saw.
+    -- NULL for an insert (the whole row is sent).
+    fields     TEXT,
+    base       INTEGER,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_row ON sync_outbox (entity, row_id);
+
+-- Product photos and the logo this counter knows the server has
+-- (`on_server`), or could not download yet (`retry_after`). The files
+-- themselves are in app_data_dir/product-images and /logo.
+CREATE TABLE IF NOT EXISTS sync_media (
+    name        TEXT    PRIMARY KEY,
+    on_server   INTEGER NOT NULL DEFAULT 0 CHECK (on_server IN (0, 1)),
+    retry_after TEXT
+);
+
+-- Downloaded records that could not be applied yet (a record they point at
+-- has not arrived, or a duplicate name/barcode). Retried on every sync.
+CREATE TABLE IF NOT EXISTS sync_parked (
+    entity     TEXT    NOT NULL,
+    gid        TEXT    NOT NULL,
+    data       TEXT,
+    deleted    INTEGER NOT NULL DEFAULT 0,
+    reason     TEXT    NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 1,
+    first_seen TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    PRIMARY KEY (entity, gid)
+);
+
+-- Things a person should look at, shown in Settings → Business & counters.
+CREATE TABLE IF NOT EXISTS sync_issues (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT    NOT NULL,
+    entity      TEXT,
+    gid         TEXT,
+    detail      TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    resolved_at TEXT
+);
+
+-- The central stock balance per item, as last downloaded. The item's local
+-- stock_qty is this plus this counter's not-yet-acknowledged changes.
+CREATE TABLE IF NOT EXISTS sync_central_stock (
+    item_gid TEXT PRIMARY KEY,
+    qty      REAL NOT NULL
+);
+
+-- Online sales take their stock centrally first. `confirmed` lines are
+-- already in the central balance, so the sale's own (tagged) stock changes
+-- are not counted again locally while they wait to be sent.
+CREATE TABLE IF NOT EXISTS sync_reservations (
+    key        TEXT PRIMARY KEY,
+    status     TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'offline', 'used', 'failed')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE TABLE IF NOT EXISTS sync_reservation_lines (
+    key      TEXT NOT NULL REFERENCES sync_reservations (key) ON DELETE CASCADE,
+    item_gid TEXT NOT NULL,
+    qty      REAL NOT NULL,
+    PRIMARY KEY (key, item_gid)
+);
+
+-- The business's counters, for "sales by counter" (matched on the install
+-- id prefix of each sale's gid).
+CREATE TABLE IF NOT EXISTS sync_terminals (
+    code         TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    install_id   TEXT NOT NULL,
+    active       INTEGER NOT NULL DEFAULT 1,
+    last_seen_at TEXT,
+    -- 1, 2, 3 … in the order the counters joined: "C2" on receipts.
+    seq          INTEGER
+);
+
+-- A full download, held here until it is complete, then applied in one
+-- transaction (so a dropped connection never leaves half a business).
+CREATE TABLE IF NOT EXISTS sync_staging (
+    seq     INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity  TEXT    NOT NULL,
+    gid     TEXT    NOT NULL,
+    data    TEXT,
+    deleted INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sync_staging_stock (
+    item_gid TEXT PRIMARY KEY,
+    qty      REAL NOT NULL
+);
+
 -- ###########################################################################
 -- Phase 2 — operational schema
 -- ###########################################################################

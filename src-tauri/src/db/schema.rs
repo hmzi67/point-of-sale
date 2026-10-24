@@ -49,6 +49,16 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "product_owner_account",
     "license_status",
     "pos_sync_meta",
+    "sync_state",
+    "sync_outbox",
+    "sync_parked",
+    "sync_issues",
+    "sync_central_stock",
+    "sync_reservations",
+    "sync_reservation_lines",
+    "sync_terminals",
+    "sync_staging",
+    "sync_staging_stock",
     // Phase 2 — operations
     "categories",
     "counters",
@@ -210,13 +220,24 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     crate::startup_log::log(&format!("db: schema now at v{SCHEMA_VERSION}"));
 
+    // A counter connected to a business gets its owner, platforms and data
+    // from the business, never from first-run defaults (they would be sent
+    // to every other counter).
+    let connected = crate::workspace::local::is_connected(conn)?;
     seed_app_config(conn)?;
     seed_area_pin(conn)?;
     seed_modules(conn)?;
-    seed_delivery_platforms(conn)?;
-    seed_owner(conn)?;
+    if !connected {
+        seed_delivery_platforms(conn)?;
+        seed_owner(conn)?;
+    }
     crate::startup_log::log("db: app_config/modules/owner seeded (or already present)");
-    crate::db::seed::seed_demo_data(conn)?;
+    if !connected {
+        crate::db::seed::seed_demo_data(conn)?;
+    }
+    // After every table rebuild above (a rebuild drops triggers) and after
+    // seeding (seeded rows get their gids here).
+    crate::workspace::local::install(conn)?;
     crate::startup_log::log("db: apply() complete");
 
     Ok(())
@@ -354,6 +375,16 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("app_config", "scale_item_code_digits", "INTEGER NOT NULL DEFAULT 5"),
     ("app_config", "scale_value_kind", "TEXT NOT NULL DEFAULT 'weight'"),
     ("app_config", "scale_value_decimals", "INTEGER NOT NULL DEFAULT 3"),
+    // Multi-counter follow-ups — see schema.sql's sync_outbox / sync_state.
+    ("sync_outbox", "fields", "TEXT"),
+    ("sync_outbox", "base", "INTEGER"),
+    ("sync_state", "media_queued", "INTEGER NOT NULL DEFAULT 0"),
+    ("sync_state", "pins_sealed", "INTEGER NOT NULL DEFAULT 0"),
+    ("sync_terminals", "seq", "INTEGER"),
+    // A connected counter that cannot reach the server: keep selling (stock
+    // is checked centrally when it reconnects) or refuse sales until then.
+    // Shared by the business (`workspace::spec::CONFIG_COLUMNS`).
+    ("app_config", "offline_sales", "TEXT NOT NULL DEFAULT 'allow' CHECK (offline_sales IN ('allow', 'block'))"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs

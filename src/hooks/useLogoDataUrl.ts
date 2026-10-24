@@ -1,15 +1,21 @@
 import { useEffect, useState } from "react";
 import { getLogoDataUrl } from "../services/configService";
+import { useWorkspaceDataChanged } from "./useWorkspaceDataChanged";
 
 /**
  * Resolves `app_config.logoPath` (a stored filename) to a renderable
  * `data:` URL, refetching whenever it changes — shared by every place that
  * displays the logo (TopBar, Settings' preview) so a fresh upload appears
  * everywhere it's shown without a restart, and so this fetch-on-change
- * logic exists in exactly one place.
+ * logic exists in exactly one place. A logo set on another counter of the
+ * business may arrive after its name: it is read again when data lands.
  */
 export function useLogoDataUrl(logoPath: string | null): string | null {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useWorkspaceDataChanged(() => {
+    if (logoPath && !dataUrl) setAttempt((n) => n + 1);
+  });
 
   useEffect(() => {
     if (!logoPath) {
@@ -27,7 +33,7 @@ export function useLogoDataUrl(logoPath: string | null): string | null {
     return () => {
       cancelled = true;
     };
-  }, [logoPath]);
+  }, [logoPath, attempt]);
 
   return dataUrl;
 }

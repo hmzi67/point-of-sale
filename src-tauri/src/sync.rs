@@ -75,6 +75,7 @@ pub async fn perform_sync(app: &AppHandle) -> Result<SyncResult, String> {
 /// Pushes a just-recorded sale/refund/payment to the cloud in the background;
 /// a failure is logged, never surfaced to the write that triggered it.
 pub fn spawn_after_write(app: &AppHandle) {
+    crate::workspace::runtime::nudge();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(err) = perform_sync(&app).await {
@@ -134,8 +135,17 @@ async fn perform_sync_inner(app: &AppHandle) -> Result<SyncResult, String> {
         .with_conn(|conn| crate::db::sync::get_recent_daily_summaries(conn, 14, &currency))
         .map_err(|e| e.to_string())?;
 
+    // A counter connected to its business workspace holds the whole business,
+    // which the dashboard now reads from the workspace itself; mirroring it
+    // from every counter would repeat each record once per counter.
     let records = db
-        .with_conn(crate::db::sync::get_records_for_sync)
+        .with_conn(|conn| {
+            if crate::workspace::local::is_connected(conn)? {
+                Ok(serde_json::Map::new())
+            } else {
+                crate::db::sync::get_records_for_sync(conn)
+            }
+        })
         .map_err(|e| e.to_string())?;
 
     let machine_hint = machine_hint_for(&shop_name, &crate::license::client::machine_hint());

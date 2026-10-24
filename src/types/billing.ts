@@ -87,6 +87,11 @@ export interface Sale {
   customerId: number | null;
   customerEmail: string | null;
   dueDate: string | null;
+  /** The number printed on the receipt: `C2-12` once the business has
+   * several counters (the same on every counter), otherwise the id. */
+  receiptNo: string;
+  /** The counter that rang it up, when the business has several. */
+  tillName: string | null;
 }
 
 /** One row of the "recent sales" list the refund flow searches. */

@@ -333,3 +333,39 @@ textarea {
   outline: 2px solid var(--t-accent);
   outline-offset: 2px;
 }
+
+/* Sign-in screen (`pages/LoginPage.tsx`). The brand panel is deliberately
+ * theme-independent — the same deep-green canvas as the desktop splash
+ * (`public/splashscreen.css`), so launch → splash → sign-in reads as one
+ * continuous brand moment in either theme. Everything else on the screen
+ * uses the semantic tokens. */
+.login-brand {
+  background:
+    radial-gradient(60% 50% at 18% 12%, rgba(0, 229, 160, 0.22), transparent 70%),
+    radial-gradient(55% 45% at 90% 95%, rgba(0, 229, 160, 0.14), transparent 70%),
+    linear-gradient(160deg, #0d1814 0%, #0a0f0d 55%, #08100c 100%);
+  color: #f2f6f4;
+}
+.login-brand__grid {
+  background-image: radial-gradient(rgba(242, 246, 244, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(70% 60% at 50% 40%, #000 30%, transparent 100%);
+}
+.login-brand__muted { color: #93a39b; }
+.login-brand__chip {
+  border: 1px solid rgba(0, 229, 160, 0.28);
+  background: rgba(0, 229, 160, 0.08);
+  color: #9ff5d6;
+}
+
+/* A wrong PIN shakes the dots once (re-triggered by remounting via `key`). */
+@keyframes pin-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[pin-shake_0\.4s_ease-in-out\] { animation: none; }
+}

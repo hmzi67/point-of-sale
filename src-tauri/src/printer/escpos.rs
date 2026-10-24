@@ -530,9 +530,13 @@ pub fn build_receipt_bytes(
     // masthead. `row` truncates rather than wraps, so a long table name
     // shortens instead of pushing the line onto a second physical row.
     out.extend(align_left());
-    let sale_field = format!("Sale #{}", sale.id);
+    let sale_field = format!("Sale #{}", sale.receipt_no);
     out.extend(row(&[(&sale_field, 18, false), (&sale.created_at, LINE_WIDTH - 18, true)]).as_bytes());
     out.push(b'\n');
+    if let Some(till) = &sale.till_name {
+        out.extend(truncate_line(&format!("Counter: {till}")).as_bytes());
+        out.push(b'\n');
+    }
 
     let cashier_field = format!("Cashier: {}", sale.cashier_name.as_deref().unwrap_or("—"));
     let order_field = order_field(sale, tables_module_enabled);
@@ -806,7 +810,11 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
         Some(table_name) => format!("Table: {}", table_name),
         None => "Takeaway".to_string(),
     };
-    token_head(&mut out, title, token.token_number, &type_or_table, &token.printed_at);
+    let number = match &token.till_label {
+        Some(label) => format!("{label}-{}", token.token_number),
+        None => token.token_number.to_string(),
+    };
+    token_head(&mut out, title, &number, &type_or_table, &token.printed_at);
     token_items_header(&mut out);
 
     // Body: item + qty only — no rate, no total.
@@ -831,7 +839,7 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
 /// The part every token shares above its details: the titled double-ruled
 /// banner, the boxed `TOKEN #n` badge with its table/type line, and the
 /// date/time row.
-fn token_head(out: &mut Vec<u8>, title: &str, number: i64, type_or_table: &str, printed_at: &str) {
+fn token_head(out: &mut Vec<u8>, title: &str, number: &str, type_or_table: &str, printed_at: &str) {
     out.extend(wake_padding());
     out.extend(init());
 
@@ -937,7 +945,7 @@ pub fn build_order_token_bytes(order: &crate::db::orders::Order, _config: &AppCo
             _ => format!("TYPE: {}", order.order_type.to_uppercase()),
         },
     };
-    token_head(&mut out, title, order.order_no, &type_or_table, &order.created_at);
+    token_head(&mut out, title, &order.order_no.to_string(), &type_or_table, &order.created_at);
 
     // Optional customer, contact, address, rider, prep time, notes
     detail_line(&mut out, "Customer", order.customer_name.as_deref());
@@ -1751,6 +1759,7 @@ mod tests {
             scale_item_code_digits: 5,
             scale_value_kind: "weight".into(),
             scale_value_decimals: 3,
+            offline_sales: "allow".into(),
         }
     }
 
@@ -1823,6 +1832,8 @@ mod tests {
             customer_id: None,
             customer_email: None,
             due_date: None,
+            receipt_no: "42".into(),
+            till_name: None,
         }
     }
 
@@ -1890,6 +1901,7 @@ mod tests {
                 opening_balance_minor: 10_000,
                 declared_cash_amount_minor: Some(25_500),
                 notes: None,
+                till_name: None,
             },
             opening_balance_minor: 10_000,
             cash_sales_minor: 15_000,
@@ -2601,6 +2613,7 @@ mod tests {
             printed_by_name: Some("Ali".into()),
             status: "printed".into(),
             shift_id: None,
+            till_label: None,
             items: vec![
                 TokenLine {
                     item_id: 1,
@@ -2770,5 +2783,19 @@ mod tests {
         assert!(customer_text.contains("CUSTOMER TOKEN"));
         assert!(customer_text.contains("TOKEN #5"));
         assert!(customer_text.contains("THANK YOU FOR YOUR ORDER"));
+    }
+
+    #[test]
+    fn a_receipt_and_a_token_name_the_counter_when_the_business_has_several() {
+        let sale = Sale { receipt_no: "C2-41".into(), till_name: Some("Front counter".into()), ..sample_sale() };
+        let text = String::from_utf8_lossy(&build_receipt_bytes(&sale, &sample_config(), None, true)).into_owned();
+        assert!(text.contains("Sale #C2-41"), "{text}");
+        assert!(text.contains("Counter: Front counter"), "{text}");
+
+        let token = TokenSummary { till_label: Some("C2".into()), ..sample_token() };
+        let text = String::from_utf8_lossy(&build_token_bytes(&token, false)).into_owned();
+        assert!(text.contains(&format!("TOKEN #C2-{}", token.token_number)), "{text}");
+        let text = String::from_utf8_lossy(&build_token_bytes(&sample_token(), false)).into_owned();
+        assert!(text.contains(&format!("TOKEN #{}", sample_token().token_number)), "one counter: unchanged");
     }
 }

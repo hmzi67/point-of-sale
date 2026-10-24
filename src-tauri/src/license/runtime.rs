@@ -16,6 +16,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::client::{self, ClientError};
+use super::entitlements::{self, Entitlements};
 use super::fingerprint::device_fingerprint;
 use rusqlite::Connection;
 
@@ -160,6 +161,7 @@ impl LicenseRuntime {
                 }
                 RefreshFailure::Disowned(message) => {
                     db.with_conn(db::license::clear).map_err(|e| LicenseError::Db(e.to_string()))?;
+                    entitlements::install(None);
                     self.set(app, LicenseState::Missing);
                     return Err(LicenseError::Refused(message));
                 }
@@ -221,6 +223,7 @@ impl LicenseRuntime {
             )
         })
         .map_err(|e| LicenseError::Db(e.to_string()))?;
+        entitlements::install(Some(Entitlements::from_payload(&payload)));
 
         let next = evaluate(
             &payload,
@@ -236,7 +239,20 @@ impl LicenseRuntime {
 /// evaluates whatever is stored. Shared by launch and the periodic tick.
 fn evaluate_cached(conn: &Connection, fp: &str, now: i64) -> Result<LicenseState, rusqlite::Error> {
     db::license::touch_high_water(conn, now)?;
-    Ok(evaluate_stored(db::license::get(conn)?.as_ref(), fp, now))
+    let stored = db::license::get(conn)?;
+    install_entitlements(stored.as_ref());
+    Ok(evaluate_stored(stored.as_ref(), fp, now))
+}
+
+/// Re-derives the plan's entitlements from the stored, signed payload —
+/// re-verified here, never read from anything the payload did not sign.
+/// No row, or a row that fails verification, installs "unrestricted":
+/// `require_license` already locks that install (see `entitlements`).
+fn install_entitlements(stored: Option<&db::license::StoredLicense>) {
+    let entitlements = stored
+        .and_then(|s| verify_signed(&s.payload_b64, &s.signature_b64).ok())
+        .map(|payload| Entitlements::from_payload(&payload));
+    entitlements::install(entitlements);
 }
 
 /// What a failed status fetch during `refresh` means.
@@ -295,6 +311,7 @@ fn kind_of(state: &LicenseState) -> &'static str {
         LicenseState::Ok { .. } => "ok",
         LicenseState::Expired { .. } => "expired",
         LicenseState::Revoked => "revoked",
+        LicenseState::Suspended => "suspended",
         LicenseState::DeviceMismatch => "device mismatch",
         LicenseState::ClockTampered { .. } => "clock tampered",
         LicenseState::CheckInRequired { .. } => "check-in required",
@@ -352,6 +369,9 @@ mod tests {
             expires_at: None,
             device_fingerprint: FP.into(),
             max_offline_days: 7,
+            plan: None,
+            entitlements: None,
+            upgrade: Default::default(),
         }
     }
 

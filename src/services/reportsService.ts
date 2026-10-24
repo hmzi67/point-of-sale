@@ -6,6 +6,7 @@ import type {
   RefundsSummary,
   SalesSummary,
   TableSalesSummary,
+  CounterSalesSummary,
   TopItem,
   TopItemSort,
 } from "../types";
@@ -46,6 +47,11 @@ export function printCategorySalesThermal(startDate: string, endDate: string): P
  * gross total `getSalesSummary` reports for the same range — the Table
  * Wise Sales report. Only meaningful when the `tables` module is enabled;
  * the caller is responsible for not offering this view otherwise. */
+/** Sales per counter (POS terminal) and per cashier — every counter of the business on a connected counter. */
+export function getCounterSalesSummary(startDate: string, endDate: string): Promise<CounterSalesSummary> {
+  return call<CounterSalesSummary>("reports_get_counter_sales_summary", { startDate, endDate });
+}
+
 export function getTableSalesSummary(startDate: string, endDate: string): Promise<TableSalesSummary> {
   return call<TableSalesSummary>("reports_get_table_sales_summary", { startDate, endDate });
 }

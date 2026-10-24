@@ -6,7 +6,7 @@ import { RequireAuth } from "./components/auth/RequireAuth";
 import { RequireOnboarding } from "./components/auth/RequireOnboarding";
 import { VendorGate } from "./components/auth/VendorGate";
 import { AppLayout } from "./components/layout/AppLayout";
-import { useAppStore, useAuthStore, useLicenseStore, useModuleStore, useUiPrefsStore } from "./store";
+import { useAppStore, useAuthStore, useLicenseStore, useModuleStore, useUiPrefsStore, useWorkspaceStore } from "./store";
 import {
   AttendancePage,
   BillingPage,
@@ -38,6 +38,7 @@ function useBootstrap() {
   const loadModules = useModuleStore((state) => state.load);
   const initLicense = useLicenseStore((state) => state.init);
   const initUiPrefs = useUiPrefsStore((state) => state.init);
+  const initWorkspace = useWorkspaceStore((state) => state.init);
 
   // Display preferences (theme, sidebar) are the one thing read *before*
   // login — the login screen is themed too. They fall back to defaults if
@@ -54,7 +55,9 @@ function useBootstrap() {
     // Licence state was already computed in Rust before the window existed;
     // this just reads it and subscribes to changes (see `licenseStore`).
     void initLicense();
-  }, [userId, loadConfig, loadModules, initLicense]);
+    // This counter's place among the business's counters (top bar, Settings).
+    void initWorkspace();
+  }, [userId, loadConfig, loadModules, initLicense, initWorkspace]);
 }
 
 export function App() {

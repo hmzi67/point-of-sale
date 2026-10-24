@@ -1,4 +1,5 @@
 import { ArrowRight, Pause, ShoppingBag, X } from "lucide-react";
+import { useWorkspaceDataChanged } from "../hooks/useWorkspaceDataChanged";
 import { useEffect, useRef, useState } from "react";
 import { ActiveOrdersDrawer } from "../components/billing/ActiveOrdersDrawer";
 import { BillingHeader } from "../components/billing/BillingHeader";
@@ -65,8 +66,9 @@ export function BillingPage() {
   const [searchResults, setSearchResults] = useState<Item[]>([]);
   const isSearching = searchQuery.trim().length > 0;
 
-  const loadCatalog = () => {
-    setIsLoadingItems(true);
+  /** `quiet`: a background refresh (another counter changed the catalog) — no spinner. */
+  const loadCatalog = (quiet = false) => {
+    if (!quiet) setIsLoadingItems(true);
     setLoadError(null);
     Promise.all([getItems({}), getCategories()])
       .then(([loadedItems, loadedCategories]) => {
@@ -77,7 +79,9 @@ export function BillingPage() {
       .finally(() => setIsLoadingItems(false));
   };
 
-  useEffect(loadCatalog, []);
+  useEffect(() => loadCatalog(), []);
+  // Prices, stock and new products from the business's other counters.
+  useWorkspaceDataChanged(() => loadCatalog(true));
 
   // Recomputed live on every catalog load (including right after a sale
   // completes, via loadCatalog below) — never cached across screens or
@@ -298,7 +302,7 @@ export function BillingPage() {
       {/* Browsing column */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:gap-3.5 pb-20 md:pb-0 lg:pb-0">
         <BillingHeader
-          onRefunded={loadCatalog}
+          onRefunded={() => loadCatalog()}
           onOpenActiveOrders={() => setIsOpenActiveOrders(true)}
           activeOrdersCount={activeOrdersCount}
           hasLateOrders={hasLateOrders}
