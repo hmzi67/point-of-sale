@@ -170,6 +170,7 @@ jobs:
 
       - name: Test Windows print worker without printer hardware
         timeout-minutes: 5
+        working-directory: src-tauri
         run: cargo test --release --target ${{ matrix.target }} --test windows_print_worker
 
   macos:
