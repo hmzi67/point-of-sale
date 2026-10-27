@@ -1,6 +1,7 @@
-# Builds production artifacts for Windows (x64 + x86), Linux (x64), macOS
-# (Apple Silicon + Intel) and Android whenever a `v*` tag is pushed, and
-# collects them all onto a single GitHub release for that tag.
+# Builds Windows production artifacts (x64 + x86) whenever a `v*` tag
+# is pushed and collects them onto a single GitHub release for that tag.
+# macOS, Linux and Android are temporarily disabled with job-level guards.
+# To restore them, remove those guards and add them to finalize-release.needs.
 #
 # iOS is intentionally out of scope — see PROJECT_GOALS.md / BUILD_PLAN.md.
 #
@@ -168,6 +169,8 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
 
   macos:
+    # Temporarily paused: releases currently target Windows only.
+    if: ${{ false }}
     name: Build macOS (${{ matrix.target }})
     needs: create-release
     runs-on: macos-latest
@@ -235,6 +238,8 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
 
   linux:
+    # Temporarily paused: releases currently target Windows only.
+    if: ${{ false }}
     name: Build Linux
     needs: create-release
     runs-on: ubuntu-22.04
@@ -287,6 +292,8 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
 
   android:
+    # Temporarily paused: releases currently target Windows only.
+    if: ${{ false }}
     name: Build Android
     needs: create-release
     runs-on: ubuntu-latest
@@ -449,11 +456,11 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" "${FILES[@]}" --clobber --repo "${{ github.repository }}"
 
-  # Only flip the release out of draft once every platform's artifacts have
-  # actually landed on it, so the release page never shows an incomplete set.
+  # Publish once both Windows architectures have uploaded their artifacts.
+  # Paused platforms must not block publication through skipped dependencies.
   finalize-release:
     name: Publish release
-    needs: [create-release, windows, macos, linux, android]
+    needs: [create-release, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
