@@ -37,6 +37,9 @@
 //! groups it, not anything to do with GDI drawing).
 
 use std::ffi::OsStr;
+use std::io::{Read, Write};
+use std::os::windows::process::CommandExt;
+use std::process::{Command, Stdio};
 use std::os::windows::ffi::OsStrExt;
 
 use windows::core::{Error as WinError, PCWSTR, PWSTR};
@@ -129,6 +132,64 @@ pub fn list_printers() -> Result<Vec<WindowsPrinterInfo>, PrinterError> {
 /// in `escpos.rs`) is unchanged; only the transport differs from
 /// macOS/Linux's raw-USB path.
 pub fn send(printer_name: &str, bytes: &[u8]) -> Result<(), PrinterError> {
+    // Driver access violations and stack overflows bypass catch_unwind.
+    // Keep those faults outside the process that owns the till and database.
+    let executable = std::env::current_exe()
+        .map_err(|e| PrinterError::Io(format!("could not locate print helper: {e}")))?;
+    let mut child = Command::new(executable)
+        .arg("--diwan-print-worker")
+        .arg(printer_name)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .spawn()
+        .map_err(|e| PrinterError::Io(format!("could not start print helper: {e}")))?;
+
+    // Drop stdin before waiting: EOF is the end of the receipt, including
+    // when a driver dies before accepting the entire pipe.
+    let write_result = child.stdin.take()
+        .ok_or_else(|| std::io::Error::other("print helper input unavailable"))
+        .and_then(|mut input| input.write_all(bytes));
+    let output = child.wait_with_output()
+        .map_err(|e| PrinterError::Io(format!("could not wait for print helper: {e}")))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        crate::startup_log::log(&format!("printing: Windows helper failed ({})", output.status));
+        return Err(PrinterError::Io(if detail.trim().is_empty() {
+            format!("Windows print helper stopped unexpectedly ({}). Check the printer driver before retrying; the receipt may have partially printed", output.status)
+        } else {
+            detail.trim().chars().take(500).collect()
+        }));
+    }
+    write_result.map_err(|e| PrinterError::Io(format!("could not send receipt to print helper: {e}")))
+}
+
+/// Runs before Tauri initializes in a child invocation. Never opens a
+/// database or window. The parent owns error presentation and sale state.
+pub fn run_worker_if_requested() -> Option<i32> {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(OsStr::new("--diwan-print-worker")) {
+        return None;
+    }
+    let result = (|| {
+        let name = args.next().ok_or_else(|| PrinterError::Io("missing printer name".into()))?;
+        let name = name.into_string().map_err(|_| PrinterError::Io("invalid printer name".into()))?;
+        let mut bytes = Vec::new();
+        std::io::stdin().read_to_end(&mut bytes)
+            .map_err(|e| PrinterError::Io(format!("could not read receipt: {e}")))?;
+        send_direct(&name, &bytes)
+    })();
+    Some(match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
+    })
+}
+
+fn send_direct(printer_name: &str, bytes: &[u8]) -> Result<(), PrinterError> {
     let printer_name_w = to_wide(printer_name);
     let mut doc_name_w = to_wide("Diwan Receipt");
     let mut datatype_w = to_wide("RAW");

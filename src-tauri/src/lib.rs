@@ -578,6 +578,7 @@ pub fn run() {
             commands::security_revoke_area_access,
             commands::security_get_default_credentials,
             commands::security_set_area_pin,
+            commands::security_reset_sales,
             commands::security_replace_default_pins
         ])
         .run(tauri::generate_context!())
@@ -618,4 +619,10 @@ pub fn run() {
             );
             std::process::exit(1);
         });
+}
+
+/// Dedicated Windows print-worker entry point used before initializing Tauri.
+#[cfg(target_os = "windows")]
+pub fn run_print_worker_if_requested() -> Option<i32> {
+    printer::windows_spool::run_worker_if_requested()
 }

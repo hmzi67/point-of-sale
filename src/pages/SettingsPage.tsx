@@ -11,6 +11,7 @@ import { CloudSyncSection } from "../components/settings/CloudSyncSection";
 import { BusinessCountersSection } from "../components/settings/BusinessCountersSection";
 import { ModulesSection } from "../components/settings/ModulesSection";
 import { PrinterSettingsSection } from "../components/settings/PrinterSettingsSection";
+import { ResetSalesSection } from "../components/settings/ResetSalesSection";
 import { SettingsTabs, type SettingsTab } from "../components/settings/SettingsTabs";
 import { StoreIdentitySection } from "../components/settings/StoreIdentitySection";
 import { useModuleEnabled } from "../hooks/useModules";
@@ -94,7 +95,12 @@ export function SettingsPage() {
           </>
         )}
 
-        {active === "security" && <AreaPinSection />}
+        {active === "security" && (
+          <>
+            <AreaPinSection />
+            <ResetSalesSection />
+          </>
+        )}
 
         {active === "modules" && (
           <>

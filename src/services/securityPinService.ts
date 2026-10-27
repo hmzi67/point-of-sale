@@ -42,3 +42,9 @@ export function getDefaultCredentials(): Promise<DefaultCredentials> {
 export function replaceDefaultPins(ownerPin: string | null, areaPin: string | null): Promise<void> {
   return call<void>("security_replace_default_pins", { ownerPin, areaPin });
 }
+
+/** Deletes the whole sales history — Owner only server-side. `confirm` must
+ * be the word "DELETE" the Owner typed into the warning dialog. */
+export function resetSales(confirm: string): Promise<void> {
+  return call<void>("security_reset_sales", { confirm });
+}

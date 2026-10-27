@@ -606,6 +606,29 @@ pub fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<SaleListItem>, r
     rows.collect()
 }
 
+/// Wipes the whole sales history: sales and their lines/tenders, refunds,
+/// installments taken against a sale, active/held orders, kitchen tokens and
+/// parked table orders; occupied tables are freed. Items, stock, customers,
+/// shifts and expenses are kept. Children go first because of the
+/// `ON DELETE RESTRICT` references. On a connected counter the delete
+/// triggers queue every row, so the reset reaches the whole business.
+pub fn reset_all(tx: &Transaction) -> rusqlite::Result<()> {
+    tx.execute_batch(
+        "DELETE FROM refund_items;
+         DELETE FROM refunds;
+         DELETE FROM customer_payments WHERE sale_id IS NOT NULL;
+         DELETE FROM token_items;
+         DELETE FROM tokens;
+         DELETE FROM order_items;
+         DELETE FROM orders;
+         DELETE FROM sale_payments;
+         DELETE FROM sale_items;
+         DELETE FROM sales;
+         DELETE FROM table_orders;
+         UPDATE tables SET status = 'free' WHERE status = 'occupied';",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1050,4 +1073,18 @@ mod tests {
 
     // Table-linked sales (closing the parked order, freeing the table) are
     // covered in db::tables::tests, alongside the rest of the table lifecycle.
+
+    #[test]
+    fn reset_all_deletes_sales_history_but_keeps_stock() {
+        let mut conn = test_conn();
+        crate::db::test_support::ring_up(&mut conn, "Cola 500ml", 2.0, "cash", None);
+        let stock_after_sale = stock(&conn, "Cola 500ml");
+
+        crate::db::test_support::in_tx(&mut conn, reset_all).unwrap();
+
+        for table in ["sales", "sale_items", "sale_payments", "refunds", "orders", "tokens", "table_orders"] {
+            assert_eq!(crate::db::test_support::count(&conn, &format!("SELECT COUNT(*) FROM {table}")), 0, "{table}");
+        }
+        assert_eq!(stock(&conn, "Cola 500ml"), stock_after_sale, "a reset never moves stock");
+    }
 }

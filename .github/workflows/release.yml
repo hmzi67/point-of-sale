@@ -168,6 +168,10 @@ jobs:
           args: --target ${{ matrix.target }}
           releaseId: ${{ needs.create-release.outputs.release_id }}
 
+      - name: Test Windows print worker without printer hardware
+        timeout-minutes: 5
+        run: cargo test --release --target ${{ matrix.target }} --test windows_print_worker
+
   macos:
     # Temporarily paused: releases currently target Windows only.
     if: ${{ false }}

@@ -227,6 +227,16 @@ body,
   height: 100%;
 }
 
+/* Every size here is rem-based, so scaling the root scales the whole UI.
+   The screens are laid out for ~1440 × 860; smaller or Windows-DPI-scaled
+   windows (1366 × 768, 1280 × 720, 1024 × 768) shrink proportionally instead
+   of overflowing. Phones (< 768px wide) keep the platform's own sizing. */
+@media (min-width: 768px) {
+  html {
+    font-size: clamp(12px, min(100vh / 54, 100vw / 88), 16px);
+  }
+}
+
 body {
   @apply bg-bg text-fg antialiased;
   -webkit-font-smoothing: antialiased;
@@ -383,6 +393,9 @@ textarea {
   .billing-checkout {
     gap: 0.625rem;
     padding: 0.75rem;
+  }
+  .billing-checkout > ul {
+    min-height: 4.5rem;
   }
   .login-main {
     padding: 1rem;

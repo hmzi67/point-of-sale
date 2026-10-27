@@ -1009,13 +1009,12 @@ fn logo_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 }
 
 /// Runs `f`, converting a panic into a plain error message instead of
-/// letting it unwind out of a `#[tauri::command]`. Used around the
-/// Bluetooth-printer commands below, which call into hand-written JNI (see
+/// letting it unwind out of a `#[tauri::command]`. Covers receipt generation
+/// and the Bluetooth-printer commands, which call into hand-written JNI (see
 /// `printer::android_bt`'s module doc comment) — the same belt-and-braces
 /// reasoning as `printer::escpos::send_to_printer`'s own `catch_unwind`,
 /// applied here too since these three commands call `android_bt` directly
 /// rather than through that function.
-#[cfg_attr(not(target_os = "android"), allow(dead_code))] // only reached from the Android printer commands below
 fn catch_panic<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
         .unwrap_or_else(|_| Err("Printer command hit an internal error".to_string()))
@@ -1334,6 +1333,9 @@ pub fn billing_get_sale(session: State<'_, Session>, db: State<'_, Db>, id: i64)
     query(&db, |conn| sales::get_sale(conn, id))
 }
 
+/// Printer commands run away from the UI thread: Windows spooler calls can
+/// block while contacting a driver or offline printer.
+///
 /// Attempts to print a receipt on this installation's configured thermal
 /// printer (USB on desktop, Bluetooth on Android — see
 /// `printer::escpos::send_to_printer`). Fails with a friendly message if
@@ -1345,23 +1347,32 @@ pub fn billing_get_sale(session: State<'_, Session>, db: State<'_, Db>, id: i64)
 /// the filesystem. An SVG logo (or any decode failure) just means no logo on
 /// this receipt, same as no logo being set at all — never a reason to fail
 /// the print.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn billing_print_receipt_thermal(session: State<'_, Session>, app: AppHandle, db: State<'_, Db>, sale_id: i64) -> Result<(), String> {
-    require_module(&db, &[module_key::BILLING])?;
-    require_signed_in(&session)?;
-    let sale = query(&db, |conn| sales::get_sale(conn, sale_id))?;
-    let app_config = query(&db, config::get)?;
-    let tables_module_enabled = module_enabled(&db, module_key::TABLES)?;
+    crate::startup_log::log("printing: receipt requested");
+    let result = catch_panic(|| {
+        require_module(&db, &[module_key::BILLING])?;
+        require_signed_in(&session)?;
+        let sale = query(&db, |conn| sales::get_sale(conn, sale_id))?;
+        let app_config = query(&db, config::get)?;
+        let tables_module_enabled = module_enabled(&db, module_key::TABLES)?;
 
-    let logo_dir_path = logo_dir(&app)?;
-    let logo = app_config
-        .logo_path
-        .as_ref()
-        .and_then(|file_name| images::read_image_bytes(&logo_dir_path, file_name).ok())
-        .and_then(|(bytes, _extension)| crate::printer::escpos::build_logo_raster(&bytes));
+        let logo_dir_path = logo_dir(&app)?;
+        let logo = app_config
+            .logo_path
+            .as_ref()
+            .and_then(|file_name| images::read_image_bytes(&logo_dir_path, file_name).ok())
+            .and_then(|(bytes, _extension)| crate::printer::escpos::build_logo_raster(&bytes));
 
-    crate::printer::escpos::print_receipt(&sale, &app_config, logo.as_ref(), tables_module_enabled)
-        .map_err(|e| e.to_string())
+        crate::printer::escpos::print_receipt(&sale, &app_config, logo.as_ref(), tables_module_enabled)
+            .map_err(|e| e.to_string())
+    });
+    crate::startup_log::log(if result.is_ok() {
+        "printing: receipt sent"
+    } else {
+        "printing: receipt failed; sale remains saved"
+    });
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -1516,7 +1527,7 @@ pub fn printer_request_usb_permission(session: State<'_, Session>, device_id: St
 /// `printer_list_bluetooth_devices`). Windows only; always empty elsewhere,
 /// same "uniform command surface, empty result off-platform" convention as
 /// the Bluetooth commands above.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn printer_list_windows_printers(session: State<'_, Session>) -> Result<Vec<crate::db::config::WindowsPrinterOption>, String> {
     require_signed_in(&session)?;
     #[cfg(target_os = "windows")]
@@ -1545,7 +1556,7 @@ pub fn printer_list_windows_printers(session: State<'_, Session>) -> Result<Vec<
 /// bytes`'s doc comment for why this exists: `LINE_WIDTH` has already been
 /// wrong once). Owner/Admin only, same tier as the rest of Settings'
 /// printer controls.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn printer_print_diagnostic(db: State<'_, Db>, session: State<'_, Session>) -> Result<(), String> {
     require_module_admin(&db, &[module_key::SETTINGS], &session)?;
     let config = query(&db, config::get)?;
@@ -1617,7 +1628,7 @@ pub fn refunds_get(db: State<'_, Db>, session: State<'_, Session>, refund_id: i6
 
 /// Prints the "Refund Details" receipt on a USB thermal printer — same
 /// auto-detect/fall-back-to-PDF contract as `billing_print_receipt_thermal`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn refunds_print_thermal(db: State<'_, Db>, session: State<'_, Session>, refund_id: i64) -> Result<(), String> {
     require_module_admin(&db, &[module_key::BILLING], &session)?;
     let refund = query(&db, |conn| refunds::get_refund(conn, refund_id))?;
@@ -1729,7 +1740,7 @@ pub fn shifts_get_day_summary(db: State<'_, Db>, session: State<'_, Session>, da
 }
 
 /// Prints a shift's close-out reconciliation receipt.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn shifts_print_summary(db: State<'_, Db>, session: State<'_, Session>, shift_id: i64) -> Result<(), String> {
     require_module(&db, &[module_key::SHIFTS])?;
     let caller = require_signed_in(&session)?;
@@ -1827,7 +1838,7 @@ fn print_area_report<R, E: std::fmt::Display, P: std::fmt::Display>(
 }
 
 /// Prints the Category Wise Sale report on a USB thermal printer.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reports_print_category_sales(
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -1897,7 +1908,7 @@ pub fn reports_get_product_sales_summary(
 }
 
 /// Prints the Table Wise Sales report on a USB thermal printer.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reports_print_table_sales_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -1932,7 +1943,7 @@ pub fn reports_get_refunds_summary(
 }
 
 /// Prints the Refunds report on a USB thermal printer.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reports_print_refunds_summary(
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -1982,7 +1993,7 @@ pub fn reports_get_full_report(
 }
 
 /// Prints the same consolidated Full Report on a USB thermal printer.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reports_print_full_report(
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -2363,7 +2374,7 @@ fn print_tokens_for_counters(
 /// same call fails, so one unreachable printer never hides a successful
 /// print on a different counter. See `print_one_counter_token` for the
 /// per-counter print-then-record guarantee.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tokens_print(
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -2380,7 +2391,7 @@ pub fn tokens_print(
 /// never mistakes it for a second, separate order. Writes nothing to the
 /// database; a failed reprint just means "try again", same as any other
 /// print.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tokens_reprint(
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -2424,7 +2435,7 @@ pub fn tokens_get_adhoc_groups(
 /// the counter twice — reasonable for the common case (compose the order
 /// once, print once, pay), same as a QSR register printing a fresh ticket
 /// per "print" press, but unlike the dine-in table flow's delta tracking.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tokens_print_adhoc(
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -2628,7 +2639,7 @@ pub async fn orders_pay(
     Ok(paid)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn orders_print_token(
     db: State<'_, Db>,
     session: State<'_, Session>,
@@ -2818,6 +2829,18 @@ pub fn security_set_area_pin(
     db.with_conn(move |conn| Ok(security_pin::set(conn, &old_pin, &new_pin)))
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+/// Deletes the whole sales history (`sales::reset_all`). Owner only, and
+/// `confirm` must be the word typed into the warning dialog, so a stray
+/// IPC call can't wipe a till.
+#[tauri::command]
+pub fn security_reset_sales(db: State<'_, Db>, session: State<'_, Session>, confirm: String) -> Result<(), String> {
+    require_role(&session, &[Role::Owner])?;
+    if confirm != "DELETE" {
+        return Err("Type DELETE to confirm".into());
+    }
+    transact(&db, sales::reset_all)
 }
 
 // ---------------------------------------------------------------------------
@@ -3093,7 +3116,7 @@ pub fn salary_record_payment(
 /// Prints the Employee Report (every active employee's attendance and
 /// salary for `month`, same rows `salary_get_monthly_overview` returns) on
 /// a USB thermal printer.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn salary_print_monthly_report(
     db: State<'_, Db>,
     session: State<'_, Session>,
