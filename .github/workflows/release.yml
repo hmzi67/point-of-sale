@@ -170,8 +170,24 @@ jobs:
 
       - name: Test Windows print worker without printer hardware
         timeout-minutes: 5
-        working-directory: src-tauri
-        run: cargo test --release --target ${{ matrix.target }} --test windows_print_worker
+        shell: pwsh
+        # Runs the exe tauri-action just built: `cargo test --release` would
+        # recompile the whole LTO build (~20 min). Same checks as
+        # src-tauri/tests/windows_print_worker.rs.
+        run: |
+          $exe = "src-tauri/target/${{ matrix.target }}/release/tauri-app.exe"
+          New-Item -ItemType File -Force empty.txt | Out-Null
+          function Test-Worker([string]$argList, [string]$expect) {
+            $p = Start-Process $exe -ArgumentList $argList -NoNewWindow -PassThru `
+              -RedirectStandardInput empty.txt -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+            $null = $p.Handle  # without this, ExitCode can read as null
+            if (-not $p.WaitForExit(15000)) { $p.Kill(); throw "print worker did not exit; it may have started the app UI" }
+            $err = Get-Content err.txt -Raw
+            if ($p.ExitCode -ne 1 -or $err -notmatch $expect) { throw "'$argList': exit $($p.ExitCode), stderr: $err" }
+            Write-Host "ok: $argList"
+          }
+          Test-Worker "--diwan-print-worker" "missing printer name"
+          Test-Worker "--diwan-print-worker Diwan_nonexistent_printer_7ac6d290" "could not open Windows printer"
 
   macos:
     # Temporarily paused: releases currently target Windows only.
