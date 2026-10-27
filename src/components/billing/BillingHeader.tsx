@@ -52,8 +52,8 @@ export function BillingHeader({
   const timeLabel = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-3">
+    <div className="billing-header flex flex-wrap items-center justify-between gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-fg">Billing</h2>
           <p className="hidden md:block text-xs text-fg-muted">Find an item, build an order, and check out.</p>

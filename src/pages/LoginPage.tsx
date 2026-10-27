@@ -154,7 +154,7 @@ export function LoginPage() {
     "shadow-[0_2px_0_0_var(--color-line)] transition-all hover:bg-surface-3 active:translate-y-[2px] active:shadow-none";
 
   return (
-    <div className="flex h-full overflow-hidden bg-bg">
+    <div className="login-layout flex h-full overflow-hidden bg-bg">
       {/* ===== Brand panel (wide windows) ===== */}
       <aside className="login-brand relative hidden w-[44%] max-w-[560px] flex-col justify-between overflow-hidden p-10 lg:flex">
         <div className="login-brand__grid pointer-events-none absolute inset-0" />
@@ -193,10 +193,12 @@ export function LoginPage() {
       </aside>
 
       {/* ===== Sign-in ===== */}
-      <main className="relative flex flex-1 overflow-y-auto p-6">
+      <main className="login-main relative flex min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-6">
         {/* Decorative glows, in the theme's accent tint. */}
-        <div className="pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full bg-accent-soft blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-32 left-10 h-72 w-72 rounded-full bg-accent-soft opacity-60 blur-3xl" />
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+          <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-accent-soft blur-3xl" />
+          <div className="absolute -bottom-32 left-10 h-72 w-72 rounded-full bg-accent-soft opacity-60 blur-3xl" />
+        </div>
 
         {/* m-auto, not items-center: a short window scrolls instead of clipping the top. */}
         <div className="relative m-auto w-full max-w-[400px]">
@@ -212,7 +214,7 @@ export function LoginPage() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-line bg-surface p-7 shadow-soft-lg">
+          <div className="login-card rounded-3xl border border-line bg-surface p-7 shadow-soft-lg">
             <h1 className="text-2xl font-semibold tracking-tight text-fg">Welcome back</h1>
             <p className="mt-1 text-sm text-fg-muted">Pick your name, then enter your PIN.</p>
 

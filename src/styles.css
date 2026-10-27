@@ -369,3 +369,53 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .animate-\[pin-shake_0\.4s_ease-in-out\] { animation: none; }
 }
+
+/* Short desktop windows (including 1366 × 768 with Windows chrome): keep
+   every checkout control reachable and reserve room for order lines. */
+.billing-checkout > * {
+  flex-shrink: 0;
+}
+.billing-checkout > ul {
+  flex-shrink: 1;
+  min-height: 8rem;
+}
+@media (max-height: 800px) {
+  .billing-checkout {
+    gap: 0.625rem;
+    padding: 0.75rem;
+  }
+  .login-main {
+    padding: 1rem;
+  }
+  .login-brand {
+    padding: 1.75rem;
+  }
+  .login-card {
+    padding: 1.25rem;
+  }
+  .login-card > .mt-6 {
+    margin-top: 1rem;
+  }
+  .login-card button.h-14 {
+    height: 3rem;
+  }
+  .login-card > .mt-5 {
+    margin-top: 0.75rem;
+  }
+}
+/* Desktop can also be resized below tablet width. Let the page scroll
+   through both columns rather than squeezing them into a fixed height. */
+@media (max-width: 767px) {
+  .billing-layout:has(> .billing-checkout) {
+    height: auto;
+  }
+  .billing-layout:has(> .billing-checkout) > :first-child {
+    flex: none;
+    height: 32rem;
+    padding-bottom: 0;
+  }
+  .billing-checkout {
+    height: auto;
+    max-height: 80dvh;
+  }
+}

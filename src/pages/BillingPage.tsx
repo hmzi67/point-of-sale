@@ -298,7 +298,7 @@ export function BillingPage() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-3.5 md:flex-row md:gap-4 lg:gap-5">
+    <div className="billing-layout flex h-full flex-col gap-3.5 md:flex-row md:gap-4 lg:gap-5">
       {/* Browsing column */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:gap-3.5 pb-20 md:pb-0 lg:pb-0">
         <BillingHeader
@@ -354,7 +354,7 @@ export function BillingPage() {
         className={
           IS_ANDROID
             ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] w-full flex-col gap-4 overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-soft-lg"
-            : "flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-hidden rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-80 lg:w-84 xl:w-92 2xl:w-100 h-full min-h-0"
+            : "billing-checkout flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-y-auto rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-80 lg:w-84 xl:w-92 2xl:w-100 h-full min-h-0"
         }
       >
         {IS_ANDROID && (
