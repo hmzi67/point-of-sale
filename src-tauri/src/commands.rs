@@ -1016,8 +1016,17 @@ fn logo_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 /// applied here too since these three commands call `android_bt` directly
 /// rather than through that function.
 fn catch_panic<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
-        .unwrap_or_else(|_| Err("Printer command hit an internal error".to_string()))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|payload| {
+        // Keep the panic text: a release build has no console, so this is the
+        // only trace of what actually broke.
+        let detail = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown panic".to_string());
+        crate::startup_log::log(&format!("printing: command panicked: {detail}"));
+        Err(format!("Printer command hit an internal error ({detail})"))
+    })
 }
 
 /// Validates, saves and returns the filename to store as `Item.imagePath`.

@@ -111,6 +111,15 @@ export async function handleBrowserMock<TResult>(
       return currentUser as unknown as TResult;
     }
 
+    case "tables_get_tables":
+      return [
+        { id: 1, name: "Table 1", seats: 4, status: "free" },
+        { id: 2, name: "Table 2", seats: 4, status: "free" },
+      ] as unknown as TResult;
+
+    case "license_get_state":
+      return { kind: "ok", expiresAt: null, expiringSoon: false } as unknown as TResult;
+
     case "auth_current_user":
       return currentUser as unknown as TResult;
 
@@ -122,6 +131,9 @@ export async function handleBrowserMock<TResult>(
       return {
         currency: "PKR",
         taxPercent: 0,
+        onboardingCompleted: true,
+        businessName: "Diwan Demo POS",
+        businessType: "restaurant",
         storeName: "Diwan Demo POS",
         receiptHeader: "Welcome to Diwan",
         receiptFooter: "Thank you for visiting!",
@@ -139,15 +151,21 @@ export async function handleBrowserMock<TResult>(
       return undefined as unknown as TResult;
 
     case "config_get_enabled_modules":
-      return [
-        { moduleKey: "tables", isEnabled: true, isLocked: false },
-        { moduleKey: "delivery", isEnabled: true, isLocked: false },
-        { moduleKey: "reports", isEnabled: true, isLocked: false },
-        { moduleKey: "expenses", isEnabled: true, isLocked: false },
-        { moduleKey: "shifts", isEnabled: true, isLocked: false },
-        { moduleKey: "salary", isEnabled: true, isLocked: false },
-        { moduleKey: "attendance", isEnabled: true, isLocked: false },
-      ] as unknown as TResult;
+      return ["dashboard", "billing", "inventory", "reports", "tables", "shifts", "expenses", "settings"].map((key, i) => ({
+        id: i + 1,
+        key,
+        name: key[0].toUpperCase() + key.slice(1),
+        isCore: key === "billing",
+        sortOrder: i,
+        enabled: true,
+        desktopEnabled: true,
+        androidEnabled: true,
+        locked: false,
+        desktopLocked: false,
+        androidLocked: false,
+        entitled: true,
+        requiredPlan: null,
+      })) as unknown as TResult;
 
     case "license_get_state":
       return {

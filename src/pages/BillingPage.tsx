@@ -413,10 +413,13 @@ export function BillingPage() {
         <CartPanel currency={config.currency} onEditLine={setEditingItemId} />
 
         <dl className="space-y-1.5 sm:space-y-2 rounded-xl border border-line bg-surface-2/40 p-2.5 sm:p-3 text-xs sm:text-sm tabular-nums">
-          <div className="flex justify-between text-fg-muted">
-            <dt>Subtotal</dt>
-            <dd>{formatMinor(totals.subtotalMinor, config.currency)}</dd>
-          </div>
+          {/* Only when something sits between it and the total — otherwise it repeats the total. */}
+          {totals.subtotalMinor !== totals.totalMinor && (
+            <div className="flex justify-between text-fg-muted">
+              <dt>Subtotal</dt>
+              <dd>{formatMinor(totals.subtotalMinor, config.currency)}</dd>
+            </div>
+          )}
           {config.taxPercent > 0 && (
             <ChargeRow
               label={`Tax (${config.taxPercent}%)`}
@@ -445,7 +448,7 @@ export function BillingPage() {
               <dd>{formatMinor(totals.deliveryChargeMinor, config.currency)}</dd>
             </div>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-line-strong pt-2 text-base sm:text-lg font-bold text-fg">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-dashed border-line-strong pt-2 text-base sm:text-lg font-bold text-fg first:border-t-0 first:pt-0">
             <dt className="text-sm sm:text-base font-semibold text-fg">Total amount</dt>
             <dd className="text-xl sm:text-2xl font-bold tabular-nums text-fg">{formatMinor(totals.totalMinor, config.currency)}</dd>
           </div>
@@ -480,10 +483,10 @@ export function BillingPage() {
             type="button"
             onClick={() => void completeSale()}
             disabled={cartOrder.length === 0 || isSubmitting}
-            className="flex flex-1 items-center justify-between gap-3 rounded-xl bg-accent px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
+            className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl bg-accent px-3 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
           >
-            <span>{isSubmitting ? "Placing order…" : "Place order"}</span>
-            <span className="flex items-center gap-2 tabular-nums">{formatMinor(totals.totalMinor, config.currency)} <ArrowRight className="h-4 w-4" /></span>
+            <span className="whitespace-nowrap">{isSubmitting ? "Placing order…" : "Place order"}</span>
+            <span className="flex items-center gap-2 whitespace-nowrap tabular-nums">{formatMinor(totals.totalMinor, config.currency)} <ArrowRight className="h-4 w-4" /></span>
           </button>
         </div>
       </div>

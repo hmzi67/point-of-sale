@@ -389,9 +389,9 @@ textarea {
   flex-shrink: 1;
   min-height: 8rem;
 }
-@media (max-height: 800px) {
+@media (max-height: 900px) {
   .billing-checkout {
-    gap: 0.625rem;
+    gap: 0.5rem;
     padding: 0.75rem;
   }
   .billing-checkout > ul {

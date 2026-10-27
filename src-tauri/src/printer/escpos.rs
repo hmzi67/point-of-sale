@@ -188,6 +188,12 @@ const LOGO_MAX_WIDTH_PX: u32 = 350;
 /// built exactly as if no logo were set at all, rather than erroring out or
 /// sending a corrupt print job.
 pub fn build_logo_raster(image_bytes: &[u8]) -> Option<LogoRaster> {
+    // A decoder panic on an unusual JPEG/PNG must cost the logo, never the
+    // receipt.
+    std::panic::catch_unwind(|| decode_logo(image_bytes)).ok().flatten()
+}
+
+fn decode_logo(image_bytes: &[u8]) -> Option<LogoRaster> {
     let img = image::load_from_memory(image_bytes).ok()?;
     let (width, height) = (img.width(), img.height());
     if width == 0 || height == 0 {
