@@ -385,6 +385,9 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // is checked centrally when it reconnects) or refuse sales until then.
     // Shared by the business (`workspace::spec::CONFIG_COLUMNS`).
     ("app_config", "offline_sales", "TEXT NOT NULL DEFAULT 'allow' CHECK (offline_sales IN ('allow', 'block'))"),
+    // Printed under the logo on receipts. Shared by the business.
+    ("app_config", "business_address", "TEXT"),
+    ("app_config", "business_website", "TEXT"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs

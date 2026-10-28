@@ -14,6 +14,10 @@ export interface AppConfig {
    * receipts (labeled "Delivery: ...") only when set. `null` until an
    * owner/admin sets one. */
   deliveryNumber: string | null;
+  /** Address and website printed under the logo on receipts, each only
+   * when set. */
+  businessAddress: string | null;
+  businessWebsite: string | null;
   /** Set once the first-time setup wizard finishes. `false` on a brand-new
    * install routes the app into onboarding instead of the normal screens. */
   onboardingCompleted: boolean;

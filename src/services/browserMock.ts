@@ -111,6 +111,10 @@ export async function handleBrowserMock<TResult>(
       return currentUser as unknown as TResult;
     }
 
+    case "config_get_logo":
+      // Set from a preview script to render receipts with a real logo.
+      return ((globalThis as { __mockLogo?: string }).__mockLogo ?? null) as unknown as TResult;
+
     case "tables_get_tables":
       return [
         { id: 1, name: "Table 1", seats: 4, status: "free" },

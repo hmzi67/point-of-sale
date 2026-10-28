@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Download, Mail, MessageCircle, Printer, X } from "lucide-react";
+import { CheckCircle2, Download, Printer, X } from "lucide-react";
+import { useLogoDataUrl } from "../../hooks/useLogoDataUrl";
 import { printReceiptThermal } from "../../services/billingService";
-import { openExternal } from "../../services/externalLink";
 import { paymentMethodLabel } from "../../utils/checkoutPayments";
-import { buildInvoiceText, mailtoUrl, whatsappUrl } from "../../utils/invoiceShare";
 import { formatMinor, formatQty } from "../../utils/format";
 import type { AppConfig, Sale } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
@@ -28,6 +27,7 @@ interface ReceiptModalProps {
  * printer at all. Both buttons can be clicked more than once (e.g. a
  * second physical copy), same handler either time. */
 export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptModalProps) {
+  const logoUrl = useLogoDataUrl(config.logoPath);
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
   const [isSavingPdf, setIsSavingPdf] = useState(false);
@@ -95,7 +95,8 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
         </div>
 
         <div className="max-h-[60dvh] overflow-y-auto px-5 py-4">
-          <p className="text-center text-sm text-fg-muted">{config.businessName}</p>
+          {logoUrl && <img src={logoUrl} alt="" className="mx-auto mb-2 max-h-24 max-w-[70%] object-contain" />}
+          <p className="text-center text-base font-bold text-fg">{config.businessName}</p>
           <p className="text-center text-xs text-fg-muted">
             Sale #{sale.receiptNo} · {sale.createdAt}
             {sale.tillName ? ` · ${sale.tillName}` : ""}
@@ -204,28 +205,6 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
             <Download className="h-4 w-4" />
             {isSavingPdf ? "Saving…" : "Save as PDF"}
           </button>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => void openExternal(whatsappUrl(sale.customerPhone, config.currency, buildInvoiceText(sale, config)))}
-              className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-sm font-medium text-fg-2 hover:bg-surface-2"
-            >
-              <MessageCircle className="h-4 w-4" />
-              WhatsApp
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                void openExternal(
-                  mailtoUrl(sale.customerEmail, `${config.businessName} — invoice #${sale.receiptNo}`, buildInvoiceText(sale, config)),
-                )
-              }
-              className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-sm font-medium text-fg-2 hover:bg-surface-2"
-            >
-              <Mail className="h-4 w-4" />
-              Email
-            </button>
-          </div>
           <button
             type="button"
             onClick={onClose}

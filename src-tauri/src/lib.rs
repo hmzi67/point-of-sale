@@ -61,6 +61,23 @@ struct SplashRevealed(std::sync::atomic::AtomicBool);
 const MAIN_WINDOW_WIDTH: f64 = 1280.0;
 const MAIN_WINDOW_HEIGHT: f64 = 800.0;
 
+/// The configured size, shrunk to fit the monitor's work area (screen minus
+/// taskbar). Without this a 1280×800 window centred on a 1366×768 screen, or
+/// on any screen with 125–150% Windows scaling, starts with its title bar
+/// above the top edge — no minimize/maximize/close to reach.
+fn main_window_size(main: &tauri::WebviewWindow) -> tauri::LogicalSize<f64> {
+    let mut size = tauri::LogicalSize::new(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT);
+    #[cfg(desktop)]
+    if let Ok(Some(monitor)) = main.current_monitor().map(|m| m.or_else(|| main.primary_monitor().ok().flatten())) {
+        let area = monitor.work_area().size.to_logical::<f64>(monitor.scale_factor());
+        size.width = size.width.min(area.width);
+        size.height = size.height.min(area.height);
+    }
+    #[cfg(mobile)]
+    let _ = main;
+    size
+}
+
 /// How long `reveal_main_window` will poll for "main" to exist before giving
 /// up. Confirmed on Windows: `app_splashscreen_ready`'s IPC call can land before
 /// `setup()` finishes `WebviewWindowBuilder::build()` for "main" — WebView2
@@ -128,14 +145,17 @@ fn reveal_main_window(app: &tauri::AppHandle) {
                 // trusting whatever the OS restored — confirmed on Windows
                 // that a window left in this state can end up visible but
                 // sized ~15x15px in the top-left corner.
-                let resized = main.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-                    MAIN_WINDOW_WIDTH,
-                    MAIN_WINDOW_HEIGHT,
-                )));
+                let resized = main.set_size(tauri::Size::Logical(main_window_size(&main)));
                 #[cfg(desktop)]
                 let centered = main.center();
                 #[cfg(mobile)]
                 let centered: tauri::Result<()> = Ok(());
+                // A till runs full screen; this also guarantees the title bar
+                // (minimize / maximize / close) is on screen whatever its size.
+                #[cfg(desktop)]
+                let maximized = main.maximize();
+                #[cfg(mobile)]
+                let maximized: tauri::Result<()> = Ok(());
                 let focused = main.set_focus();
                 let visible_after = main.is_visible();
                 let size_after = main.inner_size();
@@ -143,12 +163,13 @@ fn reveal_main_window(app: &tauri::AppHandle) {
                     || unminimized.is_err()
                     || resized.is_err()
                     || centered.is_err()
+                    || maximized.is_err()
                     || focused.is_err()
                     || visible_after.is_err()
                     || size_after.is_err();
                 let summary = format!(
                     "reveal_main_window: show={shown:?} unminimize={unminimized:?} \
-                     set_size={resized:?} center={centered:?} focus={focused:?} \
+                     set_size={resized:?} center={centered:?} maximize={maximized:?} focus={focused:?} \
                      is_visible={visible_after:?} inner_size={size_after:?}"
                 );
                 if any_failed {
@@ -330,7 +351,7 @@ pub fn run() {
                     {
                         main_window = main_window
                             .inner_size(1280.0, 800.0)
-                            .min_inner_size(1024.0, 640.0)
+                            .min_inner_size(800.0, 560.0)
                             .visible(false);
                     }
                     main_window.build()?;

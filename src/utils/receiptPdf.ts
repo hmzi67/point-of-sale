@@ -2,17 +2,16 @@ import type { jsPDF } from "jspdf";
 import { formatMinor, formatQty } from "./format";
 import { downloadPdf } from "./pdfExport";
 import {
-  drawContactBox,
   drawDashedRule,
+  drawRule,
   drawLogo,
   drawMonoCentered,
   drawMonoRow,
-  drawRule,
   drawRuledItemTable,
-  loadImageDimensions,
-  LOGO_MAX_HEIGHT_MM,
   MARGIN_MM,
   newReceiptDoc,
+  trimLogo,
+  PAGE_WIDTH_MM,
   THERMAL_LINE_WIDTH,
 } from "./printLayout";
 import { devWarn } from "../services/logService";
@@ -31,8 +30,7 @@ async function resolveLogo(logoPath: string | null): Promise<{ dataUrl: string; 
   try {
     const { getLogoDataUrl } = await import("../services/configService");
     const dataUrl = await getLogoDataUrl(logoPath);
-    const { width, height } = await loadImageDimensions(dataUrl);
-    return { dataUrl, width, height };
+    return await trimLogo(dataUrl);
   } catch (error) {
     devWarn("[receiptPdf] logo could not be loaded, printing without it", error);
     return null;
@@ -60,7 +58,7 @@ const CREDIT_SEPARATOR = "  |  ";
  * Draws the receipt's full content onto whatever page `doc` is currently
  * on — the one place that content is actually laid out, mirroring
  * `printer::escpos::build_receipt_bytes` on the ESC/POS side section for
- * section: logo, boxed contact card, sale info, bordered item table,
+ * section: logo, shop name and numbers, sale info, bordered item table,
  * totals, payment line, thank-you, developer credit.
  *
  * Everything below the logo is drawn in the monospaced face
@@ -68,8 +66,8 @@ const CREDIT_SEPARATOR = "  |  ";
  * borders, so the PDF reads as the same document the thermal printer
  * produces rather than a separately-designed one.
  *
- * The business name is deliberately not drawn — the logo is the receipt's
- * brand mark (see `printLayout.ts`'s `LOGO_MAX_WIDTH_MM`).
+ * The logo is the receipt's brand mark (see `printLayout.ts`'s
+ * `LOGO_MAX_WIDTH_MM`); the business name stands in only when there is none.
  */
 function drawReceiptContent(
   doc: jsPDF,
@@ -77,29 +75,31 @@ function drawReceiptContent(
   config: AppConfig,
   tablesEnabled: boolean,
   logo: { dataUrl: string; width: number; height: number } | null,
-): void {
-  let y = logo ? drawLogo(doc, logo.dataUrl, logo.width, logo.height) : 6;
-
-  // Business phone / delivery number as a boxed card right under the logo —
-  // only the numbers actually configured get a row, and a shop with neither
-  // gets no box at all.
-  const contactRows: Array<[string, string]> = [];
-  if (config.phone) contactRows.push(["Business", config.phone]);
-  if (config.deliveryNumber) contactRows.push(["Delivery", config.deliveryNumber]);
-  // Pulled up tight under the logo — the logo and the numbers card read as
-  // one masthead block, so the gap between them stays smaller than the gap
-  // separating that block from the sale details below. The card's own
-  // bottom border is separation enough down there, so that gap is plain
-  // space with no second rule drawn across it.
-  y = drawContactBox(doc, y - 2.5, contactRows);
-  if (contactRows.length > 0) y += 2;
+): number {
+  // Masthead: the logo (no shop name — the logo is the brand mark), then
+  // address, website and numbers as small centred lines.
+  let y = logo ? drawLogo(doc, logo.dataUrl, logo.width, logo.height, 2) + 0.5 : 2;
+  doc.setFont("courier", "normal");
+  doc.setFontSize(8);
+  const contentWidth = PAGE_WIDTH_MM - MARGIN_MM * 2;
+  const numbers = [config.phone && `Tel: ${config.phone}`, config.deliveryNumber && `Delivery: ${config.deliveryNumber}`].filter(Boolean) as string[];
+  const lines = [
+    ...(config.businessAddress?.trim() ? (doc.splitTextToSize(config.businessAddress.trim(), contentWidth) as string[]).slice(0, 2) : []),
+    ...(config.businessWebsite?.trim() ? [config.businessWebsite.trim()] : []),
+    ...(numbers.join("  |  ").length <= THERMAL_LINE_WIDTH ? [numbers.join("  |  ")].filter(Boolean) : numbers),
+  ];
+  for (const line of lines) {
+    drawMonoCentered(doc, y + 1, line, { size: 8 });
+    y += 3.8;
+  }
+  y = drawRule(doc, y + 0.5) + 1;
 
   // Sale identity: number + timestamp on one line, cashier + order type on
   // the next — the same two-line data block the thermal path prints.
   y = drawMonoRow(doc, y, `Sale #${sale.receiptNo}`, sale.createdAt);
   if (sale.tillName) y = drawMonoRow(doc, y, `Counter: ${sale.tillName}`, "");
   y = drawMonoRow(doc, y, `Cashier: ${sale.cashierName ?? "—"}`, receiptOrderField(sale, tablesEnabled));
-  y += 1;
+  y -= 1.5;
 
   if (sale.orderType === "delivery") {
     if (sale.customerPhone || sale.customerName) {
@@ -155,17 +155,13 @@ function drawReceiptContent(
   if (sale.deliveryChargeMinor && sale.deliveryChargeMinor > 0) {
     y = drawMonoRow(doc, y, "Delivery Fee:", formatMinor(sale.deliveryChargeMinor, config.currency));
   }
+  // TOTAL: the one big line on the slip, between two rules — plain black,
+  // which reads cleanly on thermal paper where a filled band smears.
   y = drawRule(doc, y - 2.4);
-  y = drawMonoRow(doc, y + 0.6, "TOTAL:", formatMinor(sale.totalMinor, config.currency), {
-    bold: true,
-    size: 10,
-  });
-  y = drawRule(doc, y - 2.2);
+  y = drawMonoRow(doc, y + 2.2, "TOTAL", formatMinor(sale.totalMinor, config.currency), { bold: true, size: 13 });
+  y = drawRule(doc, y - 2.2) + 0.5;
 
-  doc.setFont("courier", "bold");
-  doc.setFontSize(8.5);
-  doc.text(`Paid by: ${sale.paymentMethod}`, MARGIN_MM, y + 1.4);
-  y += 5;
+  y = drawMonoRow(doc, y, "Paid by:", paymentMethodLabel(sale.paymentMethod), { bold: true });
   if (hasTenderBreakdown(sale)) {
     for (const part of sale.payments) {
       y = drawMonoRow(doc, y, `${paymentMethodLabel(part.method)}:`, formatMinor(part.amountMinor, config.currency));
@@ -182,13 +178,13 @@ function drawReceiptContent(
   }
 
   if (config.receiptFooter.trim()) {
-    y = drawMonoCentered(doc, y, config.receiptFooter.trim());
+    y = drawMonoCentered(doc, y, config.receiptFooter.trim(), { bold: true, size: 9 });
   }
 
   // A dashed rule closes off the transaction and opens the credit block —
   // still lighter than the solid rules bracketing the totals, so it reads
   // as a change of subject rather than a structural boundary.
-  y = drawDashedRule(doc, y + 1);
+  y = drawDashedRule(doc, y - 1.5);
   y += 2.5;
 
   // Smaller and lighter than the transaction above it, so it reads as a
@@ -199,11 +195,12 @@ function drawReceiptContent(
   y = drawMonoCentered(doc, y, DEVELOPER_CREDIT, { size: 7.5, muted: true });
   const combined = `${DEVELOPER_SITE}${CREDIT_SEPARATOR}${DEVELOPER_PHONE}`;
   if (combined.length <= THERMAL_LINE_WIDTH) {
-    drawMonoCentered(doc, y, combined, { size: 7, muted: true });
+    y = drawMonoCentered(doc, y, combined, { size: 7, muted: true });
   } else {
     y = drawMonoCentered(doc, y, DEVELOPER_SITE, { size: 7, muted: true });
-    drawMonoCentered(doc, y, DEVELOPER_PHONE, { size: 7, muted: true });
+    y = drawMonoCentered(doc, y, DEVELOPER_PHONE, { size: 7, muted: true });
   }
+  return y;
 }
 
 /** Several tenders, or a pay-later sale — the receipt lists each part. */
@@ -211,32 +208,6 @@ function hasTenderBreakdown(sale: Sale): boolean {
   return sale.payments.length > 1 || sale.paymentMethod === "credit";
 }
 
-function estimatedHeightMm(sale: Sale, config: AppConfig, hasLogo: boolean): number {
-  const contactRowCount = (config.phone ? 1 : 0) + (config.deliveryNumber ? 1 : 0);
-  const totalsRowCount =
-    2 +
-    (sale.discountMinor > 0 ? 1 : 0) +
-    (sale.taxMinor > 0 ? 1 : 0) +
-    (sale.serviceChargeMinor > 0 ? 1 : 0) +
-    (hasTenderBreakdown(sale) ? sale.payments.length + (sale.dueDate ? 1 : 0) : 0);
-  // logo + boxed contact card + two sale-info rows + the bordered item
-  // table (header plus a row each) + totals + payment line + thank-you +
-  // the developer credit, then a margin so nothing lands flush at the edge.
-  return (
-    18 +
-    (hasLogo ? LOGO_MAX_HEIGHT_MM + 3 : 0) +
-    (contactRowCount > 0 ? contactRowCount * 5.4 + 4 : 0) +
-    10 +
-    (12 + sale.items.length * 4.6) +
-    (sale.tillName ? 4.8 : 0) +
-    totalsRowCount * 4.8 +
-    16 +
-    (sale.paymentMethod === "cash" && sale.tenderedMinor != null ? 10 : 0) +
-    (config.receiptFooter.trim() ? 5 : 0) +
-    // the closing rule plus the two- or three-line developer credit
-    18
-  );
-}
 
 /**
  * Builds a compact 80mm-wide receipt PDF, one page. Returns the `jsPDF`
@@ -276,7 +247,10 @@ export function riderText(name: string, phone?: string | null): string {
 
 export async function buildReceiptPdf(sale: Sale, config: AppConfig, tablesEnabled: boolean): Promise<jsPDF> {
   const logo = await resolveLogo(config.logoPath);
-  const doc = newReceiptDoc(estimatedHeightMm(sale, config, logo !== null));
+  // Drawn twice: once on a throwaway long page to measure, then on a page
+  // cut to exactly that height, so no blank paper trails the receipt.
+  const contentEnd = drawReceiptContent(newReceiptDoc(1000), sale, config, tablesEnabled, logo);
+  const doc = newReceiptDoc(contentEnd + 2, 0);
   drawReceiptContent(doc, sale, config, tablesEnabled, logo);
   return doc;
 }

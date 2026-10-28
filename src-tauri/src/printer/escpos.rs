@@ -68,7 +68,7 @@ use crate::db::tokens::TokenLine;
 use crate::db::tokens::TokenSummary;
 use crate::printer::layout::{
     bordered_line, bordered_row, box_line, box_row, center_text, divider, dashed_divider, double_divider, format_minor,
-    format_qty, row, truncate_line, two_col, BoxLinePosition, LINE_WIDTH,
+    format_qty, row, truncate_line, two_col, wrap_words, BoxLinePosition, LINE_WIDTH,
 };
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use rusb::{Direction, TransferType};
@@ -121,6 +121,12 @@ fn bold(on: bool) -> [u8; 3] {
 /// stays in Font A, which is what all the column arithmetic assumes.
 fn font_small(on: bool) -> [u8; 3] {
     [ESC, b'M', u8::from(on)]
+}
+
+/// `GS ! n`: glyphs `scale`× as wide and as tall (1 = normal).
+fn char_size(scale: u8) -> [u8; 3] {
+    let n = scale.saturating_sub(1) & 0x07;
+    [GS, b'!', (n << 4) | n]
 }
 
 fn align_center() -> [u8; 3] {
@@ -177,7 +183,10 @@ pub struct LogoRaster {
 /// at Font A, see `layout`'s module doc comment for how that 42 was
 /// measured off a real client receipt) rather than the nominal 576-dot
 /// spec-sheet number for 80mm paper, which already proved wrong once.
-const LOGO_MAX_WIDTH_PX: u32 = 350;
+const LOGO_MAX_WIDTH_PX: u32 = 288;
+/// Tallest a logo prints at — about 20 mm at 8 dots/mm, matching the PDF's
+/// `LOGO_MAX_HEIGHT_MM`, so a square or portrait logo stays a header.
+const LOGO_MAX_HEIGHT_PX: u32 = 160;
 
 /// Decodes `image_bytes` (PNG/JPEG — the only formats the `image` crate is
 /// built with here) and thresholds it to 1-bit black/white, scaling down to
@@ -194,32 +203,52 @@ pub fn build_logo_raster(image_bytes: &[u8]) -> Option<LogoRaster> {
 }
 
 fn decode_logo(image_bytes: &[u8]) -> Option<LogoRaster> {
-    let img = image::load_from_memory(image_bytes).ok()?;
-    let (width, height) = (img.width(), img.height());
-    if width == 0 || height == 0 {
+    let mut rgba = image::load_from_memory(image_bytes).ok()?.into_rgba8();
+    if rgba.width() == 0 || rgba.height() == 0 {
         return None;
     }
 
-    let scale = if width > LOGO_MAX_WIDTH_PX { LOGO_MAX_WIDTH_PX as f64 / width as f64 } else { 1.0 };
+    // Crop to the visible mark: uploaded logos often carry wide white or
+    // transparent margins that would otherwise shrink the logo on paper.
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+    for (x, y, p) in rgba.enumerate_pixels() {
+        if paper_luminance(p.0) < 230 {
+            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+        }
+    }
+    if x0 == u32::MAX {
+        return None; // nothing visible to print
+    }
+    let rgba_cropped = image::imageops::crop(&mut rgba, x0, y0, x1 - x0 + 1, y1 - y0 + 1).to_image();
+    let (width, height) = rgba_cropped.dimensions();
+
+    // Scaled to fill the logo box either way: a small upload (a 100 px JPEG
+    // is common) would otherwise print a centimetre wide.
+    let scale = (LOGO_MAX_WIDTH_PX as f64 / width as f64).min(LOGO_MAX_HEIGHT_PX as f64 / height as f64);
     let new_width = (((width as f64) * scale).round().max(1.0)) as u32;
     let new_height = (((height as f64) * scale).round().max(1.0)) as u32;
-    let gray = img.resize(new_width, new_height, image::imageops::FilterType::Triangle).into_luma8();
+    let scaled = image::imageops::resize(&rgba_cropped, new_width, new_height, image::imageops::FilterType::Triangle);
 
     let width_bytes = (new_width as usize + 7) / 8;
     let mut bitmap = vec![0u8; width_bytes * new_height as usize];
-    for y in 0..new_height {
-        for x in 0..new_width {
-            let lum = gray.get_pixel(x, y).0[0];
-            // A simple fixed threshold — good enough for the flat black/white
-            // shop logos this feeds (line art, wordmarks), not photographs.
-            if lum < 160 {
-                let idx = y as usize * width_bytes + (x as usize / 8);
-                bitmap[idx] |= 0x80 >> (x as usize % 8);
-            }
+    for (x, y, p) in scaled.enumerate_pixels() {
+        // A simple fixed threshold — good enough for the flat black/white
+        // shop logos this feeds (line art, wordmarks), not photographs.
+        if paper_luminance(p.0) < 160 {
+            let idx = y as usize * width_bytes + (x as usize / 8);
+            bitmap[idx] |= 0x80 >> (x as usize % 8);
         }
     }
 
     Some(LogoRaster { width_px: new_width as usize, height_px: new_height as usize, bitmap })
+}
+
+/// A pixel's brightness as printed on white paper: a transparent PNG
+/// background (usually stored as transparent *black*) must read as paper,
+/// not ink.
+fn paper_luminance([r, g, b, a]: [u8; 4]) -> u8 {
+    let ink = (r as u32 * 299 + g as u32 * 587 + b as u32 * 114) / 1000;
+    ((ink * a as u32 + 255 * (255 - a as u32)) / 255) as u8
 }
 
 /// Emits the `GS v 0` raster bit-image command, centered — the one ESC/POS
@@ -274,10 +303,6 @@ fn item_row(desc: &str, qty: &str, rate: &str, amount: &str) -> String {
 /// format_qty`'s doc comment for why that's PDF-only.
 const ITEM_TABLE_COLS: [usize; 4] = [16, 5, 7, 9];
 
-/// Content-only column widths for the receipt's boxed contact block
-/// (Business / Delivery numbers): 12 + 27 = 39, plus the 3 `│` separators
-/// [`box_row`] draws = 42 = `LINE_WIDTH`.
-const CONTACT_BOX_COLS: [usize; 2] = [12, 27];
 
 /// The developer credit printed at the very bottom of a customer receipt.
 /// Constants rather than config fields on purpose — this is the vendor's
@@ -442,6 +467,17 @@ fn close_out(out: &mut Vec<u8>, footer: &str) {
 /// The "Table: …" / "Type: …" field beside the cashier. Must match the PDF
 /// receipt's `receiptOrderField` (`src/utils/receiptPdf.ts`) exactly; an order
 /// with no known type is a counter sale, called "Takeaway" when tables are in use.
+/// "cash" -> "Cash", "credit" -> "Pay later" — the label the PDF prints.
+fn payment_label(method: &str) -> String {
+    match method {
+        "credit" => "Pay later".to_string(),
+        _ => {
+            let mut chars = method.chars();
+            chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+        }
+    }
+}
+
 fn order_field(sale: &Sale, tables_module_enabled: bool) -> String {
     let (label, value) = match &sale.table_name {
         Some(table_name) => ("Table", table_name.clone()),
@@ -481,54 +517,36 @@ pub fn build_receipt_bytes(
     out.extend(wake_padding());
     out.extend(init());
 
+    // Masthead: the logo (no shop name — the logo is the brand mark), then
+    // address, website and numbers as centred lines, closed by a rule.
     if let Some(logo) = logo {
         print_logo(&mut out, logo);
     }
-
-    // Business/delivery contact numbers, each its own label-left/value-right
-    // row via `two_col` — the same column-alignment primitive every totals
-    // row already uses — so the two lines print as a clean aligned table
-    // rather than centered prose. Only the ones actually set print at all;
-    // a shop with no delivery service just never gets that row.
-    let mut contact_rows: Vec<(&str, String)> = Vec::new();
-    if let Some(phone) = &config.phone {
-        if !phone.trim().is_empty() {
-            contact_rows.push(("Business", phone.clone()));
-        }
+    let mut lines: Vec<String> = Vec::new();
+    if let Some(address) = config.business_address.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+        lines.extend(wrap_words(address, LINE_WIDTH).into_iter().take(2));
     }
-    if let Some(delivery_number) = &config.delivery_number {
-        if !delivery_number.trim().is_empty() {
-            contact_rows.push(("Delivery", delivery_number.clone()));
-        }
+    if let Some(site) = config.business_website.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
+        lines.push(site.to_string());
     }
-    // Drawn as a real box (─│┌┬┐├┼┤└┴┘ via `box_row`/`box_line`) rather
-    // than the bare aligned rows this used to print — the contact numbers
-    // are the one block on the receipt that reads as a distinct card in the
-    // reference design, so they keep their border while the item table
-    // below gives its own up.
-    if !contact_rows.is_empty() {
-        out.extend(align_left());
-        out.extend(box_line(&CONTACT_BOX_COLS, BoxLinePosition::Top));
-        out.push(b'\n');
-        // Bold applies to the card's contents only — the box rules
-        // themselves stay at normal weight, and `bold(false)` below puts the
-        // rest of the receipt back to normal.
-        out.extend(bold(true));
-        for (label, value) in &contact_rows {
-            out.extend(box_row(&[
-                (format!("{}:", label).as_str(), CONTACT_BOX_COLS[0], false),
-                (value.as_str(), CONTACT_BOX_COLS[1], true),
-            ]));
-            out.push(b'\n');
-        }
-        out.extend(bold(false));
-        out.extend(box_line(&CONTACT_BOX_COLS, BoxLinePosition::Bottom));
-        out.push(b'\n');
-        // The card's own bottom border is separation enough — a blank line
-        // is all that's needed before the sale details, with no second rule
-        // competing with it.
+    let numbers: Vec<String> = [("Tel", &config.phone), ("Delivery", &config.delivery_number)]
+        .into_iter()
+        .filter_map(|(label, n)| n.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(|n| format!("{label}: {n}")))
+        .collect();
+    let joined = numbers.join("  |  ");
+    if joined.chars().count() <= LINE_WIDTH {
+        lines.extend((!joined.is_empty()).then_some(joined));
+    } else {
+        lines.extend(numbers);
+    }
+    out.extend(align_center());
+    for line in &lines {
+        out.extend(truncate_line(line).as_bytes());
         out.push(b'\n');
     }
+    out.extend(align_left());
+    out.extend(divider().as_bytes());
+    out.push(b'\n');
 
     // Sale identity: number + timestamp on one line, cashier + order type
     // on the next, each pair filling the full width rather than being
@@ -637,19 +655,29 @@ pub fn build_receipt_bytes(
             out.push(b'\n');
         }
     }
-    // A plain rule, not `double_divider` — the reference separates the
-    // grand total with the same light ruling used everywhere else, letting
-    // the bold TOTAL row carry the emphasis on its own.
+    // TOTAL between two rules, plain black (a filled band smears on thermal
+    // paper), at double width *and* height so the glyphs keep their shape —
+    // double height alone printed them tall and narrow. That halves the line
+    // to 21 columns; an amount too long for it prints at normal size.
     out.extend(divider().as_bytes());
     out.push(b'\n');
+    let amount = format!("{} {}", currency, format_minor(sale.total_minor));
+    let big_width = LINE_WIDTH / 2;
     out.extend(bold(true));
-    out.extend(two_col("TOTAL:", &format!("{} {}", currency, format_minor(sale.total_minor))).as_bytes());
-    out.push(b'\n');
+    if "TOTAL".len() + 1 + amount.chars().count() <= big_width {
+        out.extend(char_size(2));
+        out.extend(row(&[("TOTAL", 5, false), (&amount, big_width - 5, true)]).as_bytes());
+        out.push(b'\n');
+        out.extend(char_size(1));
+    } else {
+        out.extend(row(&[("TOTAL", 5, false), (&amount, LINE_WIDTH - 5, true)]).as_bytes());
+        out.push(b'\n');
+    }
     out.extend(bold(false));
     out.extend(divider().as_bytes());
     out.push(b'\n');
     out.extend(bold(true));
-    out.extend(truncate_line(&format!("Paid by: {}", sale.payment_method)).as_bytes());
+    out.extend(two_col("Paid by:", &payment_label(&sale.payment_method)).as_bytes());
     out.push(b'\n');
     if sale.payments.len() > 1 || sale.payment_method == "credit" {
         out.extend(bold(false));
@@ -1752,6 +1780,8 @@ mod tests {
             receipt_footer: "Thank you!".into(),
             phone: None,
             delivery_number: None,
+            business_address: None,
+            business_website: None,
             onboarding_completed: true,
             printer_connection_type: None,
             printer_bluetooth_address: None,
@@ -2077,32 +2107,19 @@ mod tests {
     fn build_receipt_bytes_never_lets_a_long_phone_or_delivery_number_spill_onto_another_line() {
         use crate::printer::layout::LINE_WIDTH;
 
-        // Business and Delivery are rows of a box-drawn contact card
-        // (label-left, value-right, each cell padded/truncated by
-        // `box_row`'s `pad`) — that per-cell truncation is what guards
-        // against overflow here.
         let long_phone = "+92 300 1234567 (also a needlessly long phone line to test with)";
         let long_delivery = "0300-9999999 (a needlessly long delivery contact line to test with)";
-
         let mut config = sample_config();
         config.phone = Some(long_phone.into());
         config.delivery_number = Some(long_delivery.into());
 
-        let bytes = build_receipt_bytes(&sample_sale(), &config, None, true);
-        let text = String::from_utf8_lossy(&bytes);
-        assert!(!text.contains(long_phone), "the untruncated phone must not appear at all");
-        assert!(!text.contains(long_delivery), "the untruncated delivery number must not appear at all");
-
-        // Box-drawing bytes aren't valid UTF-8, so match the raw rows.
-        for (label, value) in [("Business:", long_phone), ("Delivery:", long_delivery)] {
-            let expected =
-                box_row(&[(label, CONTACT_BOX_COLS[0], false), (value, CONTACT_BOX_COLS[1], true)]);
-            assert_eq!(expected.len(), LINE_WIDTH, "a contact row must fill exactly one printed line");
-            assert!(
-                bytes.windows(expected.len()).any(|w| w == expected.as_slice()),
-                "the {label} row must appear, cut to one line's width"
-            );
-        }
+        let text = String::from_utf8_lossy(&build_receipt_bytes(&sample_sale(), &config, None, true)).into_owned();
+        // Too long to share a line, so each gets its own, cut to the width.
+        let tel = format!("Tel: {long_phone}").chars().take(LINE_WIDTH).collect::<String>();
+        let delivery = format!("Delivery: {long_delivery}").chars().take(LINE_WIDTH).collect::<String>();
+        assert!(text.contains(&format!("{tel}\n")), "Tel line cut to one printed line: {text}");
+        assert!(text.contains(&format!("{delivery}\n")), "Delivery line cut to one printed line");
+        assert!(!text.contains(long_phone), "the untruncated phone must not appear");
     }
 
     #[test]
@@ -2125,10 +2142,22 @@ mod tests {
     }
 
     #[test]
-    fn build_receipt_bytes_omits_the_business_name_but_includes_line_items() {
+    fn build_receipt_bytes_prints_the_masthead_without_the_shop_name() {
+        let logo = LogoRaster { width_px: 8, height_px: 8, bitmap: vec![0xFF; 8] };
+        let mut config = sample_config();
+        config.business_address = Some("Shop 4, Main Boulevard, Gulberg III, Lahore, Punjab 54000 Pakistan".into());
+        config.business_website = Some("www.demoshop.pk".into());
+        let with_logo = build_receipt_bytes(&sample_sale(), &config, Some(&logo), true);
+        let text = String::from_utf8_lossy(&with_logo);
+        assert!(!text.contains("Demo Shop"), "the logo is the brand mark; the name is never printed");
+        assert!(text.contains("Shop 4, Main Boulevard, Gulberg III,\nLahore, Punjab 54000 Pakistan\n"), "address wraps at a space within 42 columns");
+        assert!(text.contains("www.demoshop.pk\n"));
+
         let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
         let text = String::from_utf8_lossy(&bytes);
-        assert!(!text.contains("Demo Shop"), "the business name must not be printed on the bill any more");
+        assert!(!text.contains("Demo Shop"));
+        assert!(!bytes.windows(2).any(|w| w == [GS, b'B']), "no white-on-black: it smears on thermal paper");
+        assert!(text.contains("Paid by:") && text.contains("Cash"), "payment method is labelled: {text}");
         assert!(text.contains("Sale #42"));
         assert!(text.contains("Cola 500ml"));
         assert!(text.contains("PKR 9.45"), "total must appear formatted with the currency: {text}");
@@ -2315,23 +2344,26 @@ mod tests {
     }
 
     #[test]
-    fn build_receipt_bytes_draws_the_contact_numbers_as_a_box_drawn_card() {
+    fn the_total_prints_large_without_stretching_and_falls_back_when_too_long() {
+        let big = [GS, b'!', 0x11];
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        assert!(bytes.windows(3).any(|w| w == big), "double width + height together, never height alone");
+        assert!(!bytes.windows(3).any(|w| w == [ESC, b'!', 0x18]));
+
+        let mut sale = sample_sale();
+        sale.total_minor = 123_456_789_00; // "TOTAL" + "PKR 123456789.00" > 21 columns
+        let bytes = build_receipt_bytes(&sale, &sample_config(), None, true);
+        assert!(!bytes.windows(3).any(|w| w == big), "too long for the big line: normal size");
+        assert!(String::from_utf8_lossy(&bytes).contains("PKR 123456789.00"));
+    }
+
+    #[test]
+    fn build_receipt_bytes_puts_short_contact_numbers_on_one_line() {
         let mut config = sample_config();
-        config.phone = Some("0313474231928".into());
+        config.phone = Some("0313474231".into());
         config.delivery_number = Some("03123234432".into());
-        let bytes = build_receipt_bytes(&sample_sale(), &config, None, true);
-        // The contact block keeps a real box-drawing border (┌┬┐ / └┴┘) —
-        // it's the one section the reference design reads as a distinct
-        // card, unlike the item table below it.
-        for (name, rule) in [
-            ("top", box_line(&CONTACT_BOX_COLS, BoxLinePosition::Top)),
-            ("bottom", box_line(&CONTACT_BOX_COLS, BoxLinePosition::Bottom)),
-        ] {
-            assert!(
-                bytes.windows(rule.len()).any(|w| w == rule.as_slice()),
-                "expected the {name} box-drawing rule around the contact card"
-            );
-        }
+        let text = String::from_utf8_lossy(&build_receipt_bytes(&sample_sale(), &config, None, true)).into_owned();
+        assert!(text.contains("Tel: 0313474231  |  Delivery: 03123234432\n"), "{text}");
     }
 
     #[test]
@@ -2567,21 +2599,29 @@ mod tests {
         assert!(print_receipt(&sample_sale(), &sample_config(), None, true).is_err());
     }
 
-    #[test]
-    fn build_logo_raster_decodes_a_png_into_a_thresholded_bitmap() {
-        // A tiny synthetic checkerboard, round-tripped through the `image`
-        // crate's own PNG encoder — no fixture file needed, and it exercises
-        // the same decode path a real uploaded logo goes through.
-        let img = image::GrayImage::from_fn(4, 4, |x, y| image::Luma([if (x + y) % 2 == 0 { 0 } else { 255 }]));
-        let mut png_bytes = Vec::new();
-        image::DynamicImage::ImageLuma8(img)
-            .write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
-            .unwrap();
+    /// A 10×10 PNG with a 4×2 opaque black block at (3, 4) on `background`.
+    fn logo_with_margins(background: [u8; 4]) -> Vec<u8> {
+        let img = image::RgbaImage::from_fn(10, 10, |x, y| {
+            image::Rgba(if (3..7).contains(&x) && (4..6).contains(&y) { [0, 0, 0, 255] } else { background })
+        });
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        png
+    }
 
-        let logo = build_logo_raster(&png_bytes).expect("a valid PNG must decode");
-        assert_eq!(logo.width_px, 4);
-        assert_eq!(logo.height_px, 4);
-        assert_eq!(logo.bitmap.len(), 4, "1 byte per row at width 4 (rounds up to 1 byte), 4 rows");
+    #[test]
+    fn build_logo_raster_crops_blank_margins_and_fills_the_logo_box() {
+        let logo = build_logo_raster(&logo_with_margins([255, 255, 255, 255])).expect("a valid PNG must decode");
+        // The 4×2 block alone, scaled up to the width cap.
+        assert_eq!((logo.width_px, logo.height_px), (LOGO_MAX_WIDTH_PX as usize, LOGO_MAX_WIDTH_PX as usize / 2));
+        assert!(logo.bitmap.iter().all(|b| *b == 0xFF), "the white margin is gone; only ink is left");
+    }
+
+    #[test]
+    fn a_transparent_logo_background_prints_as_paper_not_ink() {
+        // Transparent *black* — what most "transparent background" PNGs store.
+        let logo = build_logo_raster(&logo_with_margins([0, 0, 0, 0])).expect("a valid PNG must decode");
+        assert_eq!((logo.width_px, logo.height_px), (LOGO_MAX_WIDTH_PX as usize, LOGO_MAX_WIDTH_PX as usize / 2), "the transparent margin is cropped like paper");
     }
 
     #[test]

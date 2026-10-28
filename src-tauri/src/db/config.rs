@@ -20,6 +20,10 @@ pub struct AppConfig {
     /// owner/admin sets one — a shop with no delivery service just never
     /// shows the line.
     pub delivery_number: Option<String>,
+    /// Address and website printed under the logo on receipts, each only
+    /// when set (an empty string clears it, like `phone`).
+    pub business_address: Option<String>,
+    pub business_website: Option<String>,
     /// Set once the first-time setup wizard finishes. `false` is what tells
     /// the frontend to route a freshly-installed client into onboarding
     /// instead of the normal app.
@@ -153,6 +157,8 @@ pub struct AppConfigUpdate {
     pub receipt_footer: Option<String>,
     pub phone: Option<String>,
     pub delivery_number: Option<String>,
+    pub business_address: Option<String>,
+    pub business_website: Option<String>,
     pub onboarding_completed: Option<bool>,
     pub printer_connection_type: Option<String>,
     pub printer_bluetooth_address: Option<String>,
@@ -179,6 +185,8 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
         receipt_footer: row.get("receipt_footer")?,
         phone: row.get("phone")?,
         delivery_number: row.get("delivery_number")?,
+        business_address: row.get("business_address")?,
+        business_website: row.get("business_website")?,
         onboarding_completed: row.get::<_, i64>("onboarding_completed")? != 0,
         printer_connection_type: row.get("printer_connection_type")?,
         printer_bluetooth_address: row.get("printer_bluetooth_address")?,
@@ -244,7 +252,8 @@ pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
                 printer_connection_type, printer_bluetooth_address, printer_bluetooth_name,
                 printer_usb_device, printer_usb_name, printer_windows_name,
                 service_charge_percent, scale_barcode_enabled, scale_barcode_prefix,
-                scale_item_code_digits, scale_value_kind, scale_value_decimals, offline_sales
+                scale_item_code_digits, scale_value_kind, scale_value_decimals, offline_sales,
+                business_address, business_website
            FROM app_config WHERE id = 1",
         [],
         from_row,
@@ -277,7 +286,9 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
                 scale_item_code_digits = COALESCE(?19, scale_item_code_digits),
                 scale_value_kind = COALESCE(?20, scale_value_kind),
                 scale_value_decimals = COALESCE(?21, scale_value_decimals),
-                offline_sales = COALESCE(?22, offline_sales)
+                offline_sales = COALESCE(?22, offline_sales),
+                business_address = COALESCE(?23, business_address),
+                business_website = COALESCE(?24, business_website)
           WHERE id = 1",
         params![
             patch.business_name,
@@ -302,6 +313,8 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
             patch.scale_value_kind,
             patch.scale_value_decimals,
             patch.offline_sales,
+            patch.business_address,
+            patch.business_website,
         ],
     )?;
 

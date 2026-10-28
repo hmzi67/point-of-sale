@@ -205,6 +205,28 @@ pub fn box_row(cols: &[(&str, usize, bool)]) -> Vec<u8> {
 /// second physical line — the exact `pad`-truncates-rather-than-wraps
 /// convention every column in this file already follows, applied to a
 /// whole line instead of one column of one.
+/// Splits `text` into lines of at most `width` characters at spaces; a single
+/// word longer than `width` is cut.
+pub fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let word: String = word.chars().take(width).collect();
+        if current.is_empty() {
+            current = word;
+        } else if current.chars().count() + 1 + word.chars().count() <= width {
+            current.push(' ');
+            current.push_str(&word);
+        } else {
+            lines.push(std::mem::replace(&mut current, word));
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
 pub fn truncate_line(text: &str) -> String {
     text.chars().take(LINE_WIDTH).collect()
 }
@@ -269,6 +291,13 @@ mod tests {
         assert_eq!(format_qty(1.2), "1.2");
         assert_eq!(format_qty(1.257), "1.26", "rounds to 2 places");
         assert_eq!(format_qty(10.0), "10");
+    }
+
+    #[test]
+    fn wrap_words_breaks_at_spaces_within_the_width() {
+        assert_eq!(wrap_words("Shop 4 Main Boulevard Lahore", 12), vec!["Shop 4 Main", "Boulevard", "Lahore"]);
+        assert_eq!(wrap_words("abcdefghij", 4), vec!["abcd"]);
+        assert!(wrap_words("   ", 10).is_empty());
     }
 
     #[test]

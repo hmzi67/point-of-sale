@@ -206,6 +206,70 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
           {deliveryError && <p className="mt-1 text-xs text-danger-text">{deliveryError}</p>}
         </label>
       </div>
+
+      <div className="mt-6 grid gap-6 sm:grid-cols-2">
+        <ReceiptTextField
+          label="Business address (optional)"
+          placeholder="e.g. Shop 4, Main Boulevard, Lahore"
+          value={config.businessAddress}
+          onSave={(businessAddress) => save({ businessAddress })}
+        />
+        <ReceiptTextField
+          label="Website (optional)"
+          placeholder="e.g. www.yourshop.com"
+          value={config.businessWebsite}
+          onSave={(businessWebsite) => save({ businessWebsite })}
+        />
+      </div>
     </div>
+  );
+}
+
+/** A text setting printed under the logo on receipts: saved on blur when it
+ * changed. Empty is saved as "" (not omitted) so clearing it clears it —
+ * `config_update`'s COALESCE patch reads omitted as "leave as-is". */
+function ReceiptTextField({
+  label,
+  placeholder,
+  value,
+  onSave,
+}: {
+  label: string;
+  placeholder: string;
+  value: string | null;
+  onSave: (value: string) => Promise<unknown>;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => setDraft(value ?? ""), [value]);
+
+  const saveIfChanged = async () => {
+    const trimmed = draft.trim();
+    if (trimmed === (value ?? "")) {
+      setDraft(value ?? "");
+      return;
+    }
+    const ok = await runAction(setIsSaving, setError, () => onSave(trimmed));
+    if (!ok) setDraft(value ?? "");
+  };
+
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-medium text-fg-muted">{label}</span>
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void saveIfChanged()}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        disabled={isSaving}
+        placeholder={placeholder}
+        className="w-full rounded-xl border border-line-strong px-3 py-2 text-sm focus:border-accent focus:outline-none disabled:opacity-50"
+      />
+      <p className="mt-1 text-[11px] text-fg-muted">Printed under the logo on receipts, only when set.</p>
+      {isSaving && <p className="mt-1 text-xs text-fg-muted">Saving…</p>}
+      {error && <p className="mt-1 text-xs text-danger-text">{error}</p>}
+    </label>
   );
 }

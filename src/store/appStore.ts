@@ -25,6 +25,8 @@ const placeholderConfig: AppConfig = {
   receiptFooter: "",
   phone: null,
   deliveryNumber: null,
+  businessAddress: null,
+  businessWebsite: null,
   // A conservative placeholder: `true` (not the real, usually-`false` value)
   // so the onboarding-gate check below never fires a redirect off a value
   // that hasn't loaded from SQLite yet — it waits on `isLoadingConfig`

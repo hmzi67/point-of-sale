@@ -37,8 +37,8 @@ export function lastTableEndY(doc: jsPDF, fallback: number): number {
   return (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? fallback;
 }
 
-export function newReceiptDoc(estimatedHeightMm: number): jsPDF {
-  return new jsPDF({ unit: "mm", format: [PAGE_WIDTH_MM, Math.max(estimatedHeightMm, 90)] });
+export function newReceiptDoc(estimatedHeightMm: number, minHeightMm = 90): jsPDF {
+  return new jsPDF({ unit: "mm", format: [PAGE_WIDTH_MM, Math.max(estimatedHeightMm, minHeightMm)] });
 }
 
 /** Max box a receipt logo is drawn into, aspect ratio preserved. Bumped up
@@ -47,8 +47,8 @@ export function newReceiptDoc(estimatedHeightMm: number): jsPDF {
  * logo is the receipt's only brand mark now, so it reads as a real header
  * rather than a small corner mark. Still well inside `PAGE_WIDTH_MM`'s
  * 80mm, with margin either side. */
-export const LOGO_MAX_WIDTH_MM = 40;
-export const LOGO_MAX_HEIGHT_MM = 24;
+export const LOGO_MAX_WIDTH_MM = 38;
+export const LOGO_MAX_HEIGHT_MM = 20;
 
 /** Resolves a `data:` URL's natural pixel dimensions — needed to draw it into
  * the PDF at the right aspect ratio instead of stretching/squashing it to a
@@ -61,6 +61,66 @@ export function loadImageDimensions(dataUrl: string): Promise<{ width: number; h
     img.onerror = () => reject(new Error("Could not read the logo image"));
     img.src = dataUrl;
   });
+}
+
+/** Crops a logo to its visible content — uploaded logos often carry wide
+ * white or transparent margins that would otherwise shrink the mark itself —
+ * and returns it as a black-and-white PNG data URL with its new size. Also
+ * rasterizes an SVG logo, which jsPDF can't draw. Falls back to the original image if the
+ * canvas can't be read. */
+export async function trimLogo(dataUrl: string): Promise<{ dataUrl: string; width: number; height: number }> {
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Could not read the logo image"));
+    el.src = dataUrl;
+  });
+  const { naturalWidth: w, naturalHeight: h } = img;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0);
+    const px = ctx.getImageData(0, 0, w, h).data;
+    let [x0, y0, x1, y1] = [w, h, -1, -1];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        // Visible = not transparent and not (near-)white paper.
+        if (px[i + 3] > 24 && px[i] + px[i + 1] + px[i + 2] < 3 * 235) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    }
+    if (x1 < 0) return { dataUrl, width: w, height: h }; // blank: leave it
+    // Upscaled smoothly first (small uploads are common), then turned solid
+    // black on white — what the thermal printer prints, and crisp in a PDF.
+    const cropW = x1 - x0 + 1;
+    const cropH = y1 - y0 + 1;
+    const k = Math.max(1, Math.ceil(600 / cropW));
+    const out = document.createElement("canvas");
+    out.width = cropW * k;
+    out.height = cropH * k;
+    const octx = out.getContext("2d")!;
+    octx.fillStyle = "#fff";
+    octx.fillRect(0, 0, out.width, out.height);
+    octx.imageSmoothingQuality = "high";
+    octx.drawImage(canvas, x0, y0, cropW, cropH, 0, 0, out.width, out.height);
+    const image = octx.getImageData(0, 0, out.width, out.height);
+    const d = image.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114 < 160 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    octx.putImageData(image, 0, 0);
+    return { dataUrl: out.toDataURL("image/png"), width: out.width, height: out.height };
+  } catch {
+    return { dataUrl, width: w, height: h };
+  }
 }
 
 /**

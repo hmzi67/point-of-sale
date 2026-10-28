@@ -86,6 +86,8 @@ pub const CONFIG_COLUMNS: &[&str] = &[
     "working_days_per_month",
     "phone",
     "delivery_number",
+    "business_address",
+    "business_website",
     "sensitive_area_pin_hash",
     "service_charge_percent",
     "scale_barcode_enabled",
