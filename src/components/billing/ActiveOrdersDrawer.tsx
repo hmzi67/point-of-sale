@@ -89,7 +89,7 @@ export function ActiveOrdersDrawer({
         .map((l) => ({ itemId: l.itemId, qty: l.qty }));
 
       loadParkedCart(activeLines, 0, (id) => byId.get(id));
-      setActiveOrder(updated.id, updated.version);
+      setActiveOrder(updated.id, updated.version, updated.orderNo);
       setTableId(updated.tableId);
       setCustomerName(updated.customerName || "");
 

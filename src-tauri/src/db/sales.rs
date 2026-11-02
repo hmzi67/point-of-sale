@@ -396,10 +396,16 @@ pub fn insert_priced_sale(tx: &Transaction, sale: PricedSale) -> Result<Sale, Sa
         crate::db::dates::parse_date(due).map_err(SaleError::InvalidPayments)?;
     }
 
+    // An order's sale shows the order's number; a plain counter sale takes
+    // the next one in its shift's sequence.
+    let order_no = match sale.order_id {
+        Some(_) => None,
+        None => Some(crate::db::orders::next_order_no(tx, sale.shift_id)?),
+    };
     tx.execute(
         "INSERT INTO sales (total_minor, discount_minor, tax_minor, payment_method, cashier_id, table_id, shift_id,
-                            order_id, tendered_minor, change_minor, customer_id, service_charge_minor, due_date)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                            order_id, tendered_minor, change_minor, customer_id, service_charge_minor, due_date, order_no)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             total_minor,
             sale.discount_minor,
@@ -414,6 +420,7 @@ pub fn insert_priced_sale(tx: &Transaction, sale: PricedSale) -> Result<Sale, Sa
             sale.customer_id,
             sale.service_charge_minor,
             if credit_minor > 0 { due_date } else { None },
+            order_no,
         ],
     )?;
     let sale_id = tx.last_insert_rowid();
@@ -469,7 +476,7 @@ fn load_sale(conn: &Connection, id: i64) -> Result<Option<Sale>, rusqlite::Error
             "SELECT s.id, s.discount_minor, s.tax_minor, s.total_minor, s.payment_method,
                     s.cashier_id, u.name AS cashier_name, s.table_id, t.name AS table_name,
                     s.shift_id, s.created_at, s.tendered_minor, s.change_minor,
-                    s.order_id, o.order_no,
+                    s.order_id, COALESCE(o.order_no, s.order_no),
                     o.order_type, COALESCE(c.name, o.customer_name), COALESCE(c.phone, o.customer_phone),
                     o.delivery_address,
                     o.delivery_rider_name, o.delivery_rider_phone, o.delivery_platform_name,
@@ -766,6 +773,7 @@ mod tests {
         let item = items::add_item(
             &conn,
             ItemInput {
+                topping_category_id: None,
                 name: "Loose Channa".into(),
                 barcode: None,
                 short_code: None,

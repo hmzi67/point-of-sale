@@ -4,8 +4,6 @@ import { useAppConfig } from "../../hooks/useAppConfig";
 import { useModuleEnabled } from "../../hooks/useModules";
 import { isAdminRole } from "../../utils/permissions";
 import { useAuthStore, useBillingStore, useShiftStore } from "../../store";
-import { CloseShiftModal } from "./CloseShiftModal";
-import { OpenShiftModal } from "./OpenShiftModal";
 import { RefundModal } from "./RefundModal";
 import { CloudSyncBadge } from "../layout/CloudSyncBadge";
 
@@ -17,6 +15,8 @@ interface BillingHeaderProps {
   onOpenActiveOrders?: () => void;
   activeOrdersCount?: number;
   hasLateOrders?: boolean;
+  /** The open shift's chip: opens the page's shift gate (Continue / Close). */
+  onShiftClick: () => void;
 }
 
 /** Date/time + order-status strip above the item grid, plus the Open/Close
@@ -28,6 +28,7 @@ export function BillingHeader({
   onOpenActiveOrders,
   activeOrdersCount = 0,
   hasLateOrders = false,
+  onShiftClick,
 }: BillingHeaderProps) {
   const [now, setNow] = useState(() => new Date());
   const cartOrder = useBillingStore((state) => state.cartOrder);
@@ -38,8 +39,6 @@ export function BillingHeader({
   const role = useAuthStore((state) => state.user?.role);
   const canRefund = role ? isAdminRole(role) : false;
 
-  const [showOpenModal, setShowOpenModal] = useState(false);
-  const [showCloseModal, setShowCloseModal] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
 
   useEffect(() => {
@@ -108,26 +107,17 @@ export function BillingHeader({
           </button>
         )}
 
-        {shiftsEnabled &&
-          (openShift ? (
-            <button
-              type="button"
-              onClick={() => setShowCloseModal(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-accent-text shadow-soft hover:bg-accent-soft"
-            >
-              <Wallet className="h-3.5 w-3.5" />
-              <span>Shift #{openShift.id}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowOpenModal(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-fg-muted shadow-soft hover:bg-surface-2"
-            >
-              <Wallet className="h-3.5 w-3.5" />
-              <span>Open Shift</span>
-            </button>
-          ))}
+        {/* No shift → the page's shift gate is already asking for one. */}
+        {shiftsEnabled && openShift && (
+          <button
+            type="button"
+            onClick={onShiftClick}
+            className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-accent-text shadow-soft hover:bg-accent-soft"
+          >
+            <Wallet className="h-3.5 w-3.5" />
+            <span>Shift #{openShift.id}</span>
+          </button>
+        )}
 
         <div className="flex items-center gap-1.5 rounded-xl border border-line bg-surface py-1 pl-2.5 sm:pl-3 pr-1 shadow-soft">
           <span className={`h-2 w-2 rounded-full ${hasItems ? "bg-success" : "bg-fg-faint"}`} />
@@ -147,10 +137,6 @@ export function BillingHeader({
         </div>
       </div>
 
-      {showOpenModal && <OpenShiftModal currency={config.currency} onClose={() => setShowOpenModal(false)} onOpened={() => setShowOpenModal(false)} />}
-      {showCloseModal && openShift && (
-        <CloseShiftModal shiftId={openShift.id} config={config} onClose={() => setShowCloseModal(false)} />
-      )}
       {showRefundModal && (
         <RefundModal
           config={config}

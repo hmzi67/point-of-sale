@@ -1,4 +1,5 @@
 import { Flame, LayoutGrid } from "lucide-react";
+import { ItemImage } from "./ItemImage";
 import type { Category } from "../../types";
 
 /** `"best-seller"` is a pseudo-category, not a real `category_id` — selecting
@@ -48,6 +49,7 @@ export function MobileCategoryChips({ categories, selected, onSelect }: MobileCa
           onClick={() => onSelect(category.id)}
           className={chipClass(selected === category.id)}
         >
+          {category.imagePath && <ItemImage imagePath={category.imagePath} alt="" className="h-5 w-5 rounded-full" />}
           {category.name}
         </button>
       ))}

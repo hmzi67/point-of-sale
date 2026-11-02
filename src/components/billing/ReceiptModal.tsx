@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Download, Printer, X } from "lucide-react";
 import { useLogoDataUrl } from "../../hooks/useLogoDataUrl";
 import { printReceiptThermal } from "../../services/billingService";
-import { paymentMethodLabel } from "../../utils/checkoutPayments";
-import { formatMinor, formatQty } from "../../utils/format";
+import { ReceiptPaper } from "./ReceiptPaper";
 import type { AppConfig, Sale } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { runAction } from "../../utils/runAction";
@@ -12,21 +11,21 @@ interface ReceiptModalProps {
   sale: Sale;
   config: AppConfig;
   tablesEnabled: boolean;
+  /** Send to the thermal printer once on open ("Place & print bill"). */
+  autoPrint?: boolean;
   onClose: () => void;
 }
 
-/** Shown right after a sale completes. Nothing prints automatically — the
- * sale is already committed by the time this modal opens, and printing
- * (thermal or PDF) only happens when the cashier explicitly clicks one of
- * the buttons below, so a till with no printer attached (or one the
- * cashier doesn't want to use for a given sale) never blocks or interrupts
- * checkout. Thermal print uses whatever printer this installation has
+/** Shown after a sale placed with "Place & print bill", which sends it to
+ * the thermal printer once on open (`autoPrint`). The sale is already
+ * committed by then, so a print failure only shows a message here — it
+ * never blocks or undoes checkout. Thermal print uses whatever printer this installation has
  * configured (USB auto-detected on desktop, Bluetooth selected in Settings
  * on Android) and fails gracefully — with a message — if none is set up or
  * reachable; "Save as PDF" is the fallback for when there's no thermal
  * printer at all. Both buttons can be clicked more than once (e.g. a
  * second physical copy), same handler either time. */
-export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptModalProps) {
+export function ReceiptModal({ sale, config, tablesEnabled, autoPrint = false, onClose }: ReceiptModalProps) {
   const logoUrl = useLogoDataUrl(config.logoPath);
   const [printStatus, setPrintStatus] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
@@ -38,6 +37,11 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
       setPrintStatus("Sent to thermal printer.");
     });
   };
+
+  useEffect(() => {
+    if (autoPrint) void printThermal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Plain Enter is this dialog's "do the obvious thing": send the receipt to
   // the thermal printer, same as clicking Print. Escape is the other
@@ -94,95 +98,8 @@ export function ReceiptModal({ sale, config, tablesEnabled, onClose }: ReceiptMo
           </button>
         </div>
 
-        <div className="max-h-[60dvh] overflow-y-auto px-5 py-4">
-          {logoUrl && <img src={logoUrl} alt="" className="mx-auto mb-2 max-h-24 max-w-[70%] object-contain" />}
-          <p className="text-center text-base font-bold text-fg">{config.businessName}</p>
-          <p className="text-center text-xs text-fg-muted">
-            Sale #{sale.receiptNo} · {sale.createdAt}
-            {sale.tillName ? ` · ${sale.tillName}` : ""}
-          </p>
-          {sale.orderNo && (
-            <p className="mt-1 text-center text-xs font-semibold text-accent-text">
-              Order / Token #{sale.orderNo}
-            </p>
-          )}
-
-          <ul className="mt-4 divide-y divide-line border-y border-line text-sm">
-            {sale.items.map((line) => (
-              <li key={line.itemId} className="flex justify-between py-1.5">
-                <span className="text-fg-2">
-                  {line.itemName} <span className="text-fg-muted">×{formatQty(line.qty, line.unit)}</span>
-                </span>
-                <span className="text-fg">{formatMinor(line.lineTotalMinor, config.currency)}</span>
-              </li>
-            ))}
-          </ul>
-
-          <dl className="mt-3 space-y-1 text-sm">
-            <div className="flex justify-between text-fg-muted">
-              <dt>Subtotal</dt>
-              <dd>{formatMinor(sale.subtotalMinor, config.currency)}</dd>
-            </div>
-            {sale.discountMinor > 0 && (
-              <div className="flex justify-between text-fg-muted">
-                <dt>Discount</dt>
-                <dd>-{formatMinor(sale.discountMinor, config.currency)}</dd>
-              </div>
-            )}
-            {sale.taxMinor > 0 && (
-              <div className="flex justify-between text-fg-muted">
-                <dt>Tax</dt>
-                <dd>{formatMinor(sale.taxMinor, config.currency)}</dd>
-              </div>
-            )}
-            {sale.serviceChargeMinor > 0 && (
-              <div className="flex justify-between text-fg-muted">
-                <dt>Service charge</dt>
-                <dd>{formatMinor(sale.serviceChargeMinor, config.currency)}</dd>
-              </div>
-            )}
-            <div className="flex justify-between border-t border-line pt-1.5 text-base font-semibold text-fg">
-              <dt>Total</dt>
-              <dd>{formatMinor(sale.totalMinor, config.currency)}</dd>
-            </div>
-            {(sale.payments.length > 1 || sale.paymentMethod === "credit") && (
-              <div className="space-y-1 border-t border-line pt-2 text-xs">
-                {sale.payments.map((part) => (
-                  <div
-                    key={part.method}
-                    className={`flex justify-between ${part.method === "credit" ? "font-semibold text-warning-text" : "text-fg-muted"}`}
-                  >
-                    <dt>{paymentMethodLabel(part.method)}</dt>
-                    <dd>{formatMinor(part.amountMinor, config.currency)}</dd>
-                  </div>
-                ))}
-                {sale.dueDate && <p className="text-right text-warning-text">Due by {sale.dueDate}</p>}
-              </div>
-            )}
-            {sale.payments.some((part) => part.method === "cash") && sale.tenderedMinor != null && (
-              <div className="space-y-1 border-t border-line pt-2 text-xs">
-                <div className="flex justify-between text-fg-muted">
-                  <dt>Cash Received</dt>
-                  <dd>{formatMinor(sale.tenderedMinor, config.currency)}</dd>
-                </div>
-                <div className="flex justify-between font-semibold text-success-text">
-                  <dt>Change to Return</dt>
-                  <dd>
-                    {formatMinor(
-                      sale.changeMinor ?? Math.max(0, sale.tenderedMinor - sale.totalMinor),
-                      config.currency,
-                    )}
-                  </dd>
-                </div>
-              </div>
-            )}
-          </dl>
-
-          <p className="mt-3 text-center text-xs text-fg-muted">
-            Paid by {paymentMethodLabel(sale.paymentMethod)}
-            {sale.tableName ? ` · ${sale.tableName}` : ""}
-            {sale.customerName ? ` · ${sale.customerName}` : ""}
-          </p>
+        <div className="max-h-[60dvh] overflow-y-auto bg-surface-2 px-4 py-4">
+          <ReceiptPaper sale={sale} config={config} tablesEnabled={tablesEnabled} logoUrl={logoUrl} />
         </div>
 
         <div className="space-y-2 border-t border-line px-5 py-4">

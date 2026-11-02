@@ -14,6 +14,8 @@ function line(priceMinor: number, qty: number): CartEntry {
     notes: "",
     soldByAmount: false,
     unit: null,
+    toppingCategoryId: null,
+    isTopping: false,
   };
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bike, Edit2, Store, Ticket } from "lucide-react";
+import { Armchair, Bike, Edit2, Store, Ticket } from "lucide-react";
 import { getItems } from "../../services/inventoryService";
 import { attachCartToTable, getParkedCart, getTables } from "../../services/tablesService";
 import { useBillingStore } from "../../store";
@@ -9,6 +9,7 @@ import { DropdownSelect } from "../ui/DropdownSelect";
 import { TokenPrintDialog, type TokenPrintSource } from "./TokenPrintDialog";
 import { DeliveryDetailsModal } from "./DeliveryDetailsModal";
 import { ThirdPartyDeliveryModal } from "./ThirdPartyDeliveryModal";
+import { TablePickerModal } from "./TablePickerModal";
 import type { TableSummary } from "../../types";
 import { runAction } from "../../utils/runAction";
 import { ORDER_TYPE_LABELS } from "../../utils/orderType";
@@ -35,18 +36,11 @@ interface OrderTypeAndTableProps {
 }
 
 /** Same free/occupied/reserved color convention as the floor view's
- * `TableCard` — a small dot next to each table option, restyled for a light
- * background instead of losing the status info in the redesign. */
+ * `TableCard` — a small dot beside the chosen table on the picker button. */
 const STATUS_DOT: Record<TableSummary["status"], string> = {
   free: "bg-success",
   occupied: "bg-danger",
   reserved: "bg-warning",
-};
-
-const STATUS_LABEL: Record<TableSummary["status"], string> = {
-  free: "Free",
-  occupied: "Occupied",
-  reserved: "Reserved",
 };
 
 export function OrderTypeAndTable({
@@ -63,6 +57,7 @@ export function OrderTypeAndTable({
   const [tokenSource, setTokenSource] = useState<TokenPrintSource | null>(null);
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false);
   const [isThirdPartyModalOpen, setIsThirdPartyModalOpen] = useState(false);
+  const [isTablePickerOpen, setIsTablePickerOpen] = useState(false);
 
   const isDeliveryEnabled = useModuleEnabled("delivery");
 
@@ -195,9 +190,10 @@ export function OrderTypeAndTable({
   }, [tokenPrintRequestId]);
 
   useEffect(() => {
-    onTokenDialogOpenChange(tokenSource !== null);
+    // The table picker counts too: digit hotkeys must not add items behind it.
+    onTokenDialogOpenChange(tokenSource !== null || isTablePickerOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tokenSource]);
+  }, [tokenSource, isTablePickerOpen]);
 
   return (
     <div className="space-y-2">
@@ -237,29 +233,22 @@ export function OrderTypeAndTable({
             <Edit2 className="h-3 w-3 text-fg-muted shrink-0" />
           </button>
         ) : (
-          <DropdownSelect
-            value={tableId}
-            placeholder="Select Table"
-            disabled={isLoading}
-            onChange={(id) => {
-              setTableId(id);
-              if (id !== null) {
-                setOrderType("dine_in");
-                setDeliveryDetails(null);
-              }
+          <button
+            type="button"
+            onClick={() => {
+              void reloadTables();
+              setIsTablePickerOpen(true);
             }}
-            options={tables.map((table) => ({
-              value: table.id,
-              label: table.name,
-              meta: (
-                <span className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
-                  <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[table.status]}`} />
-                  {STATUS_LABEL[table.status]}
-                  {table.hasParkedOrder ? " · parked" : ""}
-                </span>
-              ),
-            }))}
-          />
+            disabled={isLoading}
+            className="flex min-w-0 items-center justify-between gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2 text-left text-xs font-medium text-fg transition hover:border-accent disabled:opacity-50"
+            title="Choose a table"
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Armchair className="h-3.5 w-3.5 shrink-0 text-accent-text" />
+              <span className="truncate">{selectedTable ? `${selectedTable.name} · ${selectedTable.seats} seats` : "Select Table"}</span>
+            </span>
+            {selectedTable && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[selectedTable.status]}`} />}
+          </button>
         )}
 
         <DropdownSelect
@@ -351,6 +340,20 @@ export function OrderTypeAndTable({
 
       {tokenSource && (
         <TokenPrintDialog source={tokenSource} currency={currency} onClose={() => setTokenSource(null)} />
+      )}
+
+      {isTablePickerOpen && (
+        <TablePickerModal
+          tables={tables}
+          selectedId={tableId}
+          onClose={() => setIsTablePickerOpen(false)}
+          onSelect={(id) => {
+            setTableId(id);
+            setOrderType("dine_in");
+            setDeliveryDetails(null);
+            setIsTablePickerOpen(false);
+          }}
+        />
       )}
 
       {isDeliveryModalOpen && (

@@ -5,6 +5,7 @@ import { useAppStore } from "../../store";
 import { readLogoFile } from "../../utils/image";
 import type { AppConfig } from "../../types";
 import { runAction } from "../../utils/runAction";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
 
 interface StoreIdentitySectionProps {
   config: AppConfig;
@@ -220,7 +221,64 @@ export function StoreIdentitySection({ config }: StoreIdentitySectionProps) {
           value={config.businessWebsite}
           onSave={(businessWebsite) => save({ businessWebsite })}
         />
+        <ReceiptTextField
+          label="Receipt tagline (optional)"
+          placeholder="e.g. JUICY & TENDER"
+          hint="Printed between dashes under the address."
+          value={config.receiptTagline}
+          onSave={(receiptTagline) => save({ receiptTagline })}
+        />
+        <ReceiptTextField
+          label="Follow-us line (optional)"
+          placeholder="e.g. Follow us on Instagram/TikTok @yourshop"
+          hint="Printed under the thank-you line."
+          value={config.receiptSocial}
+          onSave={(receiptSocial) => save({ receiptSocial })}
+        />
+        <ReceiptToggle
+          label="PAID stamp"
+          hint="A large diagonal PAID (or UNPAID for pay-later) behind the items."
+          checked={config.receiptShowStamp}
+          onChange={(receiptShowStamp) => save({ receiptShowStamp })}
+        />
+        <ReceiptToggle
+          label="Developer credit"
+          hint="The small “Developed by Code Hunts” line at the bottom."
+          checked={config.receiptShowCredit}
+          onChange={(receiptShowCredit) => save({ receiptShowCredit })}
+        />
       </div>
+    </div>
+  );
+}
+
+/** An on/off receipt setting, saved as soon as it is switched. */
+function ReceiptToggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (checked: boolean) => Promise<unknown>;
+}) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <span className="block text-xs font-medium text-fg-muted">{label}</span>
+        <p className="mt-1 text-[11px] text-fg-muted">{hint}</p>
+        {error && <p className="mt-1 text-xs text-danger-text">{error}</p>}
+      </div>
+      <ToggleSwitch
+        checked={checked}
+        disabled={isSaving}
+        label={label}
+        onChange={(next) => void runAction(setIsSaving, setError, () => onChange(next))}
+      />
     </div>
   );
 }
@@ -232,11 +290,13 @@ function ReceiptTextField({
   label,
   placeholder,
   value,
+  hint = "Printed under the logo on receipts, only when set.",
   onSave,
 }: {
   label: string;
   placeholder: string;
   value: string | null;
+  hint?: string;
   onSave: (value: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState(value ?? "");
@@ -267,7 +327,7 @@ function ReceiptTextField({
         placeholder={placeholder}
         className="w-full rounded-xl border border-line-strong px-3 py-2 text-sm focus:border-accent focus:outline-none disabled:opacity-50"
       />
-      <p className="mt-1 text-[11px] text-fg-muted">Printed under the logo on receipts, only when set.</p>
+      <p className="mt-1 text-[11px] text-fg-muted">{hint}</p>
       {isSaving && <p className="mt-1 text-xs text-fg-muted">Saving…</p>}
       {error && <p className="mt-1 text-xs text-danger-text">{error}</p>}
     </label>

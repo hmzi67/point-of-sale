@@ -201,6 +201,8 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
     // about, so an install upgrading straight from v11 needs v13's re-added.
     add_missing_columns(conn)?;
     widen_sales_payment_methods(conn)?;
+    // And again: that v13 rebuild drops any `sales` column added after it.
+    add_missing_columns(conn)?;
     crate::startup_log::log("db: v12->v13 sales payment-method migration checked");
     conn.execute_batch(SALE_PAYMENT_LINES_VIEW)?;
 
@@ -254,6 +256,11 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
 const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // (table, column, column definition for ALTER TABLE ... ADD COLUMN)
     ("items", "image_path", "TEXT"),
+    ("categories", "image_path", "TEXT"),
+    ("categories", "is_topping", "INTEGER NOT NULL DEFAULT 0 CHECK (is_topping IN (0, 1))"),
+    // The topping group offered when this item is added to a cart.
+    ("items", "topping_category_id", "INTEGER REFERENCES categories (id) ON DELETE SET NULL"),
+    ("sales", "order_no", "INTEGER"),
     ("table_orders", "cart_json", "TEXT"),
     ("app_config", "working_days_per_month", "INTEGER NOT NULL DEFAULT 26"),
     // Deliberately DEFAULT 1 here, unlike `schema.sql`'s fresh-install
@@ -388,6 +395,11 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     // Printed under the logo on receipts. Shared by the business.
     ("app_config", "business_address", "TEXT"),
     ("app_config", "business_website", "TEXT"),
+    // Receipt look (see `config::AppConfig`). Shared by the business.
+    ("app_config", "receipt_tagline", "TEXT"),
+    ("app_config", "receipt_social", "TEXT"),
+    ("app_config", "receipt_show_stamp", "INTEGER NOT NULL DEFAULT 1 CHECK (receipt_show_stamp IN (0, 1))"),
+    ("app_config", "receipt_show_credit", "INTEGER NOT NULL DEFAULT 1 CHECK (receipt_show_credit IN (0, 1))"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs

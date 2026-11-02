@@ -24,6 +24,10 @@ export interface CartEntry {
   soldByAmount: boolean;
   /** Copied from `Item.unit` — display only, e.g. "kg" on the cart row. */
   unit: string | null;
+  /** Copied from `Item` — the topping group this line can add toppings from. */
+  toppingCategoryId: number | null;
+  /** Copied from `Item` — this line is itself a topping. */
+  isTopping: boolean;
 }
 
 /** The smallest a line's qty may ever clamp down to — 1 whole unit for a
@@ -97,13 +101,12 @@ interface BillingState {
   /** If current cart was resumed from an active order (takeaway or table order). */
   activeOrderId: number | null;
   activeOrderVersion: number | null;
-  setActiveOrder: (orderId: number | null, version: number | null) => void;
-  /** A local, session-only counter — not a real order/sale id (we don't have
-   * one until `billing_create_sale` actually returns a `Sale`). Increments
-   * every time the current draft is cleared (completed, parked, or reset),
-   * purely so the checkout header has *something* to show before a sale id
-   * exists. */
-  draftOrderNumber: number;
+  /** The resumed order's own number, shown in the checkout header. */
+  activeOrderNo: number | null;
+  setActiveOrder: (orderId: number | null, version: number | null, orderNo?: number | null) => void;
+  /** Bumped every time the draft is cleared (completed, held or reset), so
+   * the checkout header re-reads the shift's next order number. */
+  draftGeneration: number;
 
   /** Quick-add: +1 to an existing line (keeping its notes), or a fresh line
    * at qty 1. Used by the barcode-scan/search path and the item card's
@@ -169,6 +172,13 @@ interface BillingState {
   amountEntryItem: Item | null;
   requestAmountEntry: (item: Item) => void;
   cancelAmountEntry: () => void;
+
+  /** The open topping picker: which item it is for and the topping group to
+   * offer. Opened by `addItem` for an item with a group, or from its cart
+   * row; `BillingPage` mounts the one `ToppingPickerModal` that reads it. */
+  toppingPicker: { itemName: string; groupId: number } | null;
+  openToppingPicker: (itemName: string, groupId: number) => void;
+  closeToppingPicker: () => void;
 }
 
 const initialCartState = {
@@ -183,6 +193,7 @@ const initialCartState = {
   deliveryDetails: null as DeliveryDetails | null,
   activeOrderId: null as number | null,
   activeOrderVersion: null as number | null,
+  activeOrderNo: null as number | null,
   tenderedAmount: null as number | null,
   splitRows: [] as SplitRow[],
   customer: null as Customer | null,
@@ -194,9 +205,13 @@ export const useBillingStore = create<BillingState>((set) => ({
   ...initialCartState,
   paymentMethod: "cash" as CheckoutMode,
   dueDate: defaultDueDate(),
-  draftOrderNumber: 1,
+  draftGeneration: 0,
   amountEntryItem: null,
-  setActiveOrder: (activeOrderId, activeOrderVersion) => set({ activeOrderId, activeOrderVersion }),
+  toppingPicker: null,
+  openToppingPicker: (itemName, groupId) => set({ toppingPicker: { itemName, groupId } }),
+  closeToppingPicker: () => set({ toppingPicker: null }),
+  setActiveOrder: (activeOrderId, activeOrderVersion, activeOrderNo = null) =>
+    set({ activeOrderId, activeOrderVersion, activeOrderNo }),
   setOrderType: (orderType) => set({ orderType }),
   setDeliveryDetails: (deliveryDetails) => set({ deliveryDetails }),
 
@@ -231,12 +246,19 @@ export const useBillingStore = create<BillingState>((set) => ({
         notes: "",
         soldByAmount: item.soldByAmount,
         unit: item.unit,
+        toppingCategoryId: item.toppingCategoryId,
+        isTopping: item.isTopping,
       };
       return {
         cart: { ...state.cart, [item.id]: entry },
         cartOrder: [...state.cartOrder, item.id],
       };
     });
+    // Toppings are offered on every add of an item that has a group — each
+    // pick lands as its own (priced, stocked) cart line.
+    if (item.toppingCategoryId !== null && !item.soldByAmount) {
+      set({ toppingPicker: { itemName: item.name, groupId: item.toppingCategoryId } });
+    }
   },
 
   addItemByAmount: (item, amountMinor) => {
@@ -279,6 +301,8 @@ export const useBillingStore = create<BillingState>((set) => ({
         notes: "",
         soldByAmount: item.soldByAmount,
         unit: item.unit,
+        toppingCategoryId: item.toppingCategoryId,
+        isTopping: item.isTopping,
       };
       return {
         cart: { ...state.cart, [item.id]: entry },
@@ -307,6 +331,8 @@ export const useBillingStore = create<BillingState>((set) => ({
             // sold-by-amount, and must stay editable as one.
             soldByAmount: item.soldByAmount || !Number.isInteger(next),
             unit: item.unit,
+            toppingCategoryId: item.toppingCategoryId,
+            isTopping: item.isTopping,
           };
       return {
         cart: { ...state.cart, [item.id]: entry },
@@ -438,6 +464,8 @@ export const useBillingStore = create<BillingState>((set) => ({
         notes: "",
         soldByAmount: item.soldByAmount,
         unit: item.unit,
+        toppingCategoryId: item.toppingCategoryId,
+        isTopping: item.isTopping,
       };
       cartOrder.push(line.itemId);
     }
@@ -457,7 +485,7 @@ export const useBillingStore = create<BillingState>((set) => ({
       // A split or pay-later bill is a one-off; the next sale starts plain.
       paymentMethod: state.paymentMethod === "split" || state.paymentMethod === "credit" ? "cash" : state.paymentMethod,
       dueDate: defaultDueDate(),
-      draftOrderNumber: state.draftOrderNumber + 1,
+      draftGeneration: state.draftGeneration + 1,
     })),
 
   requestAmountEntry: (item) => set({ amountEntryItem: item }),

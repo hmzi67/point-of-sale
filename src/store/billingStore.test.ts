@@ -23,6 +23,8 @@ function item(overrides: Partial<Item> = {}): Item {
     unit: null,
     counterId: null,
     counterName: null,
+    toppingCategoryId: null,
+    isTopping: false,
     ...overrides,
   };
 }
@@ -58,6 +60,17 @@ describe("addItem", () => {
     expect(qtyOf(2)).toBe(0);
     store().addItem(loose());
     expect(qtyOf(2)).toBe(0);
+  });
+
+  it("offers toppings for an item with a topping group, and adds a topping as its own line", () => {
+    store().closeToppingPicker();
+    store().addItem(item({ id: 5, name: "Pizza", toppingCategoryId: 9 }));
+    expect(store().toppingPicker).toEqual({ itemName: "Pizza", groupId: 9 });
+
+    store().closeToppingPicker();
+    store().addItem(item({ id: 6, name: "Extra Cheese", isTopping: true }));
+    expect(store().toppingPicker).toBeNull();
+    expect(store().cartOrder).toEqual([5, 6]);
   });
 });
 
@@ -190,14 +203,14 @@ describe("loadParkedCart", () => {
 });
 
 describe("clearCart", () => {
-  it("resets the draft but keeps the payment method and advances the order number", () => {
+  it("resets the draft but keeps the payment method, and asks the header to re-read the order number", () => {
     store().addItem(item());
     store().setPaymentMethod("card");
-    const before = store().draftOrderNumber;
+    const before = store().draftGeneration;
     store().clearCart();
     expect(store().cartOrder).toEqual([]);
     expect(store().paymentMethod).toBe("card");
-    expect(store().draftOrderNumber).toBe(before + 1);
+    expect(store().draftGeneration).toBe(before + 1);
   });
 });
 
@@ -231,12 +244,14 @@ describe("orderType and deliveryDetails", () => {
   });
 
   it("handles active order resumption and tracks activeOrderId", () => {
-    store().setActiveOrder(42, 3);
+    store().setActiveOrder(42, 3, 7);
     expect(store().activeOrderId).toBe(42);
     expect(store().activeOrderVersion).toBe(3);
+    expect(store().activeOrderNo).toBe(7);
 
     store().clearCart();
     expect(store().activeOrderId).toBeNull();
     expect(store().activeOrderVersion).toBeNull();
+    expect(store().activeOrderNo).toBeNull();
   });
 });

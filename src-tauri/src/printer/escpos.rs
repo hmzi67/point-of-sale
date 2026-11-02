@@ -66,9 +66,10 @@ use crate::db::shifts::ShiftSummary;
 #[cfg(test)]
 use crate::db::tokens::TokenLine;
 use crate::db::tokens::TokenSummary;
+use crate::printer::receipt_image::{self, Align, Cell, Row, Rule, SIZE_BODY, SIZE_SMALL, SIZE_TITLE};
 use crate::printer::layout::{
-    bordered_line, bordered_row, box_line, box_row, center_text, divider, dashed_divider, double_divider, format_minor,
-    format_qty, row, truncate_line, two_col, wrap_words, BoxLinePosition, LINE_WIDTH,
+    bordered_line, bordered_row, box_line, box_row, center_text, divider, double_divider, format_minor,
+    format_qty, row, truncate_line, two_col, BoxLinePosition, LINE_WIDTH,
 };
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use rusb::{Direction, TransferType};
@@ -316,6 +317,8 @@ const ITEM_TABLE_COLS: [usize; 4] = [16, 5, 7, 9];
 /// limit, so it uses the actual `™` — the one place the two outputs
 /// deliberately differ, because the hardware can't render what the PDF can.
 const DEVELOPER_CREDIT: &str = "Developed by Code Hunts(TM)";
+/// The same credit for the drawn receipt, which has a real ™ glyph (CP437 text does not).
+const DEVELOPER_CREDIT_FULL: &str = "Developed by Code Hunts™";
 const DEVELOPER_SITE: &str = "codehunts.co.uk";
 /// Spaced rather than one unbroken digit string, so it reads as a phone
 /// number a customer could actually dial off the paper.
@@ -437,37 +440,46 @@ fn close_out(out: &mut Vec<u8>, footer: &str) {
     out.extend(feed_and_cut());
 }
 
-/// Builds the full ESC/POS byte stream for one customer receipt. Pure and
-/// hardware-independent (the logo, if any, arrives pre-decoded as a
-/// [`LogoRaster`] — see that type's doc comment), so it is covered by tests
-/// below without needing a printer, a serial port, or a Tauri app context.
-///
-/// `tables_module_enabled` decides the value shown under "Type" when
-/// `sale.table_name` is `None`: "Takeaway" if the shop uses tables at all
-/// (this sale just wasn't linked to one), "Counter Sale" if the `tables`
-/// module isn't in use for this installation.
-///
-/// The business name is deliberately *not* printed here — the logo is the
-/// receipt's brand mark now (see `LOGO_MAX_WIDTH_PX`); other templates
-/// (refund, reports) are untouched and still lead with `header_block`'s
-/// bold business-name line. There is also no merchant-copy banner or
-/// second condensed copy any more — this is the one and only bill printed,
-/// and printing it at all is always an explicit click (`print_receipt`),
-/// never automatic.
-///
-/// Deliberately compact: phone and delivery number each get their own
-/// aligned row (see the two_col rows below), but "Sale #N" and the
-/// timestamp share one line, and Cashier and Table/Order Type share one line —
-/// every pair that can fit side by side does, and there are no spacer blank
-/// lines between sections, only the box-drawn table border and the
-/// `double_divider` above TOTAL doing that job. Less paper per sale, same
-/// information, still clearly organized (see `build_token_bytes`'s doc
-/// comment for the same instinct taken further on a KOT token, which has
-/// no such information to preserve).
-/// The "Table: …" / "Type: …" field beside the cashier. Must match the PDF
-/// receipt's `receiptOrderField` (`src/utils/receiptPdf.ts`) exactly; an order
-/// with no known type is a counter sale, called "Takeaway" when tables are in use.
-/// "cash" -> "Cash", "credit" -> "Pay later" — the label the PDF prints.
+/// "1,250" for whole amounts, "1,250.50" otherwise — the receipt prints the
+/// currency nowhere per line, like a till slip.
+fn amount(minor: i64) -> String {
+    let abs = minor.unsigned_abs();
+    let digits = (abs / 100).to_string();
+    let mut grouped = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(c);
+    }
+    let sign = if minor < 0 { "-" } else { "" };
+    match abs % 100 {
+        0 => format!("{sign}{grouped}"),
+        cents => format!("{sign}{grouped}.{cents:02}"),
+    }
+}
+
+/// "17/10/2026 02:25 AM" from the stored "2026-10-17 02:25:00".
+fn receipt_date(created_at: &str) -> String {
+    chrono::NaiveDateTime::parse_from_str(created_at, "%Y-%m-%d %H:%M:%S")
+        .map(|t| t.format("%d/%m/%Y %I:%M %p").to_string())
+        .unwrap_or_else(|_| created_at.to_string())
+}
+
+/// "Dine In" / "Takeaway" / "Delivery" / the platform's name. A sale with no
+/// recorded type is a counter sale, called "Takeaway" when the shop uses tables.
+fn order_type_label(sale: &Sale, tables_module_enabled: bool) -> String {
+    match sale.order_type.as_deref() {
+        Some("dine_in") => "Dine In".into(),
+        Some("takeaway") => "Takeaway".into(),
+        Some("delivery") => "Delivery".into(),
+        Some("third_party_delivery") => sale.delivery_platform_name.clone().unwrap_or_else(|| "3rd-Party".into()),
+        _ if sale.table_name.is_some() => "Dine In".into(),
+        _ => if tables_module_enabled { "Takeaway" } else { "Counter Sale" }.into(),
+    }
+}
+
+/// "cash" -> "Cash", "credit" -> "Pay later" — the PDF's `paymentMethodLabel`.
 fn payment_label(method: &str) -> String {
     match method {
         "credit" => "Pay later".to_string(),
@@ -475,25 +487,6 @@ fn payment_label(method: &str) -> String {
             let mut chars = method.chars();
             chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
         }
-    }
-}
-
-fn order_field(sale: &Sale, tables_module_enabled: bool) -> String {
-    let (label, value) = match &sale.table_name {
-        Some(table_name) => ("Table", table_name.clone()),
-        None => match sale.order_type.as_deref() {
-            Some("delivery") => ("Type", "Delivery".to_string()),
-            Some("third_party_delivery") => {
-                ("Type", sale.delivery_platform_name.clone().unwrap_or_else(|| "3rd-Party".to_string()))
-            }
-            Some("takeaway") => ("Type", "Takeaway".to_string()),
-            Some("dine_in") => ("Type", "Dine-In".to_string()),
-            _ => ("Type", if tables_module_enabled { "Takeaway" } else { "Counter Sale" }.to_string()),
-        },
-    };
-    match sale.order_no {
-        Some(no) => format!("{label}: {value} (#{no})"),
-        None => format!("{label}: {value}"),
     }
 }
 
@@ -505,6 +498,196 @@ fn rider_text(name: &str, phone: Option<&str>) -> String {
     }
 }
 
+/// Item table columns (fractions of the width): Qty / Rate / Disc / Amount
+/// — the slip's alignment: Qty from the left, Rate and Amount flush right
+/// under their headers, Disc centred. Same as `COLUMNS` in `receiptPdf.ts`.
+const COL_QTY: (f32, f32) = (0.0, 0.2);
+const COL_RATE: (f32, f32) = (0.2, 0.46);
+const COL_DISC: (f32, f32) = (0.52, 0.7);
+const COL_AMOUNT: (f32, f32) = (0.72, 1.0);
+
+/// A bold label with its value right after it ("Invoice #:  119728").
+fn info_row(label: &str, value: impl Into<String>) -> Row {
+    Row::Pair { label: label.into(), value: value.into(), size: SIZE_BODY }
+}
+
+/// A bold label on the left, its amount on the right ("SubTotal   1,380").
+fn total_row(label: &str, value: impl Into<String>) -> Row {
+    Row::Cells {
+        cells: vec![Cell::new(label, 0.0, 0.6, Align::Left, true), Cell::new(value, 0.6, 1.0, Align::Right, false)],
+        size: SIZE_BODY,
+    }
+}
+
+fn centered(text: impl Into<String>, size: f32, bold: bool) -> Row {
+    Row::Text { text: text.into(), align: Align::Center, size, bold }
+}
+
+/// The diagonal stamp behind the items: "PAID" for a settled sale, "UNPAID"
+/// while part of it is on pay-later, none when the shop turned stamps off.
+/// Must match `receiptStamp` in `receiptPdf.ts`.
+pub fn receipt_stamp(sale: &Sale, config: &AppConfig) -> Option<&'static str> {
+    if !config.receipt_show_stamp {
+        None
+    } else if sale.payments.iter().any(|part| part.method == "credit") {
+        Some("UNPAID")
+    } else {
+        Some("PAID")
+    }
+}
+
+/// What the customer receipt shows, top to bottom: logo (printed separately)
+/// over a thin rule, shop name, address, phone, website, tagline banner; the
+/// sale's details; the item table (name on its own line, then Qty / Rate /
+/// Disc / Amount, dotted between items); totals and payments; the item
+/// count, thank-you, follow-us line and developer credit. `receiptPdf.ts`
+/// draws the same layout for the PDF.
+/// `logo_width`: the printed logo's width in dots, when there is one — the
+/// line under it is as wide.
+pub fn receipt_rows(sale: &Sale, config: &AppConfig, tables_module_enabled: bool, logo_width: Option<usize>) -> Vec<Row> {
+    let mut rows = Vec::new();
+    let present = |v: &Option<String>| v.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+
+    if let Some(width) = logo_width {
+        rows.push(Row::ShortRule((width + 40).min(receipt_image::WIDTH_PX)));
+    }
+    rows.push(centered(config.business_name.to_uppercase(), SIZE_TITLE, true));
+    if let Some(address) = present(&config.business_address) {
+        rows.push(centered(address, SIZE_BODY, false));
+    }
+    if let Some(phone) = present(&config.phone) {
+        rows.push(centered(format!("Phone No {phone}"), SIZE_BODY, false));
+    }
+    if let Some(number) = present(&config.delivery_number) {
+        rows.push(centered(format!("Delivery No {number}"), SIZE_BODY, false));
+    }
+    if let Some(site) = present(&config.business_website) {
+        rows.push(centered(site, SIZE_BODY, false));
+    }
+    if let Some(tagline) = present(&config.receipt_tagline) {
+        rows.push(Row::Banner { text: tagline, size: SIZE_BODY });
+    }
+    rows.push(Row::Gap(14));
+
+    rows.push(info_row("Cashier:", sale.cashier_name.clone().unwrap_or_else(|| "—".into()).to_uppercase()));
+    rows.push(info_row("Date #:", receipt_date(&sale.created_at)));
+    rows.push(info_row("Invoice #:", sale.receipt_no.clone()));
+    if let Some(no) = sale.order_no {
+        rows.push(info_row("Order #:", no.to_string()));
+    }
+    if let Some(till) = &sale.till_name {
+        rows.push(info_row("Counter:", till.clone()));
+    }
+    rows.push(info_row("Type :", order_type_label(sale, tables_module_enabled)));
+    if let Some(table) = &sale.table_name {
+        rows.push(info_row("Table #:", table.clone()));
+    }
+    match sale.order_type.as_deref() {
+        Some("delivery") => {
+            if sale.customer_name.is_some() || sale.customer_phone.is_some() {
+                let name = sale.customer_name.clone().unwrap_or_default();
+                rows.push(info_row("Customer:", rider_text(&name, sale.customer_phone.as_deref()).trim().to_string()));
+            }
+            if let Some(address) = present(&sale.delivery_address) {
+                rows.push(Row::Text { text: format!("Address: {address}"), align: Align::Left, size: SIZE_BODY, bold: false });
+            }
+            if let Some(rider) = &sale.delivery_rider_name {
+                rows.push(info_row("Rider:", rider_text(rider, sale.delivery_rider_phone.as_deref())));
+            }
+        }
+        Some("third_party_delivery") => {
+            if let Some(reference) = &sale.platform_order_ref {
+                rows.push(info_row("Order Ref:", format!("#{reference}")));
+            }
+            if let Some(rider) = &sale.delivery_rider_name {
+                rows.push(info_row("Rider:", rider_text(rider, sale.delivery_rider_phone.as_deref())));
+            }
+        }
+        _ => {}
+    }
+    rows.push(Row::Gap(16));
+
+    let columns = |qty: String, rate: String, disc: String, total: String, bold: bool| Row::Cells {
+        cells: vec![
+            Cell::new(qty, COL_QTY.0, COL_QTY.1, Align::Left, bold),
+            Cell::new(rate, COL_RATE.0, COL_RATE.1, Align::Right, bold),
+            Cell::new(disc, COL_DISC.0, COL_DISC.1, Align::Center, bold),
+            Cell::new(total, COL_AMOUNT.0, COL_AMOUNT.1, Align::Right, bold),
+        ],
+        size: SIZE_BODY,
+    };
+    rows.push(columns("Qty".into(), "Rate".into(), "Disc".into(), "Amount".into(), true));
+    rows.push(Row::Rule(Rule::Thick));
+    for (i, line) in sale.items.iter().enumerate() {
+        if i > 0 {
+            rows.push(Row::Rule(Rule::Dotted));
+        }
+        rows.push(Row::Text { text: line.item_name.clone(), align: Align::Left, size: SIZE_BODY, bold: true });
+        if let Some(note) = line.notes.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+            rows.push(Row::Text { text: format!("({note})"), align: Align::Left, size: SIZE_SMALL, bold: false });
+        }
+        let qty = match &line.unit {
+            Some(unit) => format!("{} {unit}", format_qty(line.qty)),
+            None => format_qty(line.qty),
+        };
+        // The discount is taken off the whole bill, never per line.
+        rows.push(columns(qty, amount(line.price_at_sale_minor), "0".into(), amount(line.line_total_minor), false));
+    }
+    rows.push(Row::Rule(Rule::Thick));
+
+    rows.push(total_row("SubTotal", amount(sale.subtotal_minor)));
+    if sale.discount_minor > 0 {
+        rows.push(total_row("Discount", format!("-{}", amount(sale.discount_minor))));
+    }
+    if sale.tax_minor > 0 {
+        rows.push(total_row("Tax", amount(sale.tax_minor)));
+    }
+    if sale.service_charge_minor > 0 {
+        rows.push(total_row("Service Charge", amount(sale.service_charge_minor)));
+    }
+    if let Some(fee) = sale.delivery_charge_minor.filter(|fee| *fee > 0) {
+        rows.push(total_row("Delivery Fee", amount(fee)));
+    }
+    rows.push(total_row("NetTotal", amount(sale.total_minor)));
+    let tendered = sale.tendered_minor.filter(|_| sale.payments.iter().any(|p| p.method == "cash"));
+    for part in &sale.payments {
+        // Cash shows what the customer handed over; the change row follows.
+        let paid = if part.method == "cash" { tendered.unwrap_or(part.amount_minor) } else { part.amount_minor };
+        rows.push(total_row(&format!("Payment ({})", payment_label(&part.method)), amount(paid)));
+    }
+    if let Some(due) = &sale.due_date {
+        rows.push(total_row("Balance Due By", due.clone()));
+    }
+    if let Some(tendered) = tendered {
+        rows.push(total_row("Change", amount(sale.change_minor.unwrap_or_else(|| (tendered - sale.total_minor).max(0)))));
+    }
+    rows.push(Row::Rule(Rule::Thick));
+    rows.push(Row::Gap(18));
+
+    let total_qty: f64 = sale.items.iter().map(|line| line.qty).sum();
+    rows.push(centered(format!("Total Items: {} Total QTY: {}", sale.items.len(), format_qty(total_qty)), SIZE_BODY, true));
+    for line in config.receipt_footer.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        rows.push(centered(line, SIZE_BODY, false));
+    }
+    if let Some(social) = present(&config.receipt_social) {
+        rows.push(centered(social, SIZE_SMALL, false));
+    }
+    if config.receipt_show_credit {
+        rows.push(Row::Gap(14));
+        rows.push(centered(DEVELOPER_CREDIT_FULL, SIZE_SMALL, false));
+        rows.push(centered(format!("{DEVELOPER_SITE}{CREDIT_SEPARATOR}{DEVELOPER_PHONE}"), SIZE_SMALL, false));
+    }
+    rows
+}
+
+/// Builds the full byte stream for one customer receipt: the logo as its own
+/// raster, then [`receipt_rows`] drawn as a picture (`receipt_image`) in a
+/// proportional font, then the feed and cut. Pure and hardware-independent,
+/// so it is covered by tests without a printer.
+///
+/// `tables_module_enabled` decides the "Type" of a sale with no recorded
+/// order type: "Takeaway" if the shop uses tables, "Counter Sale" if not.
+/// One copy, never automatic — printing is always an explicit action.
 pub fn build_receipt_bytes(
     sale: &Sale,
     config: &AppConfig,
@@ -512,217 +695,15 @@ pub fn build_receipt_bytes(
     tables_module_enabled: bool,
 ) -> Vec<u8> {
     let mut out = Vec::new();
-    let currency = &config.currency;
-
     out.extend(wake_padding());
     out.extend(init());
-
-    // Masthead: the logo (no shop name — the logo is the brand mark), then
-    // address, website and numbers as centred lines, closed by a rule.
     if let Some(logo) = logo {
         print_logo(&mut out, logo);
     }
-    let mut lines: Vec<String> = Vec::new();
-    if let Some(address) = config.business_address.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
-        lines.extend(wrap_words(address, LINE_WIDTH).into_iter().take(2));
-    }
-    if let Some(site) = config.business_website.as_deref().map(str::trim).filter(|w| !w.is_empty()) {
-        lines.push(site.to_string());
-    }
-    let numbers: Vec<String> = [("Tel", &config.phone), ("Delivery", &config.delivery_number)]
-        .into_iter()
-        .filter_map(|(label, n)| n.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(|n| format!("{label}: {n}")))
-        .collect();
-    let joined = numbers.join("  |  ");
-    if joined.chars().count() <= LINE_WIDTH {
-        lines.extend((!joined.is_empty()).then_some(joined));
-    } else {
-        lines.extend(numbers);
-    }
-    out.extend(align_center());
-    for line in &lines {
-        out.extend(truncate_line(line).as_bytes());
-        out.push(b'\n');
-    }
     out.extend(align_left());
-    out.extend(divider().as_bytes());
-    out.push(b'\n');
-
-    // Sale identity: number + timestamp on one line, cashier + order type
-    // on the next, each pair filling the full width rather than being
-    // centered — the reference reads these as a two-line data block, not a
-    // masthead. `row` truncates rather than wraps, so a long table name
-    // shortens instead of pushing the line onto a second physical row.
-    out.extend(align_left());
-    let sale_field = format!("Sale #{}", sale.receipt_no);
-    out.extend(row(&[(&sale_field, 18, false), (&sale.created_at, LINE_WIDTH - 18, true)]).as_bytes());
-    out.push(b'\n');
-    if let Some(till) = &sale.till_name {
-        out.extend(truncate_line(&format!("Counter: {till}")).as_bytes());
-        out.push(b'\n');
-    }
-
-    let cashier_field = format!("Cashier: {}", sale.cashier_name.as_deref().unwrap_or("—"));
-    let order_field = order_field(sale, tables_module_enabled);
-    let half = LINE_WIDTH / 2;
-    out.extend(row(&[(&cashier_field, half, false), (&order_field, LINE_WIDTH - half, true)]).as_bytes());
-    out.push(b'\n');
-
-    if sale.order_type.as_deref() == Some("delivery") {
-        if let Some(phone) = &sale.customer_phone {
-            let cust_text = format!("Cust: {}{}", sale.customer_name.as_deref().unwrap_or(""), if !phone.is_empty() { format!(" ({})", phone) } else { "".to_string() });
-            out.extend(truncate_line(&cust_text).as_bytes());
-            out.push(b'\n');
-        }
-        if let Some(addr) = &sale.delivery_address {
-            let addr_text = format!("Addr: {}", addr);
-            out.extend(truncate_line(&addr_text).as_bytes());
-            out.push(b'\n');
-        }
-        if let Some(rider) = &sale.delivery_rider_name {
-            let rider_text = format!("Rider: {}", rider_text(rider, sale.delivery_rider_phone.as_deref()));
-            out.extend(truncate_line(&rider_text).as_bytes());
-            out.push(b'\n');
-        }
-    } else if sale.order_type.as_deref() == Some("third_party_delivery") {
-        if let Some(r) = &sale.platform_order_ref {
-            let ref_text = format!("Order Ref: #{}", r);
-            out.extend(truncate_line(&ref_text).as_bytes());
-            out.push(b'\n');
-        }
-        if let Some(rider) = &sale.delivery_rider_name {
-            let rider_text = format!("Rider: {}", rider_text(rider, sale.delivery_rider_phone.as_deref()));
-            out.extend(truncate_line(&rider_text).as_bytes());
-            out.push(b'\n');
-        }
-    }
-
-    // A fully box-drawn item table (─│┌┬┐├┼┤└┴┘ via `box_row`/`box_line`) —
-    // outer border, a rule under the header, and a vertical rule between
-    // every column, so it reads as an actual table rather than a list under
-    // a line. Same box-drawing vocabulary as the contact card above it, so
-    // the two blocks look like they belong on the same receipt.
-    //
-    // The borders cost 5 of the 42 columns, which is why the content widths
-    // here ([`ITEM_TABLE_COLS`], 37 columns) are narrower than the
-    // border-less layout's would be.
-    out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top));
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(box_row(&[
-        ("ITEM", ITEM_TABLE_COLS[0], false),
-        ("QTY", ITEM_TABLE_COLS[1], true),
-        ("RATE", ITEM_TABLE_COLS[2], true),
-        ("AMOUNT", ITEM_TABLE_COLS[3], true),
-    ]));
-    out.push(b'\n');
-    out.extend(bold(false));
-    out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Middle));
-    out.push(b'\n');
-    for item in &sale.items {
-        out.extend(box_row(&[
-            (item.item_name.as_str(), ITEM_TABLE_COLS[0], false),
-            (&format_qty(item.qty), ITEM_TABLE_COLS[1], true),
-            (&format_minor(item.price_at_sale_minor), ITEM_TABLE_COLS[2], true),
-            (&format_minor(item.line_total_minor), ITEM_TABLE_COLS[3], true),
-        ]));
-        out.push(b'\n');
-    }
-    out.extend(box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom));
-    out.push(b'\n');
-
-    out.extend(two_col("Subtotal:", &format!("{} {}", currency, format_minor(sale.subtotal_minor))).as_bytes());
-    out.push(b'\n');
-    if sale.discount_minor > 0 {
-        out.extend(
-            two_col("Discount:", &format!("-{} {}", currency, format_minor(sale.discount_minor))).as_bytes(),
-        );
-        out.push(b'\n');
-    }
-    if sale.tax_minor > 0 {
-        out.extend(two_col("Tax:", &format!("{} {}", currency, format_minor(sale.tax_minor))).as_bytes());
-        out.push(b'\n');
-    }
-    if sale.service_charge_minor > 0 {
-        out.extend(
-            two_col("Service Charge:", &format!("{} {}", currency, format_minor(sale.service_charge_minor))).as_bytes(),
-        );
-        out.push(b'\n');
-    }
-    if let Some(charge) = sale.delivery_charge_minor {
-        if charge > 0 {
-            out.extend(two_col("Delivery Fee:", &format!("{} {}", currency, format_minor(charge))).as_bytes());
-            out.push(b'\n');
-        }
-    }
-    // TOTAL between two rules, plain black (a filled band smears on thermal
-    // paper), at double width *and* height so the glyphs keep their shape —
-    // double height alone printed them tall and narrow. That halves the line
-    // to 21 columns; an amount too long for it prints at normal size.
-    out.extend(divider().as_bytes());
-    out.push(b'\n');
-    let amount = format!("{} {}", currency, format_minor(sale.total_minor));
-    let big_width = LINE_WIDTH / 2;
-    out.extend(bold(true));
-    if "TOTAL".len() + 1 + amount.chars().count() <= big_width {
-        out.extend(char_size(2));
-        out.extend(row(&[("TOTAL", 5, false), (&amount, big_width - 5, true)]).as_bytes());
-        out.push(b'\n');
-        out.extend(char_size(1));
-    } else {
-        out.extend(row(&[("TOTAL", 5, false), (&amount, LINE_WIDTH - 5, true)]).as_bytes());
-        out.push(b'\n');
-    }
-    out.extend(bold(false));
-    out.extend(divider().as_bytes());
-    out.push(b'\n');
-    out.extend(bold(true));
-    out.extend(two_col("Paid by:", &payment_label(&sale.payment_method)).as_bytes());
-    out.push(b'\n');
-    if sale.payments.len() > 1 || sale.payment_method == "credit" {
-        out.extend(bold(false));
-        for part in &sale.payments {
-            let label = if part.method == "credit" { "Pay later".to_string() } else { format!("{}:", part.method) };
-            out.extend(two_col(&label, &format!("{} {}", currency, format_minor(part.amount_minor))).as_bytes());
-            out.push(b'\n');
-        }
-        if let Some(due) = &sale.due_date {
-            out.extend(truncate_line(&format!("Balance due by: {due}")).as_bytes());
-            out.push(b'\n');
-        }
-        out.extend(bold(true));
-    }
-    if sale.payments.iter().any(|p| p.method == "cash") {
-        if let Some(tendered) = sale.tendered_minor {
-            let change = sale.change_minor.unwrap_or_else(|| (tendered - sale.total_minor).max(0));
-            out.extend(bold(false));
-            out.extend(two_col("Cash Received:", &format!("{} {}", currency, format_minor(tendered))).as_bytes());
-            out.push(b'\n');
-            out.extend(bold(true));
-            out.extend(two_col("Change:", &format!("{} {}", currency, format_minor(change))).as_bytes());
-            out.push(b'\n');
-        }
-    }
-    out.extend(bold(false));
-
-    // Closing block: the configured thank-you line, then the developer
-    // credit. Built here rather than through `close_out` (every other
-    // template's closer) because only the customer receipt carries a
-    // credit block.
-    footer_block(&mut out, &config.receipt_footer);
-    out.push(b'\n');
-    // A dashed rule closes off the transaction and opens the credit block —
-    // still lighter than the solid rules bracketing the totals, so it reads
-    // as a change of subject rather than a structural boundary.
-    out.extend(align_left());
-    out.extend(dashed_divider().as_bytes());
-    out.push(b'\n');
-    out.push(b'\n');
-    developer_credit_block(&mut out);
-
-    // The pre-cut padding stays below the credit block, so the cutter never
-    // runs through it — see `close_out`'s doc comment on why this margin
-    // sits on top of the cut command's own built-in feed.
+    let rows = receipt_rows(sale, config, tables_module_enabled, logo.map(|l| l.width_px));
+    let (bitmap, height) = receipt_image::render(&rows, receipt_stamp(sale, config));
+    out.extend(receipt_image::raster_commands(&bitmap, height));
     out.push(b'\n');
     out.push(b'\n');
     out.extend(feed_and_cut());
@@ -1782,6 +1763,10 @@ mod tests {
             delivery_number: None,
             business_address: None,
             business_website: None,
+            receipt_tagline: None,
+            receipt_social: None,
+            receipt_show_stamp: true,
+            receipt_show_credit: true,
             onboarding_completed: true,
             printer_connection_type: None,
             printer_bluetooth_address: None,
@@ -1797,34 +1782,6 @@ mod tests {
             scale_value_decimals: 3,
             offline_sales: "allow".into(),
         }
-    }
-
-    #[test]
-    fn order_field_matches_the_pdf_receipt() {
-        // Same cases as `receiptOrderField` in src/utils/receiptPdf.test.ts.
-        let with = |table: Option<&str>, kind: Option<&str>, platform: Option<&str>, no: Option<i64>| Sale {
-            table_name: table.map(Into::into),
-            order_type: kind.map(Into::into),
-            delivery_platform_name: platform.map(Into::into),
-            order_no: no,
-            ..sample_sale()
-        };
-        let cases = [
-            (with(Some("T4"), Some("dine_in"), None, None), true, "Table: T4"),
-            (with(None, Some("delivery"), None, None), true, "Type: Delivery"),
-            (with(None, Some("third_party_delivery"), Some("Foodpanda"), None), true, "Type: Foodpanda"),
-            (with(None, Some("third_party_delivery"), None, None), true, "Type: 3rd-Party"),
-            (with(None, Some("takeaway"), None, None), false, "Type: Takeaway"),
-            (with(None, Some("dine_in"), None, None), false, "Type: Dine-In"),
-            (with(None, None, None, None), true, "Type: Takeaway"),
-            (with(None, None, None, None), false, "Type: Counter Sale"),
-            (with(None, Some("takeaway"), None, Some(17)), false, "Type: Takeaway (#17)"),
-        ];
-        for (sale, tables, expected) in cases {
-            assert_eq!(order_field(&sale, tables), expected);
-        }
-        assert_eq!(rider_text("Ali", Some("0300")), "Ali (0300)");
-        assert_eq!(rider_text("Ali", None), "Ali");
     }
 
     fn sample_sale() -> Sale {
@@ -1871,6 +1828,234 @@ mod tests {
             receipt_no: "42".into(),
             till_name: None,
         }
+    }
+
+    /// The receipt's rows as text, one per line — what the picture says.
+    fn receipt_text(sale: &Sale, config: &AppConfig, tables: bool) -> String {
+        receipt_rows(sale, config, tables, None).iter().map(Row::text).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn the_receipt_reads_like_the_reference_slip() {
+        let mut config = sample_config();
+        config.business_name = "MASKAN FOOD".into();
+        config.business_address = Some("5th Road D Block Satellite Town Rawalpindi".into());
+        config.phone = Some("0319-9966166".into());
+        config.receipt_tagline = Some("JUICY & TENDER".into());
+        config.receipt_social = Some("Follow us @maskanfood".into());
+        config.receipt_footer = "Thankyou!!".into();
+        let sale = Sale {
+            cashier_name: Some("Admin".into()),
+            created_at: "2026-10-17 02:25:00".into(),
+            receipt_no: "119728".into(),
+            order_no: Some(7),
+            order_type: Some("dine_in".into()),
+            table_name: Some("Table 9".into()),
+            subtotal_minor: 138_000,
+            discount_minor: 0,
+            tax_minor: 0,
+            total_minor: 138_000,
+            tendered_minor: Some(200_000),
+            change_minor: Some(62_000),
+            payments: vec![crate::db::sales::PaymentPart { method: "cash".into(), amount_minor: 138_000 }],
+            items: vec![
+                SaleLine { item_id: 1, item_name: "Half Rotisserie Chicken".into(), qty: 1.0, unit: None, price_at_sale_minor: 125_000, line_total_minor: 125_000, notes: None },
+                SaleLine { item_id: 2, item_name: "COLA NEXT 500ml".into(), qty: 1.0, unit: None, price_at_sale_minor: 13_000, line_total_minor: 13_000, notes: None },
+            ],
+            ..sample_sale()
+        };
+        let text = receipt_text(&sale, &config, true);
+        let expected = [
+            "MASKAN FOOD",
+            "5th Road D Block Satellite Town Rawalpindi",
+            "Phone No 0319-9966166",
+            "JUICY & TENDER",
+            "Cashier: ADMIN",
+            "Date #: 17/10/2026 02:25 AM",
+            "Invoice #: 119728",
+            "Order #: 7",
+            "Type : Dine In",
+            "Table #: Table 9",
+            "Qty Rate Disc Amount",
+            "Half Rotisserie Chicken",
+            "1 1,250 0 1,250",
+            "COLA NEXT 500ml",
+            "1 130 0 130",
+            "SubTotal 1,380",
+            "NetTotal 1,380",
+            "Payment (Cash) 2,000",
+            "Change 620",
+            "Total Items: 2 Total QTY: 2",
+            "Thankyou!!",
+            "Follow us @maskanfood",
+            "Developed by Code Hunts™",
+        ];
+        let mut rest = text.as_str();
+        for line in expected {
+            let at = rest.find(line).unwrap_or_else(|| panic!("missing or out of order: {line:?}\n{text}"));
+            rest = &rest[at + line.len()..];
+        }
+        let rows = receipt_rows(&sale, &config, true, None);
+        assert_eq!(rows.iter().filter(|r| **r == Row::Rule(Rule::Dotted)).count(), 1, "dotted only between items");
+    }
+
+    /// The reference shop's settings and its Dine In slip, for the preview
+    /// and the layout tests.
+    fn reference_config() -> AppConfig {
+        let mut config = sample_config();
+        config.business_name = "Maskan Food".into();
+        config.business_address = Some("5th Road D Block Satellite Town Rawalpindi".into());
+        config.phone = Some("0319-9966166".into());
+        config.receipt_tagline = Some("JUICY & TENDER".into());
+        config.receipt_footer = "Thankyou!!".into();
+        config.receipt_social = Some("Follow us on Instagram/TikTok @maskanfood".into());
+        config
+    }
+
+    fn line(id: i64, name: &str, qty: f64, rate_minor: i64) -> SaleLine {
+        SaleLine { item_id: id, item_name: name.into(), qty, unit: None, price_at_sale_minor: rate_minor, line_total_minor: (qty * rate_minor as f64).round() as i64, notes: None }
+    }
+
+    fn reference_sale() -> Sale {
+        Sale {
+            cashier_name: Some("Admin".into()),
+            created_at: "2026-10-17 02:25:00".into(),
+            receipt_no: "119728".into(),
+            order_type: Some("dine_in".into()),
+            table_name: Some("Table 9".into()),
+            subtotal_minor: 138_000,
+            discount_minor: 0,
+            tax_minor: 0,
+            total_minor: 138_000,
+            tendered_minor: Some(200_000),
+            change_minor: Some(62_000),
+            payments: vec![crate::db::sales::PaymentPart { method: "cash".into(), amount_minor: 138_000 }],
+            items: vec![line(1, "Half Rotisserie Chicken", 1.0, 125_000), line(2, "COLA NEXT 500ml", 1.0, 13_000)],
+            ..sample_sale()
+        }
+    }
+
+    /// Writes the test receipts as PNGs for eyeballing a layout change:
+    /// `DIWAN_RECEIPT_PNG=/some/dir cargo test receipt_preview -- --ignored`.
+    #[test]
+    #[ignore]
+    fn receipt_preview() {
+        let dir = std::path::PathBuf::from(std::env::var("DIWAN_RECEIPT_PNG").expect("set DIWAN_RECEIPT_PNG to a folder"));
+        let config = reference_config();
+        let takeaway = Sale {
+            order_type: Some("takeaway".into()),
+            table_name: None,
+            order_no: Some(6),
+            receipt_no: "59".into(),
+            tendered_minor: Some(138_000),
+            change_minor: Some(0),
+            ..reference_sale()
+        };
+        let mut long_items: Vec<SaleLine> = (0..32)
+            .map(|i| line(i, &format!("Item number {i} with a fairly long descriptive name for the kitchen"), 1.0 + (i % 3) as f64, 1_250_000 + i * 100))
+            .collect();
+        long_items[0].notes = Some("no onions, extra sauce".into());
+        let long_total: i64 = long_items.iter().map(|l| l.line_total_minor).sum();
+        let long = Sale {
+            items: long_items,
+            subtotal_minor: long_total,
+            total_minor: long_total,
+            tendered_minor: None,
+            change_minor: None,
+            payments: vec![crate::db::sales::PaymentPart { method: "card".into(), amount_minor: long_total }],
+            ..reference_sale()
+        };
+        let unpaid = Sale {
+            payment_method: "credit".into(),
+            tendered_minor: None,
+            change_minor: None,
+            due_date: Some("2026-11-30".into()),
+            payments: vec![crate::db::sales::PaymentPart { method: "credit".into(), amount_minor: 138_000 }],
+            ..reference_sale()
+        };
+        for (name, sale) in [("1-dine-in-paid", reference_sale()), ("2-takeaway-paid", takeaway), ("3-long", long), ("4-unpaid", unpaid)] {
+            let (bitmap, height) = receipt_image::render(&receipt_rows(&sale, &config, true, None), receipt_stamp(&sale, &config));
+            let width = receipt_image::WIDTH_PX;
+            let image = image::GrayImage::from_fn(width as u32, height as u32, |x, y| {
+                let byte = bitmap[y as usize * width.div_ceil(8) + x as usize / 8];
+                image::Luma([if byte & (0x80 >> (x % 8)) != 0 { 0 } else { 255 }])
+            });
+            image.save(dir.join(format!("thermal-{name}.png"))).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_stamp_and_credit_line_follow_the_sale_and_the_settings() {
+        let mut config = reference_config();
+        assert_eq!(receipt_stamp(&reference_sale(), &config), Some("PAID"));
+        let on_credit = Sale { payments: vec![crate::db::sales::PaymentPart { method: "credit".into(), amount_minor: 945 }], ..sample_sale() };
+        assert_eq!(receipt_stamp(&on_credit, &config), Some("UNPAID"));
+        assert!(receipt_text(&reference_sale(), &config, true).contains("Developed by Code Hunts™"));
+
+        config.receipt_show_stamp = false;
+        config.receipt_show_credit = false;
+        assert_eq!(receipt_stamp(&reference_sale(), &config), None);
+        assert!(!receipt_text(&reference_sale(), &config, true).contains("Code Hunts"));
+    }
+
+    #[test]
+    fn amounts_group_thousands_and_keep_paisa_only_when_there_are_some() {
+        assert_eq!(amount(125_000), "1,250");
+        assert_eq!(amount(13_000), "130");
+        assert_eq!(amount(123_456_789), "1,234,567.89");
+        assert_eq!(amount(-5_050), "-50.50");
+        assert_eq!(amount(0), "0");
+    }
+
+    #[test]
+    fn the_order_type_and_optional_rows_follow_the_sale() {
+        let with = |kind: Option<&str>, table: Option<&str>, platform: Option<&str>| Sale {
+            order_type: kind.map(Into::into),
+            table_name: table.map(Into::into),
+            delivery_platform_name: platform.map(Into::into),
+            ..sample_sale()
+        };
+        assert_eq!(order_type_label(&with(Some("dine_in"), Some("T4"), None), true), "Dine In");
+        assert_eq!(order_type_label(&with(None, Some("T4"), None), true), "Dine In");
+        assert_eq!(order_type_label(&with(Some("third_party_delivery"), None, Some("Foodpanda")), true), "Foodpanda");
+        assert_eq!(order_type_label(&with(Some("third_party_delivery"), None, None), true), "3rd-Party");
+        assert_eq!(order_type_label(&with(None, None, None), true), "Takeaway");
+        assert_eq!(order_type_label(&with(None, None, None), false), "Counter Sale");
+
+        let text = receipt_text(&sample_sale(), &sample_config(), true);
+        for absent in ["Table #", "Order #", "Phone No", "Delivery No", "Change", "Counter:"] {
+            assert!(!text.contains(absent), "{absent} only prints when there is one:\n{text}");
+        }
+        let mut config = sample_config();
+        config.delivery_number = Some("0300-1".into());
+        assert!(receipt_text(&sample_sale(), &config, true).contains("Delivery No 0300-1"));
+    }
+
+    #[test]
+    fn split_and_pay_later_sales_list_every_tender() {
+        let sale = Sale {
+            payment_method: "credit".into(),
+            payments: vec![
+                crate::db::sales::PaymentPart { method: "card".into(), amount_minor: 500 },
+                crate::db::sales::PaymentPart { method: "credit".into(), amount_minor: 445 },
+            ],
+            due_date: Some("2026-02-01".into()),
+            ..sample_sale()
+        };
+        let text = receipt_text(&sale, &sample_config(), true);
+        assert!(text.contains("Payment (Card) 5"), "{text}");
+        assert!(text.contains("Payment (Pay later) 4.45"), "{text}");
+        assert!(text.contains("Balance Due By 2026-02-01"), "{text}");
+    }
+
+    #[test]
+    fn the_receipt_prints_as_one_raster_picture_between_init_and_cut() {
+        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
+        let raster = [GS, b'v', b'0', 0];
+        assert!(bytes.windows(4).any(|w| w == raster), "the body prints as a raster image");
+        assert!(!String::from_utf8_lossy(&bytes).contains("NetTotal"), "no text-mode copy of the receipt");
+        let ink: u32 = bytes.iter().map(|b| b.count_ones()).sum();
+        assert!(ink > 5_000, "the picture has real content");
     }
 
     fn sample_refund() -> Refund {
@@ -2104,25 +2289,6 @@ mod tests {
     }
 
     #[test]
-    fn build_receipt_bytes_never_lets_a_long_phone_or_delivery_number_spill_onto_another_line() {
-        use crate::printer::layout::LINE_WIDTH;
-
-        let long_phone = "+92 300 1234567 (also a needlessly long phone line to test with)";
-        let long_delivery = "0300-9999999 (a needlessly long delivery contact line to test with)";
-        let mut config = sample_config();
-        config.phone = Some(long_phone.into());
-        config.delivery_number = Some(long_delivery.into());
-
-        let text = String::from_utf8_lossy(&build_receipt_bytes(&sample_sale(), &config, None, true)).into_owned();
-        // Too long to share a line, so each gets its own, cut to the width.
-        let tel = format!("Tel: {long_phone}").chars().take(LINE_WIDTH).collect::<String>();
-        let delivery = format!("Delivery: {long_delivery}").chars().take(LINE_WIDTH).collect::<String>();
-        assert!(text.contains(&format!("{tel}\n")), "Tel line cut to one printed line: {text}");
-        assert!(text.contains(&format!("{delivery}\n")), "Delivery line cut to one printed line");
-        assert!(!text.contains(long_phone), "the untruncated phone must not appear");
-    }
-
-    #[test]
     fn build_refund_bytes_never_lets_a_long_reason_spill_onto_another_line() {
         use crate::printer::layout::{truncate_line, LINE_WIDTH};
 
@@ -2139,66 +2305,6 @@ mod tests {
             text.contains(&truncate_line(&format!("Reason: {long_reason}"))),
             "the reason must still appear, cut to one line's width"
         );
-    }
-
-    #[test]
-    fn build_receipt_bytes_prints_the_masthead_without_the_shop_name() {
-        let logo = LogoRaster { width_px: 8, height_px: 8, bitmap: vec![0xFF; 8] };
-        let mut config = sample_config();
-        config.business_address = Some("Shop 4, Main Boulevard, Gulberg III, Lahore, Punjab 54000 Pakistan".into());
-        config.business_website = Some("www.demoshop.pk".into());
-        let with_logo = build_receipt_bytes(&sample_sale(), &config, Some(&logo), true);
-        let text = String::from_utf8_lossy(&with_logo);
-        assert!(!text.contains("Demo Shop"), "the logo is the brand mark; the name is never printed");
-        assert!(text.contains("Shop 4, Main Boulevard, Gulberg III,\nLahore, Punjab 54000 Pakistan\n"), "address wraps at a space within 42 columns");
-        assert!(text.contains("www.demoshop.pk\n"));
-
-        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        let text = String::from_utf8_lossy(&bytes);
-        assert!(!text.contains("Demo Shop"));
-        assert!(!bytes.windows(2).any(|w| w == [GS, b'B']), "no white-on-black: it smears on thermal paper");
-        assert!(text.contains("Paid by:") && text.contains("Cash"), "payment method is labelled: {text}");
-        assert!(text.contains("Sale #42"));
-        assert!(text.contains("Cola 500ml"));
-        assert!(text.contains("PKR 9.45"), "total must appear formatted with the currency: {text}");
-        assert!(text.contains("TOTAL"));
-        assert!(text.contains("Thank you!"));
-        assert!(text.contains("Cashier"), "cashier row must appear");
-        assert!(text.contains("Owner"), "sample_sale's cashier_name must appear");
-    }
-
-    #[test]
-    fn build_receipt_bytes_shows_the_delivery_number_only_when_set() {
-        let without = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        assert!(!String::from_utf8_lossy(&without).contains("Delivery"), "no delivery number set, none must appear");
-
-        let mut config = sample_config();
-        config.delivery_number = Some("0300-1234567".into());
-        let with = build_receipt_bytes(&sample_sale(), &config, None, true);
-        assert!(String::from_utf8_lossy(&with).contains("Delivery"));
-        assert!(String::from_utf8_lossy(&with).contains("0300-1234567"));
-    }
-
-    #[test]
-    fn build_receipt_bytes_shows_the_order_type_when_no_table_is_linked() {
-        let mut sale = sample_sale();
-        sale.table_name = None;
-
-        let takeaway = build_receipt_bytes(&sale, &sample_config(), None, true);
-        assert!(String::from_utf8_lossy(&takeaway).contains("Takeaway"));
-
-        let counter = build_receipt_bytes(&sale, &sample_config(), None, false);
-        assert!(String::from_utf8_lossy(&counter).contains("Counter Sale"));
-    }
-
-    #[test]
-    fn build_receipt_bytes_shows_the_table_name_when_one_is_linked() {
-        let mut sale = sample_sale();
-        sale.table_name = Some("Table 4".into());
-        let bytes = build_receipt_bytes(&sale, &sample_config(), None, true);
-        let text = String::from_utf8_lossy(&bytes);
-        assert!(text.contains("Table 4"));
-        assert!(!text.contains("Takeaway"), "a linked table must show the table name, not the takeaway fallback");
     }
 
     #[test]
@@ -2240,199 +2346,6 @@ mod tests {
                 "missing a fill line of exactly {width} characters for N={width}"
             );
         }
-    }
-
-    #[test]
-    fn build_receipt_bytes_fits_the_measured_42_column_regression_row() {
-        use crate::printer::layout::LINE_WIDTH;
-        assert_eq!(LINE_WIDTH, 42, "this test's math is only valid against the measured 42-column width");
-
-        // Same row, same measured 42-column width, but the desc/qty split
-        // changed since this test was first written: Qty widened from 3 to
-        // 5 (Item shrunk 18->16 to pay for it) to fit a `sold_by_amount`
-        // line's fractional quantity — see `ITEM_TABLE_COLS`'s doc comment.
-        // "mutton paye (full)" (19 chars) now truncates to the first 16,
-        // a disclosed tradeoff, not a regression of this test's original
-        // point (that the row stays exactly one physical printed line).
-        let row = box_row(&[
-            ("mutton paye (full)", ITEM_TABLE_COLS[0], false),
-            ("3", ITEM_TABLE_COLS[1], true),
-            ("1300.00", ITEM_TABLE_COLS[2], true),
-            ("3900.00", ITEM_TABLE_COLS[3], true),
-        ]);
-        assert_eq!(row.len(), LINE_WIDTH, "the row itself must be exactly one physical printed line");
-        let mut expected = vec![0xB3u8];
-        expected.extend(b"mutton paye (ful"); // truncated to 16
-        expected.push(0xB3);
-        expected.extend(b"    3"); // right-aligned in 5
-        expected.push(0xB3);
-        expected.extend(b"1300.00");
-        expected.push(0xB3);
-        expected.extend(b"  3900.00");
-        expected.push(0xB3);
-        assert_eq!(row, expected);
-    }
-
-    #[test]
-    fn build_receipt_bytes_lines_up_the_item_table_columns() {
-        use crate::printer::layout::LINE_WIDTH;
-        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        // Every item row (and the header) must be exactly LINE_WIDTH bytes,
-        // bordered by the CP437 vertical rule on both sides and between
-        // every column — that's what "columns line up" with a real visible
-        // grid verifies. Box-drawing bytes aren't valid UTF-8, so this
-        // checks raw bytes rather than a lossy-decoded string.
-        let header_row = box_row(&[
-            ("ITEM", ITEM_TABLE_COLS[0], false),
-            ("QTY", ITEM_TABLE_COLS[1], true),
-            ("RATE", ITEM_TABLE_COLS[2], true),
-            ("AMOUNT", ITEM_TABLE_COLS[3], true),
-        ]);
-        let item_row = box_row(&[
-            ("Cola 500ml", ITEM_TABLE_COLS[0], false),
-            ("2", ITEM_TABLE_COLS[1], true),
-            ("5.00", ITEM_TABLE_COLS[2], true),
-            ("10.00", ITEM_TABLE_COLS[3], true),
-        ]);
-        assert_eq!(header_row.len(), LINE_WIDTH);
-        assert_eq!(item_row.len(), LINE_WIDTH);
-        assert!(
-            bytes.windows(header_row.len()).any(|w| w == header_row.as_slice()),
-            "header row not found, or misaligned"
-        );
-        assert!(
-            bytes.windows(item_row.len()).any(|w| w == item_row.as_slice()),
-            "item row not found, or misaligned"
-        );
-    }
-
-    #[test]
-    fn build_receipt_bytes_draws_the_item_table_as_a_fully_bordered_grid() {
-        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        // Real box-drawing rules (┌┬┐ / ├┼┤ / └┴┘) on all three edges, not
-        // ASCII `+---+` and not bare horizontal rules — the item table
-        // should read as an actual table.
-        for (name, rule) in [
-            ("top", box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top)),
-            ("middle", box_line(&ITEM_TABLE_COLS, BoxLinePosition::Middle)),
-            ("bottom", box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom)),
-        ] {
-            assert!(
-                bytes.windows(rule.len()).any(|w| w == rule.as_slice()),
-                "expected the {name} box-drawing rule around the item table"
-            );
-        }
-        // Scoped to the table itself, not the whole receipt: a `|` is
-        // legitimate elsewhere (the developer credit separates its site and
-        // phone with one), it just must never be used as a table border.
-        let table_top = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Top);
-        let table_bottom = box_line(&ITEM_TABLE_COLS, BoxLinePosition::Bottom);
-        let top_at = bytes.windows(table_top.len()).position(|w| w == table_top.as_slice()).unwrap();
-        let bottom_at = bytes.windows(table_bottom.len()).position(|w| w == table_bottom.as_slice()).unwrap();
-        let table_region = &bytes[top_at..bottom_at + table_bottom.len()];
-        assert!(!table_region.contains(&b'|'), "the item table must not use ASCII pipe borders");
-        assert!(!table_region.contains(&b'+'), "the item table must not use ASCII plus-corner borders");
-
-        // The table's own rules are solid box-drawing, never dashed. A
-        // dashed rule elsewhere on the receipt is fine (one opens the credit
-        // block below) — it just must never appear *inside* the table.
-        let dashed = dashed_divider();
-        assert!(
-            !table_region.windows(dashed.len()).any(|w| w == dashed.as_bytes()),
-            "the item table must be ruled with solid box-drawing, never a dashed divider"
-        );
-    }
-
-    #[test]
-    fn the_total_prints_large_without_stretching_and_falls_back_when_too_long() {
-        let big = [GS, b'!', 0x11];
-        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        assert!(bytes.windows(3).any(|w| w == big), "double width + height together, never height alone");
-        assert!(!bytes.windows(3).any(|w| w == [ESC, b'!', 0x18]));
-
-        let mut sale = sample_sale();
-        sale.total_minor = 123_456_789_00; // "TOTAL" + "PKR 123456789.00" > 21 columns
-        let bytes = build_receipt_bytes(&sale, &sample_config(), None, true);
-        assert!(!bytes.windows(3).any(|w| w == big), "too long for the big line: normal size");
-        assert!(String::from_utf8_lossy(&bytes).contains("PKR 123456789.00"));
-    }
-
-    #[test]
-    fn build_receipt_bytes_puts_short_contact_numbers_on_one_line() {
-        let mut config = sample_config();
-        config.phone = Some("0313474231".into());
-        config.delivery_number = Some("03123234432".into());
-        let text = String::from_utf8_lossy(&build_receipt_bytes(&sample_sale(), &config, None, true)).into_owned();
-        assert!(text.contains("Tel: 0313474231  |  Delivery: 03123234432\n"), "{text}");
-    }
-
-    #[test]
-    fn build_receipt_bytes_ends_with_the_developer_credit_and_no_qr_code() {
-        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        let text = String::from_utf8_lossy(&bytes);
-
-        assert!(text.contains(DEVELOPER_CREDIT), "the developer credit line must appear");
-        assert!(text.contains(DEVELOPER_SITE), "the developer site must appear");
-        assert!(text.contains(DEVELOPER_PHONE), "the developer phone must appear, spaced as configured");
-
-        // The QR is gone entirely — no `GS ( k` command of any function,
-        // and no payload URL left behind in the stream.
-        assert!(!text.contains("codehunts.co.uk/"), "no QR payload URL should remain");
-        let gs_paren_k = [0x1D, 0x28, 0x6B];
-        assert!(
-            !bytes.windows(gs_paren_k.len()).any(|w| w == gs_paren_k),
-            "no GS ( k QR command may remain anywhere in the receipt"
-        );
-        assert!(!text.contains("Powered by"), "the old brand attribution must be gone");
-    }
-
-    #[test]
-    fn developer_credit_fits_one_line_at_the_current_width_and_never_wraps() {
-        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        let text = String::from_utf8_lossy(&bytes);
-
-        // At LINE_WIDTH = 42 the site and phone share one line; the check
-        // in `developer_credit_block` derives that from LINE_WIDTH, so this
-        // pins the *behaviour* rather than the current width: whichever
-        // branch is taken, no printed line may exceed the budget.
-        let combined = format!("{}{}{}", DEVELOPER_SITE, CREDIT_SEPARATOR, DEVELOPER_PHONE);
-        if combined.chars().count() <= LINE_WIDTH {
-            assert!(text.contains(&combined), "site and phone must share one line while they fit");
-        } else {
-            assert!(!text.contains(&combined), "the combined line must not print when it doesn't fit");
-        }
-
-        for line in [DEVELOPER_CREDIT, DEVELOPER_SITE, DEVELOPER_PHONE] {
-            assert!(line.chars().count() <= LINE_WIDTH, "{line:?} must fit one line on its own");
-            // The printer is in CP437 for the whole job (see `init`), whose
-            // low 128 codepoints are ASCII and whose upper half holds no
-            // punctuation we spell anything with. A non-ASCII character
-            // here would be sent as multi-byte UTF-8 and print as that many
-            // unrelated CP437 glyphs — which is exactly why the trademark
-            // is written "(TM)" rather than "™" on this path.
-            assert!(
-                line.is_ascii(),
-                "{line:?} must be pure ASCII — CP437 cannot render a non-ASCII character here"
-            );
-        }
-    }
-
-    #[test]
-    fn developer_credit_prints_above_the_pre_cut_padding() {
-        let bytes = build_receipt_bytes(&sample_sale(), &sample_config(), None, true);
-        // The cutter must never run through the credit: the cut command has
-        // to come after the last credit byte, with the feed padding between.
-        let credit_at = bytes
-            .windows(DEVELOPER_CREDIT.len())
-            .position(|w| w == DEVELOPER_CREDIT.as_bytes())
-            .expect("credit block must be present");
-        let cut = [GS, b'V', 66, CUT_FEED_LINES];
-        let cut_at = bytes.windows(cut.len()).position(|w| w == cut).expect("cut command must be present");
-        assert!(cut_at > credit_at, "the cut must come after the credit block, never through it");
-        assert!(
-            bytes[credit_at + DEVELOPER_CREDIT.len()..cut_at].iter().filter(|b| **b == b'\n').count() >= 2,
-            "at least the two-line feed margin must sit between the credit and the cut"
-        );
     }
 
     #[test]
@@ -2834,8 +2747,8 @@ mod tests {
     #[test]
     fn a_receipt_and_a_token_name_the_counter_when_the_business_has_several() {
         let sale = Sale { receipt_no: "C2-41".into(), till_name: Some("Front counter".into()), ..sample_sale() };
-        let text = String::from_utf8_lossy(&build_receipt_bytes(&sale, &sample_config(), None, true)).into_owned();
-        assert!(text.contains("Sale #C2-41"), "{text}");
+        let text = receipt_text(&sale, &sample_config(), true);
+        assert!(text.contains("Invoice #: C2-41"), "{text}");
         assert!(text.contains("Counter: Front counter"), "{text}");
 
         let token = TokenSummary { till_label: Some("C2".into()), ..sample_token() };

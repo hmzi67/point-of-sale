@@ -283,6 +283,26 @@ pub enum OrderError {
     Sqlite(#[from] rusqlite::Error),
 }
 
+/// The next order number: 1, 2, 3… from the start of each shift, shared by
+/// held/table orders (`orders.order_no`) and plain counter sales
+/// (`sales.order_no`) so one shift never shows the same number twice. With no
+/// shift (the `shifts` module off) it counts per calendar day instead.
+pub fn next_order_no(conn: &Connection, shift_id: Option<i64>) -> Result<i64, rusqlite::Error> {
+    let scope = if shift_id.is_some() {
+        "shift_id = ?1"
+    } else {
+        "shift_id IS NULL AND ?1 IS NULL AND date(created_at) = date('now', 'localtime')"
+    };
+    conn.query_row(
+        &format!(
+            "SELECT MAX(COALESCE((SELECT MAX(order_no) FROM orders WHERE {scope}), 0),
+                        COALESCE((SELECT MAX(order_no) FROM sales WHERE {scope}), 0)) + 1"
+        ),
+        params![shift_id],
+        |row| row.get(0),
+    )
+}
+
 /// Creates a draft order, or returns the existing one if `client_ref` was
 /// already used (a retried submission). Dine-in needs a table, which is
 /// marked occupied.
@@ -425,19 +445,7 @@ pub fn create_order(
         }
     };
 
-    // Sequential order number starts from 1 when shift starts, next shift starts, or daily
-    let order_no: i64 = match effective_shift_id {
-        Some(sid) => tx.query_row(
-            "SELECT COALESCE(MAX(order_no), 0) + 1 FROM orders WHERE shift_id = ?1",
-            params![sid],
-            |row| row.get(0),
-        )?,
-        None => tx.query_row(
-            "SELECT COALESCE(MAX(order_no), 0) + 1 FROM orders WHERE shift_id IS NULL AND date(created_at) = date('now', 'localtime')",
-            [],
-            |row| row.get(0),
-        )?,
-    };
+    let order_no = next_order_no(tx, effective_shift_id)?;
 
     let prep_minutes = estimated_prep_minutes.unwrap_or(15);
     tx.execute(
@@ -1923,6 +1931,22 @@ mod tests {
         )
         .unwrap();
         assert_eq!(takeaway(&mut conn, "today").order_no, 1);
+    }
+
+    #[test]
+    fn counter_sales_and_orders_share_one_sequence_per_shift() {
+        let mut conn = test_conn();
+        conn.execute("INSERT INTO shifts (cashier_id, opening_balance_minor) VALUES (NULL, 0)", []).unwrap();
+        let shift = conn.last_insert_rowid();
+        // A sale near midnight's "yesterday" must not restart the shift's count.
+        conn.execute(
+            "INSERT INTO sales (total_minor, shift_id, order_no, created_at) VALUES (100, ?1, 1, datetime('now', 'localtime', '-1 day'))",
+            [shift],
+        )
+        .unwrap();
+        let order = run(&mut conn, |tx| create_order(tx, "s-1", "takeaway", None, None, None, None, None, Some(shift), None)).unwrap();
+        assert_eq!(order.order_no, 2);
+        assert_eq!(next_order_no(&conn, Some(shift)).unwrap(), 3);
     }
 
     #[test]

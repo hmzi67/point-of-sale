@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import {
   addCategory as addCategoryCommand,
+  deleteCategory as deleteCategoryCommand,
+  updateCategory as updateCategoryCommand,
   addItem as addItemCommand,
   deleteItem as deleteItemCommand,
   getCategories,
@@ -42,7 +44,9 @@ interface InventoryState {
    * item. A single failure doesn't stop the rest; the tally plus any error
    * messages are returned so the caller can summarize what happened. */
   deleteItems: (ids: number[]) => Promise<{ deleted: number; archived: number; failed: { id: number; error: string }[] }>;
-  addCategory: (name: string) => Promise<Category>;
+  addCategory: (name: string, imagePath?: string | null, isTopping?: boolean) => Promise<Category>;
+  updateCategory: (id: number, name: string, imagePath: string | null, isTopping: boolean) => Promise<Category>;
+  deleteCategory: (id: number) => Promise<void>;
 
   /** filename -> data URL, shared so a table of thumbnails fetches each
    * image once no matter how many rows/rerenders reference it. */
@@ -132,10 +136,23 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     return { deleted, archived, failed };
   },
 
-  addCategory: async (name) => {
-    const category = await addCategoryCommand(name);
+  addCategory: async (name, imagePath = null, isTopping = false) => {
+    const category = await addCategoryCommand(name, imagePath, isTopping);
     set((state) => ({ categories: [...state.categories, category].sort((a, b) => a.name.localeCompare(b.name)) }));
     return category;
+  },
+
+  // Both reload: items carry the category's name (and lose it on delete).
+  updateCategory: async (id, name, imagePath, isTopping) => {
+    const category = await updateCategoryCommand(id, name, imagePath, isTopping);
+    await get().load();
+    return category;
+  },
+
+  deleteCategory: async (id) => {
+    await deleteCategoryCommand(id);
+    if (get().categoryId === id) set({ categoryId: null });
+    await get().load();
   },
 
   imageCache: {},

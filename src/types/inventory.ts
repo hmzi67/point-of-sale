@@ -7,6 +7,10 @@
 export interface Category {
   id: number;
   name: string;
+  /** Photo filename, shown with `ItemImage` like a product photo. */
+  imagePath: string | null;
+  /** A topping group: its items are offered as toppings, not on the billing grid. */
+  isTopping: boolean;
 }
 
 export interface Item {
@@ -46,6 +50,10 @@ export interface Item {
    * `Counter` and the Tables module's token feature). */
   counterId: number | null;
   counterName: string | null;
+  /** The topping group offered when this item is added to the cart. */
+  toppingCategoryId: number | null;
+  /** This item is itself a topping (its category is a topping group). */
+  isTopping: boolean;
 }
 
 /** Everything the add/edit form submits — used for both create and update. */
@@ -64,6 +72,7 @@ export interface ItemInput {
   unit: string | null;
   /** Counter this item's token prints to, or `null` for a token-less item. */
   counterId: number | null;
+  toppingCategoryId: number | null;
   /** On an edit: the stock the form loaded. The difference typed is what is
    * applied, so sales made meanwhile (here or on another counter) stay. */
   originalStockQty?: number;

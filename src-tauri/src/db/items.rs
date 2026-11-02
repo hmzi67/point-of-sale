@@ -16,6 +16,10 @@ use serde::{Deserialize, Serialize};
 pub struct Category {
     pub id: i64,
     pub name: String,
+    /// Generated photo filename in the product-images folder, like `items.image_path`.
+    pub image_path: Option<String>,
+    /// A topping group — see `Item::topping_category_id`.
+    pub is_topping: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -24,39 +28,92 @@ pub enum CategoryError {
     DuplicateName(String),
     #[error("{0}")]
     Validation(String),
+    #[error("Category not found")]
+    NotFound,
     #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
 }
 
 pub fn list_categories(conn: &Connection) -> Result<Vec<Category>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT id, name FROM categories ORDER BY name")?;
-    let rows = stmt.query_map([], |row| {
-        Ok(Category {
-            id: row.get("id")?,
-            name: row.get("name")?,
-        })
-    })?;
+    let mut stmt = conn.prepare("SELECT id, name, image_path, is_topping FROM categories ORDER BY name")?;
+    let rows = stmt.query_map([], category_from_row)?;
     rows.collect()
 }
 
-pub fn add_category(conn: &Connection, name: &str) -> Result<Category, CategoryError> {
+fn category_from_row(row: &Row) -> rusqlite::Result<Category> {
+    Ok(Category {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        image_path: row.get("image_path")?,
+        is_topping: row.get::<_, i64>("is_topping")? != 0,
+    })
+}
+
+pub fn get_category(conn: &Connection, id: i64) -> Result<Category, CategoryError> {
+    conn.query_row("SELECT id, name, image_path, is_topping FROM categories WHERE id = ?1", [id], category_from_row)
+        .optional()?
+        .ok_or(CategoryError::NotFound)
+}
+
+fn category_name(name: &str) -> Result<&str, CategoryError> {
     let name = name.trim();
     if name.is_empty() {
         return Err(CategoryError::Validation("Category name cannot be empty".into()));
     }
+    Ok(name)
+}
 
-    conn.execute("INSERT INTO categories (name) VALUES (?1)", params![name])
-        .map_err(|err| match err {
-            rusqlite::Error::SqliteFailure(e, _) if e.extended_code == 2067 => {
-                CategoryError::DuplicateName(name.to_string())
-            }
-            other => CategoryError::Sqlite(other),
-        })?;
+fn map_duplicate(name: &str) -> impl Fn(rusqlite::Error) -> CategoryError + '_ {
+    move |err| match err {
+        rusqlite::Error::SqliteFailure(e, _) if e.extended_code == 2067 => CategoryError::DuplicateName(name.to_string()),
+        other => CategoryError::Sqlite(other),
+    }
+}
+
+pub fn add_category(conn: &Connection, name: &str, image_path: Option<&str>, is_topping: bool) -> Result<Category, CategoryError> {
+    let name = category_name(name)?;
+    conn.execute(
+        "INSERT INTO categories (name, image_path, is_topping) VALUES (?1, ?2, ?3)",
+        params![name, image_path, is_topping as i64],
+    )
+    .map_err(map_duplicate(name))?;
 
     Ok(Category {
         id: conn.last_insert_rowid(),
         name: name.to_string(),
+        image_path: image_path.map(str::to_string),
+        is_topping,
     })
+}
+
+/// Full replace of the editable fields (name, photo, topping group), like `update_item`.
+pub fn update_category(
+    conn: &Connection,
+    id: i64,
+    name: &str,
+    image_path: Option<&str>,
+    is_topping: bool,
+) -> Result<Category, CategoryError> {
+    let name = category_name(name)?;
+    let changed = conn
+        .execute(
+            "UPDATE categories SET name = ?1, image_path = ?2, is_topping = ?3 WHERE id = ?4",
+            params![name, image_path, is_topping as i64, id],
+        )
+        .map_err(map_duplicate(name))?;
+    if changed == 0 {
+        return Err(CategoryError::NotFound);
+    }
+    get_category(conn, id)
+}
+
+/// Its items stay and become uncategorised (`items.category_id` is
+/// `ON DELETE SET NULL`), so sale history is untouched.
+pub fn delete_category(conn: &Connection, id: i64) -> Result<(), CategoryError> {
+    if conn.execute("DELETE FROM categories WHERE id = ?1", [id])? == 0 {
+        return Err(CategoryError::NotFound);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +168,13 @@ pub struct Item {
     pub counter_id: Option<i64>,
     /// Denormalized alongside `counter_id`, same reasoning as `category_name`.
     pub counter_name: Option<String>,
+    /// The topping group (a category with `is_topping`) whose items the
+    /// billing screen offers when this item is added. Toppings are ordinary
+    /// items, so they are priced, stocked and printed like any other line.
+    pub topping_category_id: Option<i64>,
+    /// This item is itself a topping (its category is a topping group), so
+    /// the billing grid leaves it out.
+    pub is_topping: bool,
 }
 
 /// Everything the add/edit form submits. Used for both create and update —
@@ -132,6 +196,8 @@ pub struct ItemInput {
     pub sold_by_amount: bool,
     pub unit: Option<String>,
     pub counter_id: Option<i64>,
+    #[serde(default)]
+    pub topping_category_id: Option<i64>,
     /// On an edit: the stock the form was loaded with. When given, the
     /// update applies the *difference* the person typed (`stock + (new -
     /// original)`) instead of overwriting, so sales made meanwhile — on this
@@ -176,7 +242,7 @@ pub enum ItemError {
 const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.short_code, i.description, i.price_minor, i.cost_minor,
        i.stock_qty, i.category_id, c.name AS category_name,
        i.low_stock_threshold, i.is_active, i.image_path, i.sold_by_amount, i.unit,
-       i.counter_id, k.name AS counter_name
+       i.counter_id, k.name AS counter_name, i.topping_category_id, COALESCE(c.is_topping, 0) AS is_topping
   FROM items i
   LEFT JOIN categories c ON c.id = i.category_id
   LEFT JOIN counters   k ON k.id = i.counter_id";
@@ -203,6 +269,8 @@ fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
         unit: row.get("unit")?,
         counter_id: row.get("counter_id")?,
         counter_name: row.get("counter_name")?,
+        topping_category_id: row.get("topping_category_id")?,
+        is_topping: row.get::<_, i64>("is_topping")? != 0,
     })
 }
 
@@ -337,6 +405,17 @@ fn validate(conn: &Connection, input: &ItemInput) -> Result<(), ItemError> {
         }
     }
 
+    if let Some(group) = input.topping_category_id {
+        let is_group: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM categories WHERE id = ?1 AND is_topping = 1)",
+            params![group],
+            |row| row.get(0),
+        )?;
+        if !is_group {
+            return Err(ItemError::Validation("Pick a topping group for the toppings".into()));
+        }
+    }
+
     if let Some(counter_id) = input.counter_id {
         let exists: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM counters WHERE id = ?1)",
@@ -384,8 +463,8 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
     conn.execute(
         "INSERT INTO items
              (name, barcode, short_code, description, price_minor, cost_minor, stock_qty, category_id,
-              low_stock_threshold, image_path, sold_by_amount, unit, counter_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+              low_stock_threshold, image_path, sold_by_amount, unit, counter_id, topping_category_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             name,
             barcode,
@@ -400,6 +479,7 @@ pub fn add_item(conn: &Connection, input: ItemInput) -> Result<Item, ItemError> 
             input.sold_by_amount as i64,
             unit,
             input.counter_id,
+            input.topping_category_id,
         ],
     )
     .map_err(|err| map_unique_conflict(err, &barcode.map(str::to_string), &short_code.map(str::to_string)))?;
@@ -423,7 +503,7 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
                     stock_qty = CASE WHEN ?15 IS NULL THEN ?7 ELSE round(stock_qty + (?7 - ?15), 4) END,
                     category_id = ?8, low_stock_threshold = ?9,
                     image_path = ?10, sold_by_amount = ?11, unit = ?12, counter_id = ?13,
-                    updated_at = datetime('now', 'localtime')
+                    topping_category_id = ?16, updated_at = datetime('now', 'localtime')
               WHERE id = ?14",
             params![
                 name,
@@ -440,7 +520,8 @@ pub fn update_item(conn: &Connection, id: i64, input: ItemInput) -> Result<Item,
                 unit,
                 input.counter_id,
                 id,
-                input.original_stock_qty
+                input.original_stock_qty,
+                input.topping_category_id,
             ],
         )
         .map_err(|err| map_unique_conflict(err, &barcode.map(str::to_string), &short_code.map(str::to_string)))?;
@@ -582,7 +663,7 @@ mod tests {
     #[test]
     fn search_escapes_like_wildcards() {
         let conn = test_conn();
-        add_category(&conn, "Weird_Category").unwrap();
+        add_category(&conn, "Weird_Category", None, false).unwrap();
 
         // A literal underscore in the search term must not act as a wildcard
         // and match every category-having item.
@@ -905,15 +986,54 @@ mod tests {
     fn add_category_rejects_duplicates_and_blank_names() {
         let conn = test_conn();
         assert!(matches!(
-            add_category(&conn, "Beverages").unwrap_err(),
+            add_category(&conn, "Beverages", None, false).unwrap_err(),
             CategoryError::DuplicateName(_)
         ));
         assert!(matches!(
-            add_category(&conn, "   ").unwrap_err(),
+            add_category(&conn, "   ", None, false).unwrap_err(),
             CategoryError::Validation(_)
         ));
 
-        let created = add_category(&conn, "Household").unwrap();
+        let created = add_category(&conn, "Household", None, false).unwrap();
         assert_eq!(created.name, "Household");
+    }
+
+    #[test]
+    fn items_offer_only_a_topping_group_and_toppings_are_flagged() {
+        let conn = test_conn();
+        let plain = add_category(&conn, "Pizzas", None, false).unwrap();
+        let group = add_category(&conn, "Pizza Toppings", None, true).unwrap();
+
+        let mut pizza = crate::db::test_support::item_input("Fajita Pizza", 10.0);
+        pizza.topping_category_id = Some(plain.id);
+        assert!(matches!(add_item(&conn, pizza.clone()).unwrap_err(), ItemError::Validation(_)));
+
+        pizza.topping_category_id = Some(group.id);
+        let pizza = add_item(&conn, pizza).unwrap();
+        assert_eq!((pizza.topping_category_id, pizza.is_topping), (Some(group.id), false));
+
+        let mut cheese = crate::db::test_support::item_input("Extra Cheese", 50.0);
+        cheese.category_id = Some(group.id);
+        assert!(add_item(&conn, cheese).unwrap().is_topping);
+    }
+
+    #[test]
+    fn update_and_delete_category_keep_items() {
+        let conn = test_conn();
+        let category = add_category(&conn, "Nimko", Some("item-a.jpg"), false).unwrap();
+        assert!(matches!(
+            update_category(&conn, category.id, "Beverages", None, false).unwrap_err(),
+            CategoryError::DuplicateName(_)
+        ));
+
+        let renamed = update_category(&conn, category.id, " Chips ", None, false).unwrap();
+        assert_eq!((renamed.name.as_str(), renamed.image_path), ("Chips", None));
+
+        conn.execute("INSERT INTO items (name, price_minor, category_id) VALUES ('Lays', 100, ?1)", [category.id]).unwrap();
+        delete_category(&conn, category.id).unwrap();
+        let category_id: Option<i64> =
+            conn.query_row("SELECT category_id FROM items WHERE name = 'Lays'", [], |r| r.get(0)).unwrap();
+        assert_eq!(category_id, None, "the item stays, uncategorised");
+        assert!(matches!(delete_category(&conn, category.id).unwrap_err(), CategoryError::NotFound));
     }
 }

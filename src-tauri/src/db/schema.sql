@@ -374,6 +374,11 @@ CREATE TABLE IF NOT EXISTS sync_staging_stock (
 CREATE TABLE IF NOT EXISTS categories (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL UNIQUE,
+    -- Photo filename in product-images/, like items.image_path.
+    image_path TEXT,
+    -- A topping group: its items are offered as toppings (see
+    -- items.topping_category_id) and kept off the billing grid.
+    is_topping INTEGER NOT NULL DEFAULT 0 CHECK (is_topping IN (0, 1)),
     created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -516,6 +521,10 @@ CREATE TABLE IF NOT EXISTS sales (
     -- for a plain counter sale. One order can have several sales (split
     -- bill). Added via ADDED_COLUMNS on an existing install, like shift_id.
     order_id       INTEGER REFERENCES orders (id) ON DELETE SET NULL,
+    -- A plain counter sale's number in its shift's order sequence (shared
+    -- with orders.order_no — see orders::next_order_no); NULL when order_id
+    -- carries the number. Added via ADDED_COLUMNS on an existing install.
+    order_no       INTEGER,
     -- Amount given by customer and change returned (paisa/cents), if cash.
     tendered_minor INTEGER,
     change_minor   INTEGER,

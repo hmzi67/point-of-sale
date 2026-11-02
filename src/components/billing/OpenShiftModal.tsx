@@ -7,16 +7,16 @@ import { runAction } from "../../utils/runAction";
 
 interface OpenShiftModalProps {
   currency: string;
+  /** Billing's shift gate: no skipping — the way out leaves the screen. */
+  mandatory?: boolean;
   onClose: () => void;
   onOpened: () => void;
 }
 
 /** Prompts a cashier for their opening cash float before they can start
- * ringing up sales against a shift. Skippable entirely (via the close
- * button) — a client that enabled the `shifts` module but doesn't want to
- * force this every login still sees the "Open Shift" affordance sit there,
- * not a blocking wall. */
-export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalProps) {
+ * ringing up sales against a shift. On Billing (`mandatory`) it cannot be
+ * skipped: the commands that sell refuse without an open shift. */
+export function OpenShiftModal({ currency, mandatory = false, onClose, onOpened }: OpenShiftModalProps) {
   const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,11 +37,13 @@ export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalPr
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
             <Wallet className="h-4 w-4 text-accent-text" />
-            Open Shift
+            {mandatory ? "Start Shift" : "Open Shift"}
           </h3>
-          <button type="button" onClick={onClose} className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2">
-            <X className="h-4 w-4" />
-          </button>
+          {!mandatory && (
+            <button type="button" onClick={onClose} className="rounded-full p-1 text-fg-muted hover:bg-surface-3 hover:text-fg-2">
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-3 px-5 py-4">
@@ -72,7 +74,7 @@ export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalPr
             onClick={onClose}
             className="flex-1 rounded-2xl border border-line py-2.5 text-sm font-semibold text-fg-2 hover:bg-surface-2"
           >
-            Skip
+            {mandatory ? "Leave billing" : "Skip"}
           </button>
           <button
             type="button"
@@ -80,7 +82,7 @@ export function OpenShiftModal({ currency, onClose, onOpened }: OpenShiftModalPr
             disabled={isSubmitting}
             className="flex-1 rounded-2xl bg-accent py-2.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:opacity-50"
           >
-            {isSubmitting ? "Opening…" : "Open Shift"}
+            {isSubmitting ? "Opening…" : mandatory ? "Start Shift" : "Open Shift"}
           </button>
         </div>
       </div>

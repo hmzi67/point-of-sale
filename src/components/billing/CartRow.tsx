@@ -1,4 +1,4 @@
-import { Minus, NotebookPen, Plus, Trash2 } from "lucide-react";
+import { Layers, Minus, NotebookPen, Plus, Trash2 } from "lucide-react";
 import { useBillingStore } from "../../store";
 import { formatMinor, formatQty } from "../../utils/format";
 import { lineTotalMinor } from "../../utils/billingTotals";
@@ -21,6 +21,7 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
   const removeItem = useBillingStore((state) => state.removeItem);
   const isActive = useBillingStore((state) => state.activeLineItemId === itemId);
   const setActiveLine = useBillingStore((state) => state.setActiveLine);
+  const openToppingPicker = useBillingStore((state) => state.openToppingPicker);
 
   if (!entry) return null;
 
@@ -65,8 +66,23 @@ export function CartRow({ itemId, currency, onEditLine }: CartRowProps) {
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-start gap-1.5">
           <p className="line-clamp-2 min-w-0 flex-1 wrap-break-word text-sm font-semibold leading-snug text-fg" title={entry.name}>
+            {entry.isTopping && <span className="mr-1 text-xs font-medium text-accent-text">+ Topping</span>}
             {entry.name}
           </p>
+          {entry.toppingCategoryId !== null && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openToppingPicker(entry.name, entry.toppingCategoryId!);
+              }}
+              className="flex shrink-0 items-center gap-1 rounded-lg bg-accent-soft px-1.5 py-1 text-[11px] font-semibold text-accent-text hover:bg-accent hover:text-accent-ink"
+              aria-label={`Add toppings to ${entry.name}`}
+            >
+              <Layers className="h-3 w-3" />
+              Toppings
+            </button>
+          )}
           <button
             type="button"
             onClick={() => removeItem(itemId)}

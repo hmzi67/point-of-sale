@@ -24,6 +24,13 @@ pub struct AppConfig {
     /// when set (an empty string clears it, like `phone`).
     pub business_address: Option<String>,
     pub business_website: Option<String>,
+    /// Receipt look: the tagline between dashes under the header
+    /// ("--- JUICY & TENDER ---"), a follow-us line under the thank-you,
+    /// the diagonal PAID/UNPAID stamp, and the developer credit line.
+    pub receipt_tagline: Option<String>,
+    pub receipt_social: Option<String>,
+    pub receipt_show_stamp: bool,
+    pub receipt_show_credit: bool,
     /// Set once the first-time setup wizard finishes. `false` is what tells
     /// the frontend to route a freshly-installed client into onboarding
     /// instead of the normal app.
@@ -159,6 +166,10 @@ pub struct AppConfigUpdate {
     pub delivery_number: Option<String>,
     pub business_address: Option<String>,
     pub business_website: Option<String>,
+    pub receipt_tagline: Option<String>,
+    pub receipt_social: Option<String>,
+    pub receipt_show_stamp: Option<bool>,
+    pub receipt_show_credit: Option<bool>,
     pub onboarding_completed: Option<bool>,
     pub printer_connection_type: Option<String>,
     pub printer_bluetooth_address: Option<String>,
@@ -187,6 +198,10 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
         delivery_number: row.get("delivery_number")?,
         business_address: row.get("business_address")?,
         business_website: row.get("business_website")?,
+        receipt_tagline: row.get("receipt_tagline")?,
+        receipt_social: row.get("receipt_social")?,
+        receipt_show_stamp: row.get::<_, i64>("receipt_show_stamp")? != 0,
+        receipt_show_credit: row.get::<_, i64>("receipt_show_credit")? != 0,
         onboarding_completed: row.get::<_, i64>("onboarding_completed")? != 0,
         printer_connection_type: row.get("printer_connection_type")?,
         printer_bluetooth_address: row.get("printer_bluetooth_address")?,
@@ -253,7 +268,8 @@ pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
                 printer_usb_device, printer_usb_name, printer_windows_name,
                 service_charge_percent, scale_barcode_enabled, scale_barcode_prefix,
                 scale_item_code_digits, scale_value_kind, scale_value_decimals, offline_sales,
-                business_address, business_website
+                business_address, business_website,
+                receipt_tagline, receipt_social, receipt_show_stamp, receipt_show_credit
            FROM app_config WHERE id = 1",
         [],
         from_row,
@@ -288,7 +304,11 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
                 scale_value_decimals = COALESCE(?21, scale_value_decimals),
                 offline_sales = COALESCE(?22, offline_sales),
                 business_address = COALESCE(?23, business_address),
-                business_website = COALESCE(?24, business_website)
+                business_website = COALESCE(?24, business_website),
+                receipt_tagline = COALESCE(?25, receipt_tagline),
+                receipt_social = COALESCE(?26, receipt_social),
+                receipt_show_stamp = COALESCE(?27, receipt_show_stamp),
+                receipt_show_credit = COALESCE(?28, receipt_show_credit)
           WHERE id = 1",
         params![
             patch.business_name,
@@ -315,6 +335,10 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
             patch.offline_sales,
             patch.business_address,
             patch.business_website,
+            patch.receipt_tagline,
+            patch.receipt_social,
+            patch.receipt_show_stamp,
+            patch.receipt_show_credit,
         ],
     )?;
 

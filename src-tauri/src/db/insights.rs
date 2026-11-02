@@ -257,7 +257,7 @@ pub fn order_profit(
 ) -> Result<Vec<OrderProfitRow>, ReportError> {
     let (start_ts, end_ts) = validate_range(start_date, end_date)?;
     let mut stmt = conn.prepare(&format!(
-        "SELECT s.id, o.order_no, s.created_at, u.name, COALESCE(c.name, o.customer_name), s.payment_method,
+        "SELECT s.id, COALESCE(o.order_no, s.order_no), s.created_at, u.name, COALESCE(c.name, o.customer_name), s.payment_method,
                 (SELECT COALESCE(SUM(si.qty), 0) FROM sale_items si WHERE si.sale_id = s.id),
                 s.total_minor - s.tax_minor,
                 (SELECT COALESCE(SUM({LINE_COST_SQL}), 0) FROM sale_items si JOIN items i ON i.id = si.item_id

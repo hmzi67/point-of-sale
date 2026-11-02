@@ -63,6 +63,7 @@ thiserror = "2"
 # (`workspace::pins`): HKDF + ChaCha20-Poly1305. The same `ring` rustls
 # already uses above, so no new crate.
 ring = "0.17"
+ab_glyph = "0.2"
 
 # `rfd` (the fatal-startup-error dialog in `lib.rs`) is desktop-only because
 # it has no backend implementation at all for Android or iOS —

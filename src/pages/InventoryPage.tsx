@@ -1,6 +1,7 @@
 import { Boxes, LockKeyhole, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { BarcodeLabelsModal } from "../components/inventory/BarcodeLabelsModal";
+import { CategoryManagerModal } from "../components/inventory/CategoryManagerModal";
 import { CsvImportModal } from "../components/inventory/CsvImportModal";
 import { EMPTY_INVENTORY_FILTERS, InventoryFilterChips } from "../components/inventory/InventoryFilterChips";
 import { InventorySnapshot } from "../components/inventory/InventorySnapshot";
@@ -39,7 +40,7 @@ export function InventoryPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<Item | null>(null);
-  const [openTool, setOpenTool] = useState<"stockTake" | "movements" | "labels" | null>(null);
+  const [openTool, setOpenTool] = useState<"stockTake" | "movements" | "labels" | "categories" | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -152,6 +153,7 @@ export function InventoryPage() {
         onStockTake={() => setOpenTool("stockTake")}
         onMovements={() => setOpenTool("movements")}
         onLabels={() => setOpenTool("labels")}
+        onCategories={() => setOpenTool("categories")}
       />
 
       <div className="border-t border-line pt-4">
@@ -224,6 +226,7 @@ export function InventoryPage() {
         />
       )}
       {openTool === "stockTake" && <StockTakeModal currency={config.currency} onSaved={() => void load()} onClose={() => setOpenTool(null)} />}
+      {openTool === "categories" && <CategoryManagerModal onClose={() => setOpenTool(null)} />}
       {openTool === "movements" && <StockMovementsModal currency={config.currency} onClose={() => setOpenTool(null)} />}
       {openTool === "labels" && (
         <BarcodeLabelsModal

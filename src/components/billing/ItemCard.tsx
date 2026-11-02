@@ -15,8 +15,7 @@ interface ItemCardProps {
 }
 
 /**
- * The card itself is no longer a button — there's nothing left to "open".
- * Cart interaction lives inline: an "Add to Cart" bar when the item isn't in
+ * Cart interaction lives inline: a tap anywhere on the card or an "Add to Cart" bar when the item isn't in
  * the cart yet, replaced by a qty stepper (subscribed to just this item's
  * cart entry, same pattern as `CartRow`) once it is. Decrementing from 1
  * removes the line entirely and reverts the card back to "Add to Cart".
@@ -51,20 +50,26 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
   };
 
   return (
+    // Tapping the card adds the item once; after that only the stepper changes
+    // the quantity, so a second tap never adds it twice. The "Add to cart"
+    // button stays as the keyboard-reachable control.
     <div
+      onClick={() => {
+        if (!inCart && !outOfStock) addItem(item);
+      }}
       className={[
         "group flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-surface text-left transition-colors duration-200",
-        inCart ? "border-accent/60 shadow-soft" : "border-line",
+        inCart ? "border-accent/60 shadow-soft" : outOfStock ? "border-line" : "cursor-pointer border-line",
         outOfStock ? "opacity-50" : "hover:border-accent/40 hover:shadow-soft",
       ].join(" ")}
     >
       {/* Padded, tinted mount for the photo instead of an edge-to-edge crop —
        * reads as a framed thumbnail floating on a soft neutral surface,
        * inset within the card, not filling its whole top edge. */}
-      <div className="p-2 sm:p-2.5 pb-0">
+      <div className="p-1.5 sm:p-2 pb-0">
         <div className="relative overflow-hidden rounded-xl bg-surface-2">
-          <ItemImage imagePath={item.imagePath} alt={item.name} className="h-24 sm:h-28 w-full"
-            fallback={<span aria-hidden="true" className={`flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl border border-current/10 ${color.bg} ${color.text}`}><CategoryIcon className="h-7 w-7 sm:h-8 sm:w-8" strokeWidth={1.25} /></span>} />
+          <ItemImage imagePath={item.imagePath} alt={item.name} className="h-20 sm:h-22 w-full"
+            fallback={<span aria-hidden="true" className={`flex h-12 w-12 items-center justify-center rounded-2xl border border-current/10 ${color.bg} ${color.text}`}><CategoryIcon className="h-6 w-6" strokeWidth={1.25} /></span>} />
           <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
             {item.shortCode && (
               <span
@@ -95,8 +100,8 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
       {/* Name is the anchor; category pill + price share one row below it,
        * consistent padding all round so image → name → row reads as one
        * block instead of separately-spaced pieces. */}
-      <div className="flex flex-1 flex-col gap-1.5 p-2.5 sm:gap-2 sm:p-3">
-        <p title={item.name} className="line-clamp-2 min-h-9 text-xs sm:text-sm font-semibold leading-snug text-fg">{item.name}</p>
+      <div className="flex flex-1 flex-col gap-1.5 p-2 sm:p-2.5">
+        <p title={item.name} className="line-clamp-2 min-h-8 text-xs font-semibold leading-snug text-fg">{item.name}</p>
         <div className="flex flex-wrap items-center justify-between gap-1.5">
           {item.categoryName ? (
             <span className={`truncate rounded-full px-2 py-0.5 text-[10px] sm:text-[10.5px] font-medium ${color.bg} ${color.text}`}>
@@ -105,7 +110,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
           ) : (
             <span />
           )}
-          <span className="shrink-0 text-sm sm:text-base font-extrabold tracking-tight text-fg">
+          <span className="shrink-0 text-sm font-extrabold tracking-tight text-fg">
             {formatMinor(item.priceMinor, currency)}
           </span>
         </div>
@@ -115,7 +120,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
             <button
               type="button"
               onClick={decrement}
-              className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2"
               aria-label={`Decrease quantity of ${item.name}`}
             >
               <Minus className="h-3.5 w-3.5" />
@@ -125,7 +130,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
               type="button"
               onClick={increment}
               disabled={qty >= item.stockQty}
-              className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface text-fg-2 shadow-sm hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
               aria-label={`Increase quantity of ${item.name}`}
             >
               <Plus className="h-3.5 w-3.5" />
@@ -139,7 +144,7 @@ export function ItemCard({ item, currency, isBestSeller = false }: ItemCardProps
               if (!outOfStock) addItem(item);
             }}
             disabled={outOfStock}
-            className="mt-auto flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-accent/20 bg-accent-soft py-1.5 sm:py-2 text-xs font-semibold text-accent-text transition-colors hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
+            className="mt-auto flex min-h-8 items-center justify-center gap-1.5 rounded-xl border border-accent/20 bg-accent-soft py-1.5 text-xs font-semibold text-accent-text transition-colors hover:bg-accent hover:text-accent-ink disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
           >
             <Plus className="h-3.5 w-3.5" /> Add to cart
           </button>

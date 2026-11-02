@@ -432,3 +432,22 @@ textarea {
     max-height: 80dvh;
   }
 }
+
+/* The on-screen receipt is paper: black on white in either theme, in the
+   same face as the print and the PDF (Arimo, `assets/fonts`). Like
+   `receiptPdf.ts`, it is deliberately outside the theme tokens. */
+@font-face {
+  font-family: "Arimo";
+  src: url("./assets/fonts/Arimo-Medium.ttf") format("truetype");
+  font-weight: 400 600;
+}
+@font-face {
+  font-family: "Arimo";
+  src: url("./assets/fonts/Arimo-Bold.ttf") format("truetype");
+  font-weight: 700 900;
+}
+.receipt-paper {
+  background: #fff;
+  color: #000;
+  font-family: "Arimo", Arial, sans-serif;
+}

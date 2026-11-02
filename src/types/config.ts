@@ -18,6 +18,13 @@ export interface AppConfig {
    * when set. */
   businessAddress: string | null;
   businessWebsite: string | null;
+  /** Receipt look: the tagline between dashes under the header
+   * ("--- JUICY & TENDER ---"), a follow-us line under the thank-you, the
+   * diagonal PAID/UNPAID stamp, and the developer credit line. */
+  receiptTagline: string | null;
+  receiptSocial: string | null;
+  receiptShowStamp: boolean;
+  receiptShowCredit: boolean;
   /** Set once the first-time setup wizard finishes. `false` on a brand-new
    * install routes the app into onboarding instead of the normal screens. */
   onboardingCompleted: boolean;

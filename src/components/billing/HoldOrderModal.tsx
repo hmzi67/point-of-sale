@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Clock, Pause } from "lucide-react";
+import { Check, ChefHat, Clock, Pause, Ticket } from "lucide-react";
 import { createAndHoldOrder, printOrderToken } from "../../services/ordersService";
 import { reportWarning } from "../../services/logService";
 import { useBillingStore } from "../../store";
@@ -14,10 +14,16 @@ interface HoldOrderModalProps {
   currency: string;
   totalMinor: number;
   onClose: () => void;
-  onOrderHeld: (order: Order, tokenError?: string) => void;
+  onOrderHeld: (order: Order, printError?: string) => void;
 }
 
 const PRESET_TIMES = [10, 15, 20, 25, 30, 45];
+
+/** What can print when the order is held — both off by default. */
+const PRINTS = [
+  { isKitchen: true, label: "Kitchen receipt", icon: ChefHat },
+  { isKitchen: false, label: "Customer token", icon: Ticket },
+] as const;
 
 export function HoldOrderModal({
   currency,
@@ -33,6 +39,9 @@ export function HoldOrderModal({
   const [customerName, setCustomerName] = useState("");
   const [notes, setNotes] = useState("");
   const [prepMinutes, setPrepMinutes] = useState(15);
+  const [printKitchen, setPrintKitchen] = useState(false);
+  const [printCustomer, setPrintCustomer] = useState(false);
+  const willPrint = printKitchen || printCustomer;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,17 +72,22 @@ export function HoldOrderModal({
         lines,
       });
 
-      // Automatically trigger token printing (kitchen ticket)
-      let tokenError: string | undefined;
-      try {
-        await printOrderToken(order.id, true);
-      } catch (printErr) {
-        tokenError = (printErr as Error).message;
-        reportWarning(`hold order: token print failed for order ${order.id}: ${tokenError}`);
+      // Only what the cashier ticked. The order is already held, so a print
+      // failure is reported, never thrown.
+      const printErrors: string[] = [];
+      for (const { isKitchen, label } of PRINTS) {
+        if (!(isKitchen ? printKitchen : printCustomer)) continue;
+        try {
+          await printOrderToken(order.id, isKitchen);
+        } catch (printErr) {
+          const message = (printErr as Error).message;
+          printErrors.push(`${label} didn't print (${message})`);
+          reportWarning(`hold order: ${label} print failed for order ${order.id}: ${message}`);
+        }
       }
 
       clearCart();
-      onOrderHeld(order, tokenError);
+      onOrderHeld(order, printErrors.join("; ") || undefined);
       onClose();
     });
   };
@@ -182,6 +196,37 @@ export function HoldOrderModal({
             />
           </div>
 
+          {/* Optional prints */}
+          <div>
+            <span className="mb-1.5 block text-xs font-medium text-fg">Print (Optional)</span>
+            <div className="grid grid-cols-2 gap-2">
+              {PRINTS.map(({ isKitchen, label, icon: Icon }) => {
+                const on = isKitchen ? printKitchen : printCustomer;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => (isKitchen ? setPrintKitchen : setPrintCustomer)(!on)}
+                    className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition ${
+                      on ? "border-accent/50 bg-accent-soft text-accent-text" : "border-line bg-surface-2 text-fg-muted hover:bg-surface-3"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="flex-1 text-left">{label}</span>
+                    <span
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                        on ? "border-accent bg-accent text-accent-ink" : "border-line-strong"
+                      }`}
+                    >
+                      {on && <Check className="h-3 w-3" />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Cart preview summary */}
           <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2/60 p-3 text-xs text-fg-muted">
             <span>
@@ -209,7 +254,7 @@ export function HoldOrderModal({
               disabled={isSubmitting || cartOrder.length === 0}
               className="rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink shadow-soft hover:opacity-95 disabled:opacity-50"
             >
-              {isSubmitting ? "Holding..." : "Hold & Clear Cart"}
+              {isSubmitting ? "Holding..." : willPrint ? "Hold & Print" : "Hold & Clear Cart"}
             </button>
           </div>
         </form>

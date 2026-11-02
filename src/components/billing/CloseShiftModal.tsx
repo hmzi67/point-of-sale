@@ -7,6 +7,7 @@ import { useShiftSummaryOutput } from "../../hooks/useShiftSummaryOutput";
 import { decimalToMinor, formatMinor } from "../../utils/format";
 import type { AppConfig, ShiftSummary } from "../../types";
 import { ModalOverlay } from "../ui/ModalOverlay";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { runAction } from "../../utils/runAction";
 
 interface CloseShiftModalProps {
@@ -15,7 +16,8 @@ interface CloseShiftModalProps {
   onClose: () => void;
 }
 
-/** Declare-cash-count → live reconciliation preview → confirm → print,
+/** Declare-cash-count → live reconciliation preview → "are you sure?" →
+ * close → the shift record prints by itself (Print/PDF stay for a copy),
  * matching the reference's "Counter-N Sale Details" receipt fields. The
  * preview calls `shifts_get_summary` with the in-progress declared amount
  * (never persisted — see that command's doc comment) so Short/Over is
@@ -26,6 +28,7 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [closed, setClosed] = useState<ShiftSummary | null>(null);
   const [isClosing, setIsClosing] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const closeShift = useShiftStore((state) => state.close);
   const { status: printStatus, printThermal, downloadPdf } = useShiftSummaryOutput(config);
 
@@ -40,10 +43,13 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
   }, [shiftId, debouncedDeclared, closed]);
 
   const confirmClose = async () => {
+    setIsConfirming(false);
     if (declaredMinor === null) return;
     await runAction(setIsClosing, setPreviewError, async () => {
       const summary = await closeShift(declaredMinor);
       setClosed(summary);
+      // The shift is closed either way; a print failure only shows its message.
+      void printThermal(shiftId);
     });
   };
 
@@ -127,11 +133,11 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
               </button>
               <button
                 type="button"
-                onClick={() => void confirmClose()}
+                onClick={() => setIsConfirming(true)}
                 disabled={declaredMinor === null || isClosing}
                 className="flex-1 rounded-2xl bg-accent py-2.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-hover disabled:opacity-50"
               >
-                {isClosing ? "Closing…" : "Confirm Close"}
+                {isClosing ? "Closing…" : "Close Shift"}
               </button>
             </div>
           ) : (
@@ -165,6 +171,16 @@ export function CloseShiftModal({ shiftId, config, onClose }: CloseShiftModalPro
           )}
         </div>
       </div>
+      {isConfirming && (
+        <ConfirmDialog
+          title={`Close shift #${shiftId}?`}
+          message="No more sales can be added to it. The shift record prints right after closing."
+          confirmLabel="Close & print"
+          isDangerous
+          onConfirm={() => void confirmClose()}
+          onCancel={() => setIsConfirming(false)}
+        />
+      )}
     </ModalOverlay>
   );
 }

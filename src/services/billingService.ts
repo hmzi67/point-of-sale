@@ -10,6 +10,12 @@ export function createSale(input: CreateSaleInput): Promise<Sale> {
   return call<Sale>("billing_create_sale", { input });
 }
 
+/** The number the next order gets in the signed-in cashier's open shift (1
+ * at the start of each shift) — `null` while no shift is open. */
+export function getNextOrderNo(): Promise<number | null> {
+  return call<number | null>("billing_next_order_no", {});
+}
+
 /** Fetches a completed sale — used for receipt reprint. */
 export function getSale(id: number): Promise<Sale> {
   return call<Sale>("billing_get_sale", { id });

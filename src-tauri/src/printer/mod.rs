@@ -23,6 +23,7 @@
 
 pub mod escpos;
 pub mod layout;
+pub mod receipt_image;
 #[cfg(target_os = "android")]
 pub mod android_bt;
 #[cfg(target_os = "android")]

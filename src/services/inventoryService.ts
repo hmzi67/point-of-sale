@@ -29,8 +29,17 @@ export function getCategories(): Promise<Category[]> {
   return call<Category[]>("inventory_get_categories", {});
 }
 
-export function addCategory(name: string): Promise<Category> {
-  return call<Category>("inventory_add_category", { name });
+export function addCategory(name: string, imagePath: string | null = null, isTopping = false): Promise<Category> {
+  return call<Category>("inventory_add_category", { name, imagePath, isTopping });
+}
+
+export function updateCategory(id: number, name: string, imagePath: string | null, isTopping: boolean): Promise<Category> {
+  return call<Category>("inventory_update_category", { id, name, imagePath, isTopping });
+}
+
+/** Its items stay, uncategorised. */
+export function deleteCategory(id: number): Promise<void> {
+  return call<void>("inventory_delete_category", { id });
 }
 
 /**

@@ -17,6 +17,10 @@ import { OrderSummaryHeader } from "../components/billing/OrderSummaryHeader";
 import { OrderTypeAndTable } from "../components/billing/OrderTypeAndTable";
 import { PaymentMethodSelector } from "../components/billing/PaymentMethodSelector";
 import { ReceiptModal } from "../components/billing/ReceiptModal";
+import { ToppingPickerModal } from "../components/billing/ToppingPickerModal";
+import { ShiftGate, type ShiftStage } from "../components/billing/ShiftGate";
+import { PlaceOrderConfirmModal } from "../components/billing/PlaceOrderConfirmModal";
+import { paymentMethodLabel } from "../utils/checkoutPayments";
 import { ShortcutsHelpOverlay } from "../components/billing/ShortcutsHelpOverlay";
 import { SplitPaymentEditor } from "../components/billing/SplitPaymentEditor";
 import { TableQuickSelectModal } from "../components/billing/TableQuickSelectModal";
@@ -42,6 +46,11 @@ export function BillingPage() {
   const tablesEnabled = useModuleEnabled("tables");
   const shiftsEnabled = useModuleEnabled("shifts");
   const loadShift = useShiftStore((state) => state.load);
+  const openShift = useShiftStore((state) => state.openShift);
+  const isShiftLoaded = useShiftStore((state) => state.isLoaded);
+  // Every visit starts by asking (see ShiftGate); "choose" is a no-op until a shift is open.
+  const [shiftStage, setShiftStage] = useState<ShiftStage>("choose");
+  const isShiftGateOpen = shiftsEnabled && isShiftLoaded && (shiftStage !== null || !openShift);
 
   useEffect(() => {
     if (shiftsEnabled) void loadShift();
@@ -88,12 +97,16 @@ export function BillingPage() {
   // stored as a flag, so the fire badge can't go stale.
   const { bestSellerIds, reloadBestSellers } = useBestSellerIds();
 
+  // Toppings are picked from their item's popup, never browsed on the menu
+  // (search still finds them).
+  const menuItems = items.filter((item) => !item.isTopping);
+  const menuCategories = categories.filter((category) => !category.isTopping);
   const visibleItems = isSearching
     ? searchResults
     : selectedCategoryId === null
-      ? items
+      ? menuItems
       : selectedCategoryId === "best-seller"
-        ? items.filter((item) => bestSellerIds.has(item.id))
+        ? menuItems.filter((item) => bestSellerIds.has(item.id))
         : items.filter((item) => item.categoryId === selectedCategoryId);
 
   // --- Cart line note editing (the cart row's pencil icon) ------------------
@@ -108,6 +121,7 @@ export function BillingPage() {
   const clearCart = useBillingStore((state) => state.clearCart);
   const updateLine = useBillingStore((state) => state.updateLine);
   const amountEntryItem = useBillingStore((state) => state.amountEntryItem);
+  const toppingPicker = useBillingStore((state) => state.toppingPicker);
   const activeOrderId = useBillingStore((state) => state.activeOrderId);
   const customerName = useBillingStore((state) => state.customerName);
   const tenderedAmount = useBillingStore((state) => state.tenderedAmount);
@@ -127,6 +141,7 @@ export function BillingPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
+  const [isConfirmingOrder, setIsConfirmingOrder] = useState(false);
 
   // Bumped on every Ctrl/Cmd+K; `isTokenDialogOpen` mirrors whether
   // `OrderTypeAndTable`'s "Print Token" dialog is currently up — see both
@@ -180,7 +195,10 @@ export function BillingPage() {
     !IS_ANDROID &&
     editingItemId === null &&
     completedSale === null &&
+    !isConfirmingOrder &&
+    !isShiftGateOpen &&
     amountEntryItem === null &&
+    toppingPicker === null &&
     !isTokenDialogOpen &&
     !showHoldModal &&
     !isOpenActiveOrders;
@@ -189,10 +207,10 @@ export function BillingPage() {
     items,
     tablesEnabled,
     tableId,
-    // `completeSale` is defined further down this component, but this
+    // `askToPlaceOrder` is defined further down this component, but this
     // wrapper isn't invoked until a real Ctrl/Cmd+Enter keypress — well
     // after render — so the forward reference is safe.
-    onPlaceOrder: () => void completeSale(),
+    onPlaceOrder: () => askToPlaceOrder(),
     onPrintToken: () => setTokenPrintRequestId((n) => n + 1),
   });
 
@@ -213,7 +231,17 @@ export function BillingPage() {
   // the order, not the sale, so tenders must add up to this, not the total.
   const payableMinor = totals.totalMinor - totals.deliveryChargeMinor;
 
-  const completeSale = async () => {
+  const askToPlaceOrder = () => {
+    if (cartOrder.length > 0 && !isSubmitting) setIsConfirmingOrder(true);
+  };
+  const cashChangeMinor =
+    paymentMethod === "cash" && tenderedAmount !== null && tenderedAmount > 0
+      ? Math.max(0, decimalToMinor(tenderedAmount) - totals.totalMinor)
+      : null;
+
+  /** `printBill`: open the receipt and send it to the printer; otherwise just a notice. */
+  const completeSale = async (printBill: boolean) => {
+    setIsConfirmingOrder(false);
     if (cartOrder.length === 0) return;
     // Set when the payment went through but a follow-up step didn't — shown after runAction clears the error line.
     let followUpError: string | null = null;
@@ -287,7 +315,13 @@ export function BillingPage() {
           changeMinor,
         });
       }
-      setCompletedSale(sale);
+      if (printBill) {
+        setCompletedSale(sale);
+      } else {
+        const change = sale.changeMinor ? ` · Change ${formatMinor(sale.changeMinor, config.currency)}` : "";
+        setNotice(`Order placed — Sale #${sale.receiptNo}${change}`);
+        window.setTimeout(() => setNotice(null), 5000);
+      }
       clearCart();
       setIsCartOpen(false);
       loadCatalog(); // stock just changed — the grid should reflect it
@@ -306,13 +340,14 @@ export function BillingPage() {
           onOpenActiveOrders={() => setIsOpenActiveOrders(true)}
           activeOrdersCount={activeOrdersCount}
           hasLateOrders={hasLateOrders}
+          onShiftClick={() => setShiftStage("choose")}
         />
         {IS_ANDROID ? (
-          <MobileCategoryChips categories={categories} selected={selectedCategoryId} onSelect={setSelectedCategoryId} />
+          <MobileCategoryChips categories={menuCategories} selected={selectedCategoryId} onSelect={setSelectedCategoryId} />
         ) : (
           <CategoryPills
-            categories={categories}
-            items={items}
+            categories={menuCategories}
+            items={menuItems}
             selectedCategoryId={selectedCategoryId === "best-seller" ? null : selectedCategoryId}
             onSelect={setSelectedCategoryId}
           />
@@ -354,7 +389,7 @@ export function BillingPage() {
         className={
           IS_ANDROID
             ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] w-full flex-col gap-4 overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-soft-lg"
-            : "billing-checkout flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-y-auto rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-80 lg:w-84 xl:w-92 2xl:w-100 h-full min-h-0"
+            : "billing-checkout flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-y-auto rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-84 lg:w-92 xl:w-100 2xl:w-108 h-full min-h-0"
         }
       >
         {IS_ANDROID && (
@@ -481,7 +516,7 @@ export function BillingPage() {
 
           <button
             type="button"
-            onClick={() => void completeSale()}
+            onClick={askToPlaceOrder}
             disabled={cartOrder.length === 0 || isSubmitting}
             className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl bg-accent px-3 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
           >
@@ -542,11 +577,28 @@ export function BillingPage() {
           sale={completedSale}
           config={config}
           tablesEnabled={tablesEnabled}
+          autoPrint
           onClose={() => setCompletedSale(null)}
         />
       )}
 
+      {shiftsEnabled && <ShiftGate config={config} stage={shiftStage} onStageChange={setShiftStage} />}
+
+      {isConfirmingOrder && (
+        <PlaceOrderConfirmModal
+          itemCount={cartOrder.length}
+          totalMinor={totals.totalMinor}
+          currency={config.currency}
+          paymentLabel={paymentMethodLabel(paymentMethod)}
+          changeMinor={cashChangeMinor}
+          onPlace={() => void completeSale(false)}
+          onPlaceAndPrint={() => void completeSale(true)}
+          onCancel={() => setIsConfirmingOrder(false)}
+        />
+      )}
+
       <ItemAmountEntryModal />
+      <ToppingPickerModal />
 
       {/* Keyboard fast billing UI — see `useFastBillingHotkeys`. */}
       {fastBilling.buffer && (
@@ -568,10 +620,10 @@ export function BillingPage() {
           currency={config.currency}
           totalMinor={totals.totalMinor}
           onClose={() => setShowHoldModal(false)}
-          onOrderHeld={(order, tokenError) => {
+          onOrderHeld={(order, printError) => {
             setNotice(`Order #${order.orderNo} held (${order.estimatedPrepMinutes}m target). Cart cleared.`);
             window.setTimeout(() => setNotice(null), 5000);
-            if (tokenError) setError(`Kitchen token for order #${order.orderNo} didn't print (${tokenError}). Reprint it from Active Orders.`);
+            if (printError) setError(`Order #${order.orderNo}: ${printError}. Reprint it from Active Orders.`);
             void refreshActiveOrdersCount();
           }}
         />

@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ClipboardList, Pencil, UserRound, X } from "lucide-react";
 import { useModuleEnabled } from "../../hooks/useModules";
-import { useBillingStore } from "../../store";
+import { useBillingStore, useShiftStore } from "../../store";
+import { getNextOrderNo } from "../../services/billingService";
 import { formatMinor } from "../../utils/format";
 import { CustomerPickerModal } from "./CustomerPickerModal";
 
-/** Customer + a local draft order number. With the `customers` module on,
+/** Customer + the order number this draft will get: the shift's next one
+ * (1 at the start of every shift, from `billing_next_order_no`), or a
+ * resumed order's own. With the `customers` module on,
  * the pencil attaches a real customer account (needed for pay later);
  * otherwise the name is just a label on this draft order. Either way it's
  * cleared the moment the order is completed or reset. */
@@ -15,7 +18,23 @@ export function OrderSummaryHeader({ currency }: { currency: string }) {
   const setCustomerName = useBillingStore((state) => state.setCustomerName);
   const customer = useBillingStore((state) => state.customer);
   const setCustomer = useBillingStore((state) => state.setCustomer);
-  const draftOrderNumber = useBillingStore((state) => state.draftOrderNumber);
+  const draftGeneration = useBillingStore((state) => state.draftGeneration);
+  const activeOrderNo = useBillingStore((state) => state.activeOrderNo);
+  const openShiftId = useShiftStore((state) => state.openShift?.id ?? null);
+  const [nextOrderNo, setNextOrderNo] = useState<number | null>(null);
+
+  // Re-read after every completed/held/cleared draft and whenever a shift
+  // opens or closes. Display only, so a failed read just hides the number.
+  useEffect(() => {
+    let live = true;
+    getNextOrderNo()
+      .then((no) => live && setNextOrderNo(no))
+      .catch(() => live && setNextOrderNo(null));
+    return () => {
+      live = false;
+    };
+  }, [draftGeneration, openShiftId]);
+  const orderNo = activeOrderNo ?? nextOrderNo;
 
   const [isEditing, setIsEditing] = useState(false);
   const [isPicking, setIsPicking] = useState(false);
@@ -59,7 +78,7 @@ export function OrderSummaryHeader({ currency }: { currency: string }) {
             <p className="truncate text-sm font-semibold text-fg sm:text-base">{customerName || "Counter Sale"}</p>
           )}
           <p className="truncate text-[11px] font-medium text-fg-muted">
-            Order #{String(draftOrderNumber).padStart(3, "0")}
+            {orderNo !== null ? `Order #${String(orderNo).padStart(3, "0")}` : "No open shift"}
             {customer?.phone ? ` · ${customer.phone}` : ""}
             {customer && customer.balanceMinor > 0 && (
               <span className={customer.overdueMinor > 0 ? "text-danger-text" : "text-warning-text"}>

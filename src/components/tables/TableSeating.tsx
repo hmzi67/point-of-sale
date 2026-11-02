@@ -1,6 +1,6 @@
 /** A top-down table with a chair for each seat; large banquet capacities
  * use a count for the extra chairs to keep the floor view readable. */
-export function TableSeating({ seats }: { seats: number }) {
+export function TableSeating({ seats, className = "h-36 w-full" }: { seats: number; className?: string }) {
   const visible = Math.min(24, Math.max(1, Math.floor(seats)));
   const top = Math.ceil(visible / 2);
   const bottom = Math.floor(visible / 2);
@@ -11,7 +11,7 @@ export function TableSeating({ seats }: { seats: number }) {
       stroke="currentColor" strokeWidth={1.5} />
   ));
   return (
-    <svg viewBox={`0 0 ${width + 60} 156`} className="h-36 w-full" aria-hidden="true">
+    <svg viewBox={`0 0 ${width + 60} 156`} className={className} aria-hidden="true">
       {chairRow(top, 10)}
       <rect x={30} y={34} width={width} height={88} rx={visible <= 4 ? 24 : 14}
         fill="currentColor" fillOpacity={0.08} stroke="currentColor" strokeWidth={2} />

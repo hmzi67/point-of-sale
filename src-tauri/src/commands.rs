@@ -155,6 +155,22 @@ fn module_enabled(db: &Db, key: &str) -> Result<bool, String> {
         .map_err(|e| e.to_string())
 }
 
+/// The shift a sale or order belongs to. With the `shifts` module on, one
+/// must be open — numbering and the drawer are per shift, so nothing is sold
+/// outside one. `any_here` also accepts another cashier's open shift on this
+/// counter (orders); otherwise only the caller's own (counter sales).
+fn selling_shift(db: &Db, user_id: i64, any_here: bool) -> Result<Option<i64>, String> {
+    if !module_enabled(db, module_key::SHIFTS)? {
+        return Ok(None);
+    }
+    let id = if any_here {
+        query(db, |conn| shifts::get_effective_open_shift_id(conn, Some(user_id)))?
+    } else {
+        query(db, |conn| shifts::get_open_shift_for_cashier(conn, user_id))?.map(|shift| shift.id)
+    };
+    id.map(Some).ok_or_else(|| "Start a shift before billing.".to_string())
+}
+
 /// Fails a command unless someone is signed in *and* currently holds a valid
 /// `AreaAccessSession` grant (see that module's doc comment) — the check
 /// behind every command in the Attendance/Expenses/Salary/Reports sections
@@ -986,11 +1002,12 @@ fn current_image_path(db: &Db, id: i64) -> Option<String> {
     query(db, |conn| items::get_item(conn, id)).ok().and_then(|item| item.image_path)
 }
 
-/// Photos are named by their content, so two products can share one file:
-/// it goes only when no product uses it any more.
+/// Photos are named by their content, so two products (or a category) can
+/// share one file: it goes only when nothing uses it any more.
 fn delete_photo_if_unused(app: &AppHandle, db: &Db, file_name: &str) -> Result<(), String> {
     let in_use: bool = query(db, |conn| {
-        conn.query_row("SELECT EXISTS (SELECT 1 FROM items WHERE image_path = ?1)", [file_name], |row| row.get(0))
+        conn.query_row("SELECT EXISTS (SELECT 1 FROM items WHERE image_path = ?1)
+                 OR EXISTS (SELECT 1 FROM categories WHERE image_path = ?1)", [file_name], |row| row.get(0))
     })?;
     if !in_use {
         images::delete_image(&images_dir(app)?, file_name);
@@ -1071,9 +1088,48 @@ pub fn inventory_add_category(
     db: State<'_, Db>,
     session: State<'_, Session>,
     name: String,
+    image_path: Option<String>,
+    is_topping: Option<bool>,
 ) -> Result<Category, String> {
     require_module_admin(&db, &[module_key::INVENTORY], &session)?;
-    query(&db, |conn| items::add_category(conn, &name))
+    query(&db, |conn| items::add_category(conn, &name, image_path.as_deref(), is_topping.unwrap_or(false)))
+}
+
+/// Replaces name and photo; a replaced photo is deleted once nothing uses it.
+#[tauri::command]
+pub fn inventory_update_category(
+    app: AppHandle,
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    name: String,
+    image_path: Option<String>,
+    is_topping: bool,
+) -> Result<Category, String> {
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    let previous = query(&db, |conn| items::get_category(conn, id))?.image_path;
+    let updated = query(&db, |conn| items::update_category(conn, id, &name, image_path.as_deref(), is_topping))?;
+    if let Some(old_image) = previous.filter(|old| updated.image_path.as_deref() != Some(old.as_str())) {
+        delete_photo_if_unused(&app, &db, &old_image)?;
+    }
+    Ok(updated)
+}
+
+/// Its items stay, uncategorised.
+#[tauri::command]
+pub fn inventory_delete_category(
+    app: AppHandle,
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+) -> Result<(), String> {
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    let image = query(&db, |conn| items::get_category(conn, id))?.image_path;
+    query(&db, |conn| items::delete_category(conn, id))?;
+    if let Some(image) = image {
+        delete_photo_if_unused(&app, &db, &image)?;
+    }
+    Ok(())
 }
 
 /// Bulk-loads a stock list — the Phase 14 alternative to typing in every
@@ -1316,13 +1372,7 @@ pub async fn billing_create_sale(
     let caller = require_signed_in(&session)?;
     require_license(&license)?;
     input.cashier_id = Some(caller.id);
-    let shifts_enabled = module_enabled(&db, module_key::SHIFTS)?;
-    input.shift_id = if shifts_enabled {
-        query(&db, |conn| shifts::get_open_shift_for_cashier(conn, caller.id))?
-            .map(|shift| shift.id)
-    } else {
-        None
-    };
+    input.shift_id = selling_shift(&db, caller.id, false)?;
     let lines: Vec<(i64, f64)> = input.items.iter().map(|line| (line.item_id, line.qty)).collect();
     let reservation = workspace::runtime::reserve_for_sale(&db, &lines).await?;
     let sale = transact(&db, |tx| workspace::runtime::record_sale(tx, reservation.as_deref(), |tx| sales::create_sale(tx, input)));
@@ -1332,6 +1382,25 @@ pub async fn billing_create_sale(
     let sale = sale?;
     crate::sync::spawn_after_write(&app);
     Ok(sale)
+}
+
+/// The number the next order gets — what the checkout header shows before a
+/// sale exists: 1, 2, 3… from the start of the caller's open shift (the same
+/// counter `billing_create_sale` numbers with). `None` with the `shifts`
+/// module on and no shift open yet; per day with the module off.
+#[tauri::command]
+pub fn billing_next_order_no(db: State<'_, Db>, session: State<'_, Session>) -> Result<Option<i64>, String> {
+    require_module(&db, &[module_key::BILLING])?;
+    let caller = require_signed_in(&session)?;
+    let shift_id = if module_enabled(&db, module_key::SHIFTS)? {
+        match query(&db, |conn| shifts::get_open_shift_for_cashier(conn, caller.id))? {
+            Some(shift) => Some(shift.id),
+            None => return Ok(None),
+        }
+    } else {
+        None
+    };
+    query(&db, |conn| orders::next_order_no(conn, shift_id)).map(Some)
 }
 
 /// Fetches a completed sale — used for receipt reprint.
@@ -2479,12 +2548,7 @@ pub fn orders_create_and_hold(
     input: CreateAndHoldOrderInput,
 ) -> Result<orders::Order, String> {
     let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
-    let shifts_enabled = module_enabled(&db, module_key::SHIFTS)?;
-    let shift_id = if shifts_enabled {
-        query(&db, |conn| shifts::get_effective_open_shift_id(conn, Some(user.id)))?
-    } else {
-        None
-    };
+    let shift_id = selling_shift(&db, user.id, true)?;
     transact(&db, |tx| {
         let order = orders::create_order(
             tx,
@@ -2610,12 +2674,7 @@ pub async fn orders_pay(
 ) -> Result<orders::Paid, String> {
     let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
     require_license(&license)?;
-    let shifts_enabled = module_enabled(&db, module_key::SHIFTS)?;
-    let shift_id = if shifts_enabled {
-        query(&db, |conn| shifts::get_effective_open_shift_id(conn, Some(user.id)))?
-    } else {
-        None
-    };
+    let shift_id = selling_shift(&db, user.id, true)?;
     // The lines being paid take their stock centrally first, like a counter sale.
     let lines = query(&db, |conn| orders::stock_lines(conn, input.order_id, &input.order_item_ids))?;
     let reservation = workspace::runtime::reserve_for_sale(&db, &lines).await?;

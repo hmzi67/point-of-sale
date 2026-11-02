@@ -42,6 +42,7 @@ pub fn count(conn: &Connection, sql: &str) -> i64 {
 /// A plain per-piece item at 100.00 (cost 80.00), uncategorised, no barcode.
 pub fn item_input(name: &str, stock_qty: f64) -> ItemInput {
     ItemInput {
+        topping_category_id: None,
         name: name.to_string(),
         barcode: None,
         short_code: None,

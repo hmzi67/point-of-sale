@@ -100,7 +100,7 @@ fn resolve_category(
 
     let id = match existing {
         Some(id) => id,
-        None => items::add_category(conn, name).map_err(|e| e.to_string())?.id,
+        None => items::add_category(conn, name, None, false).map_err(|e| e.to_string())?.id,
     };
     cache.insert(key, id);
     Ok(id)
@@ -162,6 +162,7 @@ pub fn import_csv(conn: &Connection, csv_content: &str) -> Result<ImportSummary,
             items::add_item(
                 conn,
                 ItemInput {
+                    topping_category_id: None,
                     name,
                     barcode,
                     // Not a CSV column (out of scope for bulk import) — an

@@ -1,4 +1,4 @@
-import { Barcode, ClipboardCheck, History, Plus, Search, Upload } from "lucide-react";
+import { Barcode, ClipboardCheck, History, Plus, Search, Tags, Upload } from "lucide-react";
 import { upgradeHint, useCapability } from "../../hooks/useCapability";
 import { useInventoryStore } from "../../store";
 
@@ -9,12 +9,13 @@ interface InventoryToolbarProps {
   onStockTake: () => void;
   onMovements: () => void;
   onLabels: () => void;
+  onCategories: () => void;
 }
 
 const toolClass =
   "flex items-center gap-1.5 rounded-xl border border-line bg-surface-2/50 px-3 py-3 text-sm font-medium text-fg-2 hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50";
 
-export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv, onStockTake, onMovements, onLabels }: InventoryToolbarProps) {
+export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv, onStockTake, onMovements, onLabels, onCategories }: InventoryToolbarProps) {
   const search = useInventoryStore((state) => state.search);
   const setSearch = useInventoryStore((state) => state.setSearch);
   const categoryId = useInventoryStore((state) => state.categoryId);
@@ -53,6 +54,10 @@ export function InventoryToolbar({ isReadOnly, onAddItem, onImportCsv, onStockTa
 
       {!isReadOnly && (
         <>
+          <button type="button" onClick={onCategories} className={toolClass}>
+            <Tags className="h-4 w-4" />
+            Categories
+          </button>
           <button type="button" onClick={onStockTake} className={toolClass} disabled={!advanced.allowed} title={advancedTitle}>
             <ClipboardCheck className="h-4 w-4" />
             Stock take

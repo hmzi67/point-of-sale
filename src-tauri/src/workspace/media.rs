@@ -1,7 +1,7 @@
 //! Product photos and the logo, shared by a business's counters.
 //!
 //! The records carry only a file name (`items.image_path`,
-//! `app_config.logo_path`); the files travel separately, through the
+//! `categories.image_path`, `app_config.logo_path`); the files travel separately, through the
 //! business server's media store:
 //!
 //! - **Up, before the push.** A file this counter's records use and that the
@@ -57,6 +57,7 @@ pub fn referenced(conn: &Connection, dirs: &MediaDirs) -> Result<Vec<MediaFile>,
     let mut files = Vec::new();
     let mut stmt = conn.prepare(
         "SELECT DISTINCT image_path, 0 FROM items WHERE image_path IS NOT NULL
+         UNION SELECT image_path, 0 FROM categories WHERE image_path IS NOT NULL
          UNION SELECT logo_path, 1 FROM app_config WHERE logo_path IS NOT NULL",
     )?;
     let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)))?;

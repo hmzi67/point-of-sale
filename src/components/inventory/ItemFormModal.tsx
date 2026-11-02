@@ -42,6 +42,7 @@ interface FormState {
   /** Counter this item's KOT token prints to — `null` means this item is
    * intentionally token-less (e.g. roti). */
   counterId: number | null;
+  toppingCategoryId: number | null;
 }
 
 function toFormState(item?: Item): FormState {
@@ -59,6 +60,7 @@ function toFormState(item?: Item): FormState {
     soldByAmount: item?.soldByAmount ?? false,
     unit: item?.unit ?? "",
     counterId: item?.counterId ?? null,
+    toppingCategoryId: item?.toppingCategoryId ?? null,
   };
 }
 
@@ -66,6 +68,7 @@ function toFormState(item?: Item): FormState {
  * product photo. */
 export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   const categories = useInventoryStore((state) => state.categories);
+  const toppingGroups = categories.filter((category) => category.isTopping);
   const counters = useInventoryStore((state) => state.counters);
   const addItem = useInventoryStore((state) => state.addItem);
   const updateItem = useInventoryStore((state) => state.updateItem);
@@ -207,6 +210,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
       soldByAmount: form.soldByAmount,
       unit: form.unit.trim() || null,
       counterId: form.counterId,
+      toppingCategoryId: form.toppingCategoryId,
       ...(item ? { originalStockQty: item.stockQty } : {}),
     };
 
@@ -514,6 +518,30 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               </div>
             )}
           </div>
+
+          {toppingGroups.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-fg-muted" htmlFor="item-toppings">
+                Toppings <span className="text-fg-muted">(optional)</span>
+              </label>
+              <select
+                id="item-toppings"
+                value={form.toppingCategoryId ?? ""}
+                onChange={(e) => set("toppingCategoryId", e.target.value ? Number(e.target.value) : null)}
+                className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 pr-8 text-sm"
+              >
+                <option value="">No toppings</option>
+                {toppingGroups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-fg-muted">
+                Adding this item on the billing screen offers the toppings in this group.
+              </p>
+            </div>
+          )}
 
           {tokensEnabled && (
             <div>
