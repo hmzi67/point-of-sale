@@ -434,13 +434,13 @@ pub fn insert_priced_sale(tx: &Transaction, sale: PricedSale) -> Result<Sale, Sa
     for line in sale.lines {
         // Read inside the transaction, so an earlier line of the same item
         // in this sale has already been taken off.
-        let (name, stock_qty, cost_minor): (String, f64, i64) = tx
-            .query_row("SELECT name, stock_qty, cost_minor FROM items WHERE id = ?1", params![line.item_id], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        let (name, stock_qty, cost_minor, is_service): (String, f64, i64, bool) = tx
+            .query_row("SELECT name, stock_qty, cost_minor, is_service FROM items WHERE id = ?1", params![line.item_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })
             .optional()?
             .ok_or(SaleError::ItemNotFound(line.item_id))?;
-        if stock_qty < line.qty {
+        if !is_service && stock_qty < line.qty {
             return Err(SaleError::InsufficientStock { name, available: stock_qty, requested: line.qty });
         }
 
@@ -458,6 +458,9 @@ pub fn insert_priced_sale(tx: &Transaction, sale: PricedSale) -> Result<Sale, Sa
         // single mutex-guarded connection, but this is what stays correct if
         // that ever changes), the update matches zero rows and we bail out —
         // the whole transaction rolls back, so no partial sale is ever saved.
+        if is_service {
+            continue;
+        }
         let changed = tx.execute(
             "UPDATE items SET stock_qty = stock_qty - ?1 WHERE id = ?2 AND stock_qty >= ?1",
             params![line.qty, line.item_id],
@@ -938,6 +941,19 @@ mod tests {
         assert_eq!(sales_after, sales_before, "no sale row should have been left behind");
         assert_eq!(stock(&conn, "Cola 500ml"), cola_before, "the satisfiable line must not have applied either");
         assert_eq!(stock(&conn, "Instant Noodles"), noodles_before);
+    }
+
+    #[test]
+    fn a_service_sells_without_stock_and_keeps_none() {
+        let mut conn = test_conn();
+        conn.execute("UPDATE items SET stock_qty = 0, is_service = 1 WHERE name = 'Cola 500ml'", []).unwrap();
+        let tx = conn.transaction().unwrap();
+        let input = CreateSaleInput {
+            items: vec![CartLine { item_id: item_id(&tx, "Cola 500ml"), qty: 3.0, notes: None }],
+            ..basic_input(&tx)
+        };
+        create_sale(&tx, input).unwrap();
+        assert_eq!(stock(&tx, "Cola 500ml"), 0.0);
     }
 
     /// The exact boundary of `insufficient_stock_rolls_back_the_whole_sale`

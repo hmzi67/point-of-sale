@@ -440,6 +440,8 @@ pub fn run() {
             commands::inventory_delete_item,
             commands::inventory_suggest_short_code,
             commands::inventory_get_categories,
+            commands::inventory_get_catalog,
+            commands::inventory_set_item_catalog,
             commands::inventory_add_category,
             commands::inventory_update_category,
             commands::inventory_delete_category,

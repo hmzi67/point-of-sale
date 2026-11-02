@@ -1093,3 +1093,51 @@ CREATE TABLE IF NOT EXISTS stock_take_lines (
 );
 
 CREATE INDEX IF NOT EXISTS idx_stock_take_lines_take ON stock_take_lines (stock_take_id);
+
+-- ---------------------------------------------------------------------------
+-- Catalog of the business, managed from the web dashboard and shared by every
+-- counter: department > category > sub category; manufacturer and location
+-- describe an item. Nothing about pricing, stock or reports reads them.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS departments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE,
+    is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS sub_categories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL,
+    category_id INTEGER REFERENCES categories (id) ON DELETE SET NULL,
+    is_active   INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS manufacturers (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE,
+    is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- Where an item is kept (a shelf, a store room). One business still has one
+-- stock figure per item; this is not multi-location stock.
+CREATE TABLE IF NOT EXISTS locations (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL UNIQUE,
+    notes      TEXT,
+    is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- A bank account the business pays suppliers from.
+CREATE TABLE IF NOT EXISTS bank_accounts (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT    NOT NULL UNIQUE,
+    account_title  TEXT,
+    account_number TEXT,
+    branch         TEXT,
+    is_active      INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);

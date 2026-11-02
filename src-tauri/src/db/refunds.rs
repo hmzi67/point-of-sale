@@ -266,7 +266,7 @@ pub fn create_refund(tx: &Transaction, input: CreateRefundInput) -> Result<Refun
 
         // The mirror of create_sale's stock decrement.
         tx.execute(
-            "UPDATE items SET stock_qty = stock_qty + ?1 WHERE id = ?2",
+            "UPDATE items SET stock_qty = stock_qty + ?1 WHERE id = ?2 AND is_service = 0",
             params![qty_refunded, item_id],
         )?;
 

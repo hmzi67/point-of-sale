@@ -93,6 +93,12 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "stock_movements",
     "stock_takes",
     "stock_take_lines",
+    // Catalog managed from the web dashboard
+    "departments",
+    "sub_categories",
+    "manufacturers",
+    "locations",
+    "bank_accounts",
 ];
 
 /// Default PIN for the seeded owner account. Surfaced on the login screen on
@@ -400,6 +406,18 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("app_config", "receipt_social", "TEXT"),
     ("app_config", "receipt_show_stamp", "INTEGER NOT NULL DEFAULT 1 CHECK (receipt_show_stamp IN (0, 1))"),
     ("app_config", "receipt_show_credit", "INTEGER NOT NULL DEFAULT 1 CHECK (receipt_show_credit IN (0, 1))"),
+    // Catalog managed from the web dashboard (see schema.sql).
+    ("categories", "department_id", "INTEGER REFERENCES departments (id) ON DELETE SET NULL"),
+    ("categories", "is_active", "INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))"),
+    ("items", "sub_category_id", "INTEGER REFERENCES sub_categories (id) ON DELETE SET NULL"),
+    ("items", "manufacturer_id", "INTEGER REFERENCES manufacturers (id) ON DELETE SET NULL"),
+    ("items", "location_id", "INTEGER REFERENCES locations (id) ON DELETE SET NULL"),
+    // A service: sold like an item, but no stock is counted or checked.
+    ("items", "is_service", "INTEGER NOT NULL DEFAULT 0 CHECK (is_service IN (0, 1))"),
+    ("supplier_payments", "bank_account_id", "INTEGER REFERENCES bank_accounts (id) ON DELETE SET NULL"),
+    // Set once this counter has re-read the business after learning the
+    // tables above (see `workspace::local::queue_upgrades`).
+    ("sync_state", "catalog_pulled", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
 /// An index on a column that only exists after `add_missing_columns` runs

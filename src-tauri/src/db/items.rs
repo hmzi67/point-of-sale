@@ -20,6 +20,56 @@ pub struct Category {
     pub image_path: Option<String>,
     /// A topping group — see `Item::topping_category_id`.
     pub is_topping: bool,
+    /// Off the billing screen, with its items, while the owner has it inactive.
+    pub is_active: bool,
+}
+
+/// A catalog entry the item form can pick (managed from the web dashboard).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogEntry {
+    pub id: i64,
+    pub name: String,
+    /// The category a sub category belongs to.
+    pub category_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Catalog {
+    pub sub_categories: Vec<CatalogEntry>,
+    pub manufacturers: Vec<CatalogEntry>,
+    pub locations: Vec<CatalogEntry>,
+}
+
+/// The active entries, for the item form's dropdowns.
+pub fn list_catalog(conn: &Connection) -> Result<Catalog, rusqlite::Error> {
+    let entries = |sql: &str| -> Result<Vec<CatalogEntry>, rusqlite::Error> {
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map([], |row| Ok(CatalogEntry { id: row.get(0)?, name: row.get(1)?, category_id: row.get(2)? }))?;
+        rows.collect()
+    };
+    Ok(Catalog {
+        sub_categories: entries("SELECT id, name, category_id FROM sub_categories WHERE is_active = 1 ORDER BY name")?,
+        manufacturers: entries("SELECT id, name, NULL FROM manufacturers WHERE is_active = 1 ORDER BY name")?,
+        locations: entries("SELECT id, name, NULL FROM locations WHERE is_active = 1 ORDER BY name")?,
+    })
+}
+
+/// Separate from `update_item` so `ItemInput`, which CSV import and every
+/// other caller also build, stays as it is.
+pub fn set_item_catalog(
+    conn: &Connection,
+    id: i64,
+    sub_category_id: Option<i64>,
+    manufacturer_id: Option<i64>,
+    location_id: Option<i64>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE items SET sub_category_id = ?1, manufacturer_id = ?2, location_id = ?3 WHERE id = ?4",
+        params![sub_category_id, manufacturer_id, location_id, id],
+    )?;
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -35,7 +85,7 @@ pub enum CategoryError {
 }
 
 pub fn list_categories(conn: &Connection) -> Result<Vec<Category>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT id, name, image_path, is_topping FROM categories ORDER BY name")?;
+    let mut stmt = conn.prepare("SELECT id, name, image_path, is_topping, is_active FROM categories ORDER BY name")?;
     let rows = stmt.query_map([], category_from_row)?;
     rows.collect()
 }
@@ -46,11 +96,12 @@ fn category_from_row(row: &Row) -> rusqlite::Result<Category> {
         name: row.get("name")?,
         image_path: row.get("image_path")?,
         is_topping: row.get::<_, i64>("is_topping")? != 0,
+        is_active: row.get::<_, i64>("is_active")? != 0,
     })
 }
 
 pub fn get_category(conn: &Connection, id: i64) -> Result<Category, CategoryError> {
-    conn.query_row("SELECT id, name, image_path, is_topping FROM categories WHERE id = ?1", [id], category_from_row)
+    conn.query_row("SELECT id, name, image_path, is_topping, is_active FROM categories WHERE id = ?1", [id], category_from_row)
         .optional()?
         .ok_or(CategoryError::NotFound)
 }
@@ -83,6 +134,7 @@ pub fn add_category(conn: &Connection, name: &str, image_path: Option<&str>, is_
         name: name.to_string(),
         image_path: image_path.map(str::to_string),
         is_topping,
+        is_active: true,
     })
 }
 
@@ -175,7 +227,16 @@ pub struct Item {
     /// This item is itself a topping (its category is a topping group), so
     /// the billing grid leaves it out.
     pub is_topping: bool,
+    pub sub_category_id: Option<i64>,
+    pub manufacturer_id: Option<i64>,
+    pub location_id: Option<i64>,
+    /// Sold without counting stock; `stock_qty` then reads `SERVICE_STOCK`.
+    pub is_service: bool,
 }
+
+/// What a service's `stock_qty` reads as, so the billing screen's stock limits
+/// never stop it. The column itself stays 0 and sales leave it alone.
+const SERVICE_STOCK: f64 = 1_000_000_000.0;
 
 /// Everything the add/edit form submits. Used for both create and update —
 /// an edit always replaces the full editable row, so there is no partial-patch
@@ -242,13 +303,15 @@ pub enum ItemError {
 const SELECT_ITEM: &str = "SELECT i.id, i.name, i.barcode, i.short_code, i.description, i.price_minor, i.cost_minor,
        i.stock_qty, i.category_id, c.name AS category_name,
        i.low_stock_threshold, i.is_active, i.image_path, i.sold_by_amount, i.unit,
-       i.counter_id, k.name AS counter_name, i.topping_category_id, COALESCE(c.is_topping, 0) AS is_topping
+       i.counter_id, k.name AS counter_name, i.topping_category_id, COALESCE(c.is_topping, 0) AS is_topping,
+       i.sub_category_id, i.manufacturer_id, i.location_id, i.is_service
   FROM items i
   LEFT JOIN categories c ON c.id = i.category_id
   LEFT JOIN counters   k ON k.id = i.counter_id";
 
 fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
-    let stock_qty: f64 = row.get("stock_qty")?;
+    let is_service = row.get::<_, i64>("is_service")? != 0;
+    let stock_qty: f64 = if is_service { SERVICE_STOCK } else { row.get("stock_qty")? };
     let low_stock_threshold: i64 = row.get("low_stock_threshold")?;
     Ok(Item {
         id: row.get("id")?,
@@ -271,6 +334,10 @@ fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
         counter_name: row.get("counter_name")?,
         topping_category_id: row.get("topping_category_id")?,
         is_topping: row.get::<_, i64>("is_topping")? != 0,
+        sub_category_id: row.get("sub_category_id")?,
+        manufacturer_id: row.get("manufacturer_id")?,
+        location_id: row.get("location_id")?,
+        is_service,
     })
 }
 
@@ -281,7 +348,7 @@ fn from_row(row: &Row<'_>) -> Result<Item, rusqlite::Error> {
 /// numbering fixed and impossible to get out of sync with the bound values.
 pub fn list_items(conn: &Connection, query: &ItemQuery) -> Result<Vec<Item>, rusqlite::Error> {
     let sql = format!(
-        "{} WHERE (?1 = 1 OR i.is_active = 1)
+        "{} WHERE (?1 = 1 OR (i.is_active = 1 AND COALESCE(c.is_active, 1) = 1))
            AND (?2 IS NULL OR i.name LIKE ?2 ESCAPE '\\' OR i.barcode LIKE ?2 ESCAPE '\\')
            AND (?3 IS NULL OR i.category_id = ?3)
          ORDER BY i.name",
@@ -328,7 +395,7 @@ pub fn search_items(conn: &Connection, query: &str, limit: i64) -> Result<Vec<It
     );
 
     let sql = format!(
-        "{} WHERE i.is_active = 1
+        "{} WHERE i.is_active = 1 AND COALESCE(c.is_active, 1) = 1
            AND (i.barcode = ?1 OR i.name LIKE ?2 ESCAPE '\\' OR i.barcode LIKE ?2 ESCAPE '\\')
          ORDER BY (i.barcode = ?1) DESC, i.name
          LIMIT ?3",

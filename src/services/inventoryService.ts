@@ -1,4 +1,4 @@
-import type { Category, DeleteOutcome, Item, ItemInput, ItemQuery, ImportSummary } from "../types";
+import type { Catalog, Category, DeleteOutcome, Item, ItemInput, ItemQuery, ImportSummary } from "../types";
 import { call } from "./tauriClient";
 
 export function getItems(query: ItemQuery = {}): Promise<Item[]> {
@@ -23,6 +23,19 @@ export function deleteItem(id: number): Promise<DeleteOutcome> {
  * is exhausted (see the Rust side's `items::suggest_next_short_code`). */
 export function suggestShortCode(): Promise<string | null> {
   return call<string | null>("inventory_suggest_short_code", {});
+}
+
+export function getCatalog(): Promise<Catalog> {
+  return call<Catalog>("inventory_get_catalog", {});
+}
+
+export function setItemCatalog(
+  id: number,
+  subCategoryId: number | null,
+  manufacturerId: number | null,
+  locationId: number | null,
+): Promise<void> {
+  return call<void>("inventory_set_item_catalog", { id, subCategoryId, manufacturerId, locationId });
 }
 
 export function getCategories(): Promise<Category[]> {

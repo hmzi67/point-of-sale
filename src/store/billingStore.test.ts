@@ -25,6 +25,10 @@ function item(overrides: Partial<Item> = {}): Item {
     counterName: null,
     toppingCategoryId: null,
     isTopping: false,
+    subCategoryId: null,
+    manufacturerId: null,
+    locationId: null,
+    isService: false,
     ...overrides,
   };
 }

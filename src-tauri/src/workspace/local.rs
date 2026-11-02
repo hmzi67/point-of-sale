@@ -100,6 +100,10 @@ fn queue_upgrades(conn: &Connection) -> Result<(), rusqlite::Error> {
         queue(APP_CONFIG, "sensitive_area_pin_hash", "sensitive_area_pin_hash IS NOT NULL")?;
         conn.execute("UPDATE sync_state SET pins_sealed = 1 WHERE id = 1", [])?;
     }
+    // A build without the catalog tables skipped their rows and the new item
+    // columns, and its cursor has moved past them: read the business once
+    // more from the start. Applying a row twice changes nothing.
+    conn.execute("UPDATE sync_state SET cursor = 0, catalog_pulled = 1 WHERE id = 1 AND catalog_pulled = 0", [])?;
     Ok(())
 }
 

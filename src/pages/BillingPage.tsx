@@ -100,7 +100,7 @@ export function BillingPage() {
   // Toppings are picked from their item's popup, never browsed on the menu
   // (search still finds them).
   const menuItems = items.filter((item) => !item.isTopping);
-  const menuCategories = categories.filter((category) => !category.isTopping);
+  const menuCategories = categories.filter((category) => !category.isTopping && category.isActive);
   const visibleItems = isSearching
     ? searchResults
     : selectedCategoryId === null

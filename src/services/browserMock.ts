@@ -12,9 +12,9 @@ const MOCK_USERS: ManagedUser[] = [
 ];
 
 const MOCK_CATEGORIES: Category[] = [
-  { id: 1, name: "Fast Food", imagePath: null, isTopping: false },
-  { id: 2, name: "Beverages", imagePath: null, isTopping: false },
-  { id: 3, name: "Sides", imagePath: null, isTopping: false },
+  { id: 1, name: "Fast Food", imagePath: null, isTopping: false, isActive: true },
+  { id: 2, name: "Beverages", imagePath: null, isTopping: false, isActive: true },
+  { id: 3, name: "Sides", imagePath: null, isTopping: false, isActive: true },
 ];
 
 const MOCK_ITEMS: Item[] = [
@@ -39,6 +39,10 @@ const MOCK_ITEMS: Item[] = [
     counterName: null,
     toppingCategoryId: null,
     isTopping: false,
+    subCategoryId: null,
+    manufacturerId: null,
+    locationId: null,
+    isService: false,
   },
   {
     id: 2,
@@ -61,6 +65,10 @@ const MOCK_ITEMS: Item[] = [
     counterName: null,
     toppingCategoryId: null,
     isTopping: false,
+    subCategoryId: null,
+    manufacturerId: null,
+    locationId: null,
+    isService: false,
   },
   {
     id: 3,
@@ -83,6 +91,10 @@ const MOCK_ITEMS: Item[] = [
     counterName: null,
     toppingCategoryId: null,
     isTopping: false,
+    subCategoryId: null,
+    manufacturerId: null,
+    locationId: null,
+    isService: false,
   },
 ];
 

@@ -616,7 +616,7 @@ pub fn reservation_lines(conn: &Connection, lines: &[(i64, f64)]) -> Result<Vec<
     let mut merged: BTreeMap<String, f64> = BTreeMap::new();
     for (item_id, qty) in lines {
         if let Some(gid) = conn
-            .query_row("SELECT gid FROM items WHERE id = ?1", params![item_id], |row| row.get::<_, Option<String>>(0))
+            .query_row("SELECT gid FROM items WHERE id = ?1 AND is_service = 0", params![item_id], |row| row.get::<_, Option<String>>(0))
             .optional()?
             .flatten()
         {

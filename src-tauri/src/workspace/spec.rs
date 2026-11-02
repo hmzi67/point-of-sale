@@ -35,7 +35,12 @@ pub const TABLES: &[TableSpec] = &[
     // Keyed by module key (`module:<key>`): module ids are per install.
     TableSpec { name: ENABLED_MODULES, pk: "module_id", local_columns: &[] },
     table("users"),
+    table("departments"),
     table("categories"),
+    table("sub_categories"),
+    table("manufacturers"),
+    table("locations"),
+    table("bank_accounts"),
     table("counters"),
     table("delivery_platforms"),
     table("tables"),

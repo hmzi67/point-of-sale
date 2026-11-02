@@ -104,7 +104,7 @@ fn salary_paid_total(conn: &Connection, start_date: &str, end_date: &str) -> Res
 
 fn low_stock_count(conn: &Connection) -> Result<i64, rusqlite::Error> {
     conn.query_row(
-        "SELECT COUNT(*) FROM items WHERE is_active = 1 AND stock_qty <= low_stock_threshold",
+        "SELECT COUNT(*) FROM items WHERE is_active = 1 AND is_service = 0 AND stock_qty <= low_stock_threshold",
         [],
         |row| row.get(0),
     )

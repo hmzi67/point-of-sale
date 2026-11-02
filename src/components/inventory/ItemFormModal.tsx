@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Plus } from "lucide-react";
 import { useInventoryStore } from "../../store";
-import { suggestShortCode, uploadItemImage } from "../../services/inventoryService";
+import { getCatalog, setItemCatalog, suggestShortCode, uploadItemImage } from "../../services/inventoryService";
 import { useModuleEnabled } from "../../hooks/useModules";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import { readImageFile } from "../../utils/image";
-import type { Item, ItemInput } from "../../types";
+import type { Catalog, Item, ItemInput } from "../../types";
 import { ModalHeader } from "../ui/ModalCard";
 import { ModalOverlay } from "../ui/ModalOverlay";
 import { runAction } from "../../utils/runAction";
@@ -81,6 +81,10 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   const tokensEnabled = useModuleEnabled("tables");
 
   const [form, setForm] = useState<FormState>(() => toFormState(item));
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [subCategoryId, setSubCategoryId] = useState(item?.subCategoryId ?? null);
+  const [manufacturerId, setManufacturerId] = useState(item?.manufacturerId ?? null);
+  const [locationId, setLocationId] = useState(item?.locationId ?? null);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +104,11 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   useEffect(() => {
     if (item?.imagePath) ensureImage(item.imagePath);
   }, [item?.imagePath, ensureImage]);
+
+  useEffect(() => {
+    // The dropdowns are optional extras: without them the form still works.
+    getCatalog().then(setCatalog).catch(() => setCatalog(null));
+  }, []);
 
   // Auto-suggests the next unused short code for a brand-new item only — an
   // edit keeps whatever code (or lack of one) the item already has. Just a
@@ -215,10 +224,9 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
     };
 
     await runAction(setIsSaving, setError, async () => {
-      if (item) {
-        await updateItem(item.id, input);
-      } else {
-        await addItem(input);
+      const saved = item ? await updateItem(item.id, input) : await addItem(input);
+      if (subCategoryId !== (item?.subCategoryId ?? null) || manufacturerId !== (item?.manufacturerId ?? null) || locationId !== (item?.locationId ?? null)) {
+        await setItemCatalog(saved.id, subCategoryId, manufacturerId, locationId);
       }
       onClose();
     });
@@ -388,7 +396,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div hidden={item?.isService}>
               <label className="block text-xs font-medium text-fg-muted" htmlFor="item-stock">
                 Stock qty
               </label>
@@ -497,7 +505,10 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
                 <select
                   id="item-category"
                   value={form.categoryId ?? ""}
-                  onChange={(e) => set("categoryId", e.target.value ? Number(e.target.value) : null)}
+                  onChange={(e) => {
+                    set("categoryId", e.target.value ? Number(e.target.value) : null);
+                    setSubCategoryId(null);
+                  }}
                   className="w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
                 >
                   <option value="">Uncategorized</option>
@@ -518,6 +529,32 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
               </div>
             )}
           </div>
+
+          {([
+            ["Sub category", subCategoryId, setSubCategoryId, (catalog?.subCategories ?? []).filter((entry) => entry.categoryId === form.categoryId)],
+            ["Manufacturer", manufacturerId, setManufacturerId, catalog?.manufacturers ?? []],
+            ["Location", locationId, setLocationId, catalog?.locations ?? []],
+          ] as const).map(([label, value, setValue, entries]) =>
+            entries.length > 0 && (
+              <div key={label}>
+                <label className="block text-xs font-medium text-fg-muted">
+                  {label} <span className="text-fg-muted">(optional)</span>
+                  <select
+                    value={value ?? ""}
+                    onChange={(e) => setValue(e.target.value ? Number(e.target.value) : null)}
+                    className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2 text-sm"
+                  >
+                    <option value="">None</option>
+                    {entries.map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ),
+          )}
 
           {toppingGroups.length > 0 && (
             <div>

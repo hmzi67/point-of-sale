@@ -11,6 +11,21 @@ export interface Category {
   imagePath: string | null;
   /** A topping group: its items are offered as toppings, not on the billing grid. */
   isTopping: boolean;
+  /** Off the billing screen, with its items, while the owner has it inactive. */
+  isActive: boolean;
+}
+
+/** A catalog entry the item form can pick (managed from the web dashboard). */
+export interface CatalogEntry {
+  id: number;
+  name: string;
+  categoryId: number | null;
+}
+
+export interface Catalog {
+  subCategories: CatalogEntry[];
+  manufacturers: CatalogEntry[];
+  locations: CatalogEntry[];
 }
 
 export interface Item {
@@ -54,6 +69,11 @@ export interface Item {
   toppingCategoryId: number | null;
   /** This item is itself a topping (its category is a topping group). */
   isTopping: boolean;
+  subCategoryId: number | null;
+  manufacturerId: number | null;
+  locationId: number | null;
+  /** Sold without counting stock; `stockQty` is then a large stand-in. */
+  isService: boolean;
 }
 
 /** Everything the add/edit form submits — used for both create and update. */

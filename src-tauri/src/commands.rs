@@ -1076,6 +1076,25 @@ pub fn inventory_suggest_short_code(session: State<'_, Session>, db: State<'_, D
     query(&db, items::suggest_next_short_code)
 }
 
+#[tauri::command]
+pub fn inventory_get_catalog(session: State<'_, Session>, db: State<'_, Db>) -> Result<items::Catalog, String> {
+    require_signed_in(&session)?;
+    query(&db, items::list_catalog)
+}
+
+#[tauri::command]
+pub fn inventory_set_item_catalog(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    id: i64,
+    sub_category_id: Option<i64>,
+    manufacturer_id: Option<i64>,
+    location_id: Option<i64>,
+) -> Result<(), String> {
+    require_module_admin(&db, &[module_key::INVENTORY], &session)?;
+    query(&db, |conn| items::set_item_catalog(conn, id, sub_category_id, manufacturer_id, location_id))
+}
+
 /// Module-free like `inventory_get_items` (Billing's category pills need it).
 #[tauri::command]
 pub fn inventory_get_categories(session: State<'_, Session>, db: State<'_, Db>) -> Result<Vec<Category>, String> {

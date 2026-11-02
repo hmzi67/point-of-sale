@@ -591,7 +591,7 @@ pub fn stock_levels(conn: &Connection) -> Result<StockLevelReport, rusqlite::Err
                    FROM purchase_order_items l JOIN purchase_orders p ON p.id = l.po_id
                   WHERE l.item_id = i.id AND p.status IN ('ordered', 'partial') AND l.qty_received < l.qty_ordered)
            FROM items i LEFT JOIN categories c ON c.id = i.category_id
-          WHERE i.is_active = 1
+          WHERE i.is_active = 1 AND i.is_service = 0
           ORDER BY (i.stock_qty <= i.low_stock_threshold) DESC, i.name COLLATE NOCASE",
     )?;
     let rows = stmt

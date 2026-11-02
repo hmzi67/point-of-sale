@@ -113,12 +113,12 @@ export function ItemTable({
                 <td className="whitespace-nowrap px-4 py-3.5 text-right font-bold text-fg tabular-nums">{formatMinor(item.priceMinor, currency)}</td>
                 <td className="whitespace-nowrap px-4 py-3.5 text-right text-fg-muted tabular-nums">{formatMinor(item.costMinor, currency)}</td>
                 <td className="whitespace-nowrap px-4 py-3.5 text-right font-semibold text-fg tabular-nums">
-                  {formatQty(item.stockQty, item.unit)}
+                  {item.isService ? "—" : formatQty(item.stockQty, item.unit)}
                 </td>
                 <td className="px-4 py-3.5">
-                  <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-medium ${item.stockQty <= 0 ? "bg-danger-soft text-danger-text" : item.isLowStock ? "bg-warning-soft text-warning-text" : "bg-success-soft text-success-text"}`}>
+                  <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-medium ${item.isService ? "bg-surface-2 text-fg-muted" : item.stockQty <= 0 ? "bg-danger-soft text-danger-text" : item.isLowStock ? "bg-warning-soft text-warning-text" : "bg-success-soft text-success-text"}`}>
                     <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                    {item.stockQty <= 0 ? "Out of stock" : item.isLowStock ? "Low stock" : "In stock"}
+                    {item.isService ? "Service" : item.stockQty <= 0 ? "Out of stock" : item.isLowStock ? "Low stock" : "In stock"}
                   </span>
                 </td>
                 {!isReadOnly && (
