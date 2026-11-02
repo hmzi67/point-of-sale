@@ -831,6 +831,81 @@ mod live {
         db.with_conn(|c| c.query_row(sql, [], |r| r.get(0))).unwrap()
     }
 
+    async fn owner_post(session: &str, body: Value) -> Value {
+        let base = std::env::var("DIWAN_LICENSE_API_BASE").expect("set DIWAN_LICENSE_API_BASE");
+        let reply = reqwest::Client::new()
+            .post(format!("{base}/business.php"))
+            .header("Cookie", format!("diwan_session={session}"))
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(reply.status().is_success(), "{body}: {}", reply.text().await.unwrap());
+        reply.json().await.unwrap()
+    }
+
+    /// The owner's web dashboard, a real counter database and the real server:
+    /// `DIWAN_LIVE_SESSION` is the licence owner's session cookie.
+    #[test]
+    #[ignore]
+    fn live_web_dashboard() {
+        let key = std::env::var("DIWAN_LIVE_LICENSE_KEY").expect("set DIWAN_LIVE_LICENSE_KEY");
+        let session = std::env::var("DIWAN_LIVE_SESSION").expect("set DIWAN_LIVE_SESSION");
+        tauri::async_runtime::block_on(async move {
+            let (db, _dir) = temp_db("web");
+            register(&db, &key, &fingerprint(), "Front counter").await;
+            let t = token(&db);
+            client::action(&t, "claim_seed", None).await.unwrap();
+            db.with_transaction(|tx| engine::start_seed(tx)).unwrap();
+            let (_, tea) = db.with_conn(|c| Ok(add_item(c, "Live Tea", 10.0))).unwrap();
+            runtime::sync_with(&db, &t).await.unwrap();
+
+            let save = |entity: &'static str, request: &'static str, fields: Value, extra: Value| {
+                let session = session.clone();
+                async move {
+                    let mut body = serde_json::json!({ "action": "save", "entity": entity, "fields": fields, "request_id": format!("live-web-request-{request}") });
+                    for (k, v) in extra.as_object().unwrap() {
+                        body[k] = v.clone();
+                    }
+                    owner_post(&session, body).await["gid"].as_str().unwrap_or_default().to_string()
+                }
+            };
+            let department = save("departments", "dept", serde_json::json!({ "name": "Live Food" }), serde_json::json!({})).await;
+            let category = save("categories", "cat", serde_json::json!({ "name": "Live Rice", "department_id": department }), serde_json::json!({})).await;
+            let maker = save("manufacturers", "maker", serde_json::json!({ "name": "Live Maker" }), serde_json::json!({})).await;
+            let plate = save(
+                "items", "plate",
+                serde_json::json!({ "name": "Live Plate", "price_minor": 50000, "category_id": category, "manufacturer_id": maker }),
+                serde_json::json!({ "opening_stock": 5 }),
+            ).await;
+            let delivery = save("items", "svc", serde_json::json!({ "name": "Live Delivery", "price_minor": 20000, "is_service": 1 }), serde_json::json!({})).await;
+            save("items", "edit", serde_json::json!({ "price_minor": 1234 }), serde_json::json!({ "gid": tea })).await;
+            owner_post(&session, serde_json::json!({ "action": "save", "entity": "app_config", "gid": "config", "fields": { "receipt_footer": "" } })).await;
+
+            runtime::sync_with(&db, &t).await.unwrap();
+            assert_eq!(scalar(&db, "SELECT COUNT(*) FROM sync_parked"), 0, "nothing the web made is refused by the counter");
+            assert_eq!(stock(&db, &plate), 5.0, "opening stock arrived");
+            let row = |sql: &str, gid: &str| -> String { db.with_conn(|c| c.query_row(sql, [gid], |r| r.get(0))).unwrap() };
+            assert_eq!(row("SELECT c.name FROM items i JOIN categories c ON c.id = i.category_id WHERE i.gid = ?1", &plate), "Live Rice");
+            assert_eq!(row("SELECT m.name FROM items i JOIN manufacturers m ON m.id = i.manufacturer_id WHERE i.gid = ?1", &plate), "Live Maker");
+            assert_eq!(row("SELECT d.name FROM categories c JOIN departments d ON d.id = c.department_id WHERE c.gid = ?1", &category), "Live Food");
+            assert_eq!(scalar(&db, &format!("SELECT price_minor FROM items WHERE gid = '{tea}'")), 1234, "the web edit reached the counter");
+            println!("the owner's records reached the counter");
+
+            sale(&db, &plate, 2.0, true).await.unwrap();
+            sale(&db, &delivery, 3.0, true).await.unwrap();
+            runtime::sync_with(&db, &t).await.unwrap();
+            assert_eq!(stock(&db, &plate), 3.0);
+            assert_eq!(stock(&db, &delivery), 0.0, "a service keeps no stock");
+
+            // The counter renames the product: what the web set on it stays.
+            db.with_conn(|c| c.execute("UPDATE items SET name = 'Live Plate 2' WHERE gid = ?1", [&plate])).unwrap();
+            runtime::sync_with(&db, &t).await.unwrap();
+            assert_eq!(row("SELECT m.name FROM items i JOIN manufacturers m ON m.id = i.manufacturer_id WHERE i.gid = ?1", &plate), "Live Maker");
+            println!("sales and edits on the counter went back to the server");
+        });
+    }
+
     #[test]
     #[ignore]
     fn live_two_counters() {
@@ -964,4 +1039,74 @@ mod live {
             }
         });
     }
+}
+
+/// Records the owner makes on the web dashboard arrive exactly as a counter's
+/// change would: the rows below are in the shape `OwnerWorkspace` writes.
+#[test]
+fn what_the_owner_makes_on_the_web_reaches_a_counter() {
+    let mut server = Server::default();
+    let mut conn = seed(&mut server);
+    let row = |entity: &str, gid: &str, data: Value| {
+        serde_json::json!({ "id": 1, "entity": entity, "gid": gid, "op": "upsert", "data": data })
+    };
+    server.push(&serde_json::json!({
+        "changes": [
+            row("departments", "web:d1", serde_json::json!({ "name": "Food", "is_active": 1 })),
+            row("categories", "web:c1", serde_json::json!({ "name": "Rice", "department_id": "web:d1", "is_active": 0, "is_topping": 0 })),
+            row("sub_categories", "web:s1", serde_json::json!({ "name": "Pulao", "category_id": "web:c1", "is_active": 1 })),
+            row("manufacturers", "web:m1", serde_json::json!({ "name": "Amber", "is_active": 1 })),
+            row("locations", "web:l1", serde_json::json!({ "name": "Store room", "is_active": 1 })),
+            row("items", "web:i1", serde_json::json!({
+                "name": "Plate", "price_minor": 500, "category_id": "web:c1", "sub_category_id": "web:s1",
+                "manufacturer_id": "web:m1", "location_id": "web:l1", "is_active": 1,
+            })),
+            row("items", "web:svc", serde_json::json!({ "name": "Delivery", "price_minor": 100, "is_service": 1, "is_active": 1 })),
+            row("bank_accounts", "web:b1", serde_json::json!({ "name": "HBL", "is_active": 1 })),
+        ],
+        "stock": [{ "key": "web:i1:opening", "item_gid": "web:i1", "qty": 7.0 }],
+        "releases": [],
+    }));
+    sync(&mut conn, &mut server);
+
+    assert_eq!(stock_of(&conn, "web:i1"), 7.0);
+    let item = crate::db::items::get_item(&conn, item_id(&conn, "web:i1")).unwrap();
+    assert_eq!(item.category_name.as_deref(), Some("Rice"));
+    assert!(item.sub_category_id.is_some() && item.manufacturer_id.is_some() && item.location_id.is_some());
+
+    // An inactive category takes itself and its items off the billing screen.
+    let category = crate::db::items::list_categories(&conn).unwrap().into_iter().find(|c| c.name == "Rice").unwrap();
+    assert!(!category.is_active);
+    let query = crate::db::items::ItemQuery::default();
+    assert!(!crate::db::items::list_items(&conn, &query).unwrap().iter().any(|i| i.name == "Plate"));
+
+    let catalog = crate::db::items::list_catalog(&conn).unwrap();
+    assert_eq!((catalog.sub_categories.len(), catalog.manufacturers.len(), catalog.locations.len()), (1, 1, 1));
+
+    // A service sells without stock, and is not reserved centrally.
+    let service = item_id(&conn, "web:svc");
+    let listed = crate::db::items::get_item(&conn, service).unwrap();
+    assert!(listed.is_service && listed.stock_qty > 1000.0 && !listed.is_low_stock);
+    assert!(engine::reservation_lines(&conn, &[(service, 1.0)]).unwrap().is_empty());
+    sell(&mut conn, service, 2.0, None);
+    sync(&mut conn, &mut server);
+    assert!(!server.stock.contains_key("web:svc"), "a service never gets a central balance");
+
+    // Assigned on a counter, kept by the server as a change of those fields.
+    crate::db::items::set_item_catalog(&conn, item_id(&conn, "web:i1"), None, None, None).unwrap();
+    let plan = engine::build_push(&conn, None).unwrap();
+    let change = plan.body["changes"].as_array().unwrap().iter().find(|c| c["gid"] == "web:i1").unwrap();
+    assert!(change["data"]["sub_category_id"].is_null());
+}
+
+#[test]
+fn a_counter_upgraded_to_the_catalog_reads_the_business_once_more() {
+    let mut server = Server::default();
+    let conn = seed(&mut server);
+    conn.execute("UPDATE sync_state SET cursor = 500, catalog_pulled = 0 WHERE id = 1", []).unwrap();
+    local::install(&conn).unwrap();
+    assert_eq!(count(&conn, "SELECT cursor FROM sync_state"), 0, "read again from the start");
+    conn.execute("UPDATE sync_state SET cursor = 500", []).unwrap();
+    local::install(&conn).unwrap();
+    assert_eq!(count(&conn, "SELECT cursor FROM sync_state"), 500, "only once");
 }

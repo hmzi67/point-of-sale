@@ -10,6 +10,8 @@
 //! it (`tests::tables_are_in_dependency_order` checks this against SQLite's
 //! own foreign-key list), which is the order a downloaded batch is applied.
 //! The list must match `Diwan\Workspace\SyncEngine::ENTITIES` on the server.
+//! The catalog tables (departments, sub categories, manufacturers, locations,
+//! bank accounts) are managed from the web dashboard and arrive like any row.
 
 pub struct TableSpec {
     pub name: &'static str,
