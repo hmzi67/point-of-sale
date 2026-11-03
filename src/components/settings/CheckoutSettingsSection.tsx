@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAppStore } from "../../store";
 import type { AppConfig } from "../../types";
+import { parseQuickAmounts } from "../../utils/checkoutPayments";
 import { runAction } from "../../utils/runAction";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { inputClass } from "../ui/ModalCard";
@@ -16,10 +17,12 @@ export function CheckoutSettingsSection({ config }: { config: AppConfig }) {
     kind: config.scaleValueKind,
     decimals: String(config.scaleValueDecimals),
   });
+  const [cashButtons, setCashButtons] = useState(config.cashQuickAmounts);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => setService(String(config.serviceChargePercent)), [config.serviceChargePercent]);
+  useEffect(() => setCashButtons(config.cashQuickAmounts), [config.cashQuickAmounts]);
 
   const persist = (patch: Partial<AppConfig>) =>
     runAction(setIsSaving, setMessage, async () => {
@@ -59,6 +62,27 @@ export function CheckoutSettingsSection({ config }: { config: AppConfig }) {
           Save
         </button>
         <span className="pb-2.5 text-xs text-fg-muted">0 turns it off.</span>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-end gap-3">
+        <label className="block min-w-0 flex-1 basis-64">
+          <span className="block text-xs font-medium text-fg-muted">Cash buttons at checkout</span>
+          <input
+            value={cashButtons}
+            onChange={(e) => setCashButtons(e.target.value)}
+            placeholder="e.g. 1000, 1500, 2000, 2500, 3000, 4000, 5000"
+            className="mt-1 w-full rounded-xl border border-line-strong px-3 py-2.5 text-sm"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={isSaving || cashButtons === config.cashQuickAmounts}
+          onClick={() => void persist({ cashQuickAmounts: parseQuickAmounts(cashButtons).join(", ") })}
+          className="rounded-xl bg-accent px-3.5 py-2.5 text-sm font-medium text-accent-ink hover:bg-accent-hover disabled:opacity-50"
+        >
+          Save
+        </button>
+        <span className="w-full text-xs text-fg-muted">Separate amounts with commas. Leave empty and the checkout suggests round amounts.</span>
       </div>
 
       <div className="mt-6 border-t border-line pt-5">

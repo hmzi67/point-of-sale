@@ -87,3 +87,10 @@ const METHOD_LABELS: Record<string, string> = {
 export function paymentMethodLabel(method: string): string {
   return METHOD_LABELS[method] ?? method;
 }
+
+/** The shop's cash buttons from "1000, 1500,2000": positive numbers only,
+ * lowest first, no repeats. */
+export function parseQuickAmounts(text: string): number[] {
+  const amounts = text.split(",").map((part) => Number(part.trim())).filter((n) => Number.isFinite(n) && n > 0);
+  return [...new Set(amounts)].sort((a, b) => a - b);
+}

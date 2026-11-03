@@ -27,6 +27,8 @@ pub struct TableSummary {
     /// key off the order (not the table) so a shifted order carries its
     /// tokens with it. `None` exactly when `has_parked_order` is `false`.
     pub open_order_id: Option<i64>,
+    /// The floor or area it stands in ("Main hall"), if the shop uses them.
+    pub floor: Option<String>,
 }
 
 /// Both tables' post-shift state — the floor view updates both cards from
@@ -109,7 +111,8 @@ const TABLE_SELECT: &str = "SELECT t.id, t.name, t.seats, t.status,
         EXISTS (SELECT 1 FROM table_orders o
                  WHERE o.table_id = t.id AND o.status = 'open') AS has_parked,
         (SELECT o.id FROM table_orders o
-          WHERE o.table_id = t.id AND o.status = 'open' LIMIT 1) AS open_order_id
+          WHERE o.table_id = t.id AND o.status = 'open' LIMIT 1) AS open_order_id,
+        t.floor
    FROM tables t";
 
 fn table_from_row(row: &rusqlite::Row) -> rusqlite::Result<TableSummary> {
@@ -120,6 +123,7 @@ fn table_from_row(row: &rusqlite::Row) -> rusqlite::Result<TableSummary> {
         status: row.get(3)?,
         has_parked_order: row.get::<_, i64>(4)? != 0,
         open_order_id: row.get(5)?,
+        floor: row.get(6)?,
     })
 }
 
@@ -150,7 +154,7 @@ pub fn list_tables(conn: &Connection) -> Result<Vec<TableSummary>, rusqlite::Err
 
 /// Adds a new physical table to the floor. Owner/admin only at the command
 /// layer — this function itself just validates the row.
-pub fn add_table(conn: &Connection, name: &str, seats: i64) -> Result<TableSummary, TableError> {
+pub fn add_table(conn: &Connection, name: &str, seats: i64, floor: Option<&str>) -> Result<TableSummary, TableError> {
     let name = name.trim();
     if name.is_empty() {
         return Err(TableError::EmptyName);
@@ -160,8 +164,8 @@ pub fn add_table(conn: &Connection, name: &str, seats: i64) -> Result<TableSumma
     }
 
     let result = conn.execute(
-        "INSERT INTO tables (name, seats, status) VALUES (?1, ?2, 'free')",
-        params![name, seats],
+        "INSERT INTO tables (name, seats, status, floor) VALUES (?1, ?2, 'free', ?3)",
+        params![name, seats, clean_floor(floor)],
     );
     match result {
         Ok(_) => load_table(conn, conn.last_insert_rowid()),
@@ -187,8 +191,13 @@ pub fn update_table_status(conn: &Connection, table_id: i64, status: &str) -> Re
     load_table(conn, table_id)
 }
 
-/// Updates name and capacity together, preserving table status and orders.
-pub fn update_table(conn: &Connection, table_id: i64, name: &str, seats: i64) -> Result<TableSummary, TableError> {
+/// Blank means no floor.
+fn clean_floor(floor: Option<&str>) -> Option<&str> {
+    floor.map(str::trim).filter(|f| !f.is_empty())
+}
+
+/// Updates name, capacity and floor together, preserving status and orders.
+pub fn update_table(conn: &Connection, table_id: i64, name: &str, seats: i64, floor: Option<&str>) -> Result<TableSummary, TableError> {
     if seats < 1 {
         return Err(TableError::InvalidSeats);
     }
@@ -197,7 +206,10 @@ pub fn update_table(conn: &Connection, table_id: i64, name: &str, seats: i64) ->
         return Err(TableError::EmptyName);
     }
 
-    let result = conn.execute("UPDATE tables SET name = ?1, seats = ?2 WHERE id = ?3", params![name, seats, table_id]);
+    let result = conn.execute(
+        "UPDATE tables SET name = ?1, seats = ?2, floor = ?3 WHERE id = ?4",
+        params![name, seats, clean_floor(floor), table_id],
+    );
     match result {
         Ok(0) => Err(TableError::TableNotFound),
         Ok(_) => load_table(conn, table_id),
@@ -479,6 +491,15 @@ mod tests {
 
 
     #[test]
+    fn a_table_keeps_its_floor_and_a_blank_floor_means_none() {
+        let conn = test_conn();
+        let table = add_table(&conn, "Patio 1", 6, Some(" Out Side ")).unwrap();
+        assert_eq!(table.floor.as_deref(), Some("Out Side"));
+        let moved = update_table(&conn, table.id, "Patio 1", 6, Some("  ")).unwrap();
+        assert_eq!(moved.floor, None);
+    }
+
+    #[test]
     fn list_tables_reports_status_and_parked_flag() {
         let conn = test_conn();
         let cola = item_id(&conn, "Cola 500ml");
@@ -536,7 +557,7 @@ mod tests {
     #[test]
     fn add_table_creates_a_free_table_with_the_given_seats() {
         let conn = test_conn();
-        let table = add_table(&conn, "Patio 1", 6).unwrap();
+        let table = add_table(&conn, "Patio 1", 6, None).unwrap();
         assert_eq!(table.name, "Patio 1");
         assert_eq!(table.seats, 6);
         assert_eq!(table.status, "free");
@@ -546,15 +567,15 @@ mod tests {
     #[test]
     fn add_table_rejects_a_duplicate_name() {
         let conn = test_conn();
-        let err = add_table(&conn, "Table 1", 4).unwrap_err();
+        let err = add_table(&conn, "Table 1", 4, None).unwrap_err();
         assert!(matches!(err, TableError::DuplicateName(_)));
     }
 
     #[test]
     fn add_table_rejects_a_blank_name_or_non_positive_seats() {
         let conn = test_conn();
-        assert!(matches!(add_table(&conn, "   ", 4), Err(TableError::EmptyName)));
-        assert!(matches!(add_table(&conn, "Patio 2", 0), Err(TableError::InvalidSeats)));
+        assert!(matches!(add_table(&conn, "   ", 4, None), Err(TableError::EmptyName)));
+        assert!(matches!(add_table(&conn, "Patio 2", 0, None), Err(TableError::InvalidSeats)));
     }
 
     #[test]
@@ -582,16 +603,16 @@ mod tests {
         attach_cart_to_table(&conn, id, &[ParkedCartLine { item_id: cola, qty: 2.0 }], 100).unwrap();
         let before = load_table(&conn, id).unwrap();
         for seats in [4, 6, 8, 13] {
-            let updated = update_table(&conn, id, "Patio", seats).unwrap();
+            let updated = update_table(&conn, id, "Patio", seats, None).unwrap();
             assert_eq!(updated.seats, seats);
             assert_eq!(updated.status, before.status);
             assert_eq!(updated.open_order_id, before.open_order_id);
         }
-        assert!(matches!(update_table(&conn, id, "Changed", 0), Err(TableError::InvalidSeats)));
-        assert!(matches!(update_table(&conn, id, "Changed", -2), Err(TableError::InvalidSeats)));
-        assert!(matches!(update_table(&conn, id, " ", 6), Err(TableError::EmptyName)));
-        assert!(matches!(update_table(&conn, id, "Table 1", 6), Err(TableError::DuplicateName(_))));
-        assert!(matches!(update_table(&conn, 999_999, "Missing", 6), Err(TableError::TableNotFound)));
+        assert!(matches!(update_table(&conn, id, "Changed", 0, None), Err(TableError::InvalidSeats)));
+        assert!(matches!(update_table(&conn, id, "Changed", -2, None), Err(TableError::InvalidSeats)));
+        assert!(matches!(update_table(&conn, id, " ", 6, None), Err(TableError::EmptyName)));
+        assert!(matches!(update_table(&conn, id, "Table 1", 6, None), Err(TableError::DuplicateName(_))));
+        assert!(matches!(update_table(&conn, 999_999, "Missing", 6, None), Err(TableError::TableNotFound)));
         let unchanged = load_table(&conn, id).unwrap();
         assert_eq!(unchanged.name, "Patio");
         assert_eq!(unchanged.seats, 13);
@@ -606,14 +627,14 @@ mod tests {
         let conn = test_conn();
         let t2 = table_id(&conn, "Table 2");
 
-        let renamed = update_table(&conn, t2, "Patio 3", 4).unwrap();
+        let renamed = update_table(&conn, t2, "Patio 3", 4, None).unwrap();
         assert_eq!(renamed.name, "Patio 3");
         // Status untouched.
         assert_eq!(renamed.status, "free");
 
-        assert!(matches!(update_table(&conn, t2, "   ", 4), Err(TableError::EmptyName)));
-        assert!(matches!(update_table(&conn, t2, "Table 1", 4), Err(TableError::DuplicateName(_))));
-        assert!(matches!(update_table(&conn, 999_999, "Whatever", 4), Err(TableError::TableNotFound)));
+        assert!(matches!(update_table(&conn, t2, "   ", 4, None), Err(TableError::EmptyName)));
+        assert!(matches!(update_table(&conn, t2, "Table 1", 4, None), Err(TableError::DuplicateName(_))));
+        assert!(matches!(update_table(&conn, 999_999, "Whatever", 4, None), Err(TableError::TableNotFound)));
     }
 
     #[test]

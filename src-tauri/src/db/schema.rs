@@ -406,6 +406,10 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("app_config", "receipt_social", "TEXT"),
     ("app_config", "receipt_show_stamp", "INTEGER NOT NULL DEFAULT 1 CHECK (receipt_show_stamp IN (0, 1))"),
     ("app_config", "receipt_show_credit", "INTEGER NOT NULL DEFAULT 1 CHECK (receipt_show_credit IN (0, 1))"),
+    ("app_config", "receipt_template", "TEXT NOT NULL DEFAULT 'stacked' CHECK (receipt_template IN ('stacked', 'compact'))"),
+    ("app_config", "cash_quick_amounts", "TEXT NOT NULL DEFAULT ''"),
+    // The floor or area a table stands in ("Main hall"); free text, NULL = none.
+    ("tables", "floor", "TEXT"),
     // Catalog managed from the web dashboard (see schema.sql).
     ("categories", "department_id", "INTEGER REFERENCES departments (id) ON DELETE SET NULL"),
     ("categories", "is_active", "INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))"),

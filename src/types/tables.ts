@@ -13,11 +13,15 @@ export interface TableSummary {
    * order and follows it across a table shift. `null` exactly when
    * `hasParkedOrder` is `false`. */
   openOrderId: number | null;
+  /** The floor or area it stands in ("Main hall"), if the shop uses them. */
+  floor: string | null;
 }
 
 export interface ParkedCartLine {
   itemId: number;
   qty: number;
+  /** Only a resumed order's lines have one; a table's parked cart doesn't. */
+  notes?: string | null;
 }
 
 /** The cart currently parked on a table — resumed into the billing cart. */

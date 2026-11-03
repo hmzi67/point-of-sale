@@ -14,12 +14,15 @@ interface ReceiptPaperProps {
 /** The item columns, as on the printed slip: Qty from the left, Rate and
  * Amount flush right, Disc centred (`COLUMNS` in `receiptPdf.ts`). */
 const ITEM_GRID = "grid grid-cols-[20fr_26fr_24fr_30fr] items-baseline";
+/** The compact design: one row per item (`COMPACT_COLUMNS` in `receiptPdf.ts`). */
+const COMPACT_GRID = "grid grid-cols-[32fr_12fr_19fr_13fr_24fr] items-baseline";
 
 /** The receipt as it prints — the same rows, wording and order as
  * `receiptPdf.ts` and `printer::escpos::receipt_rows` — drawn on white
  * "paper" (`.receipt-paper`) so the screen shows what the customer gets. */
 export function ReceiptPaper({ sale, config, tablesEnabled, logoUrl }: ReceiptPaperProps) {
   const stamp = receiptStamp(sale, config);
+  const compact = config.receiptTemplate === "compact";
   const tendered = sale.payments.some((part) => part.method === "cash") ? sale.tenderedMinor ?? null : null;
   const totalQty = sale.items.reduce((sum, line) => sum + line.qty, 0);
   const footer = config.receiptFooter.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -74,12 +77,22 @@ export function ReceiptPaper({ sale, config, tablesEnabled, logoUrl }: ReceiptPa
         )}
       </div>
 
-      <div className={`${ITEM_GRID} mt-3 border-b-2 border-current pb-1 font-bold`}>
-        <span>Qty</span>
-        <span className="text-right">Rate</span>
-        <span className="text-center">Disc</span>
-        <span className="text-right">Amount</span>
-      </div>
+      {compact ? (
+        <div className={`${COMPACT_GRID} mt-3 border-b-2 border-current pb-1 font-bold`}>
+          <span>Items</span>
+          <span className="text-center">QTY</span>
+          <span className="text-right">Rate</span>
+          <span className="text-center">Disc</span>
+          <span className="text-right">Amount</span>
+        </div>
+      ) : (
+        <div className={`${ITEM_GRID} mt-3 border-b-2 border-current pb-1 font-bold`}>
+          <span>Qty</span>
+          <span className="text-right">Rate</span>
+          <span className="text-center">Disc</span>
+          <span className="text-right">Amount</span>
+        </div>
+      )}
 
       {/* The stamp sits behind the items and totals, like an ink stamp. */}
       <div className="relative isolate">
@@ -89,18 +102,31 @@ export function ReceiptPaper({ sale, config, tablesEnabled, logoUrl }: ReceiptPa
           </span>
         )}
         <ul>
-          {sale.items.map((line, i) => (
-            <li key={`${line.itemId}-${i}`} className={`py-1 ${i > 0 ? "border-t border-dotted border-current" : ""}`}>
-              <p className="font-bold">{line.itemName}</p>
-              {line.notes?.trim() && <p className="text-[12px]">({line.notes.trim()})</p>}
-              <div className={`${ITEM_GRID} tabular-nums`}>
-                <span>{formatQty(line.qty, line.unit)}</span>
-                <span className="text-right">{receiptAmount(line.priceAtSaleMinor)}</span>
-                <span className="text-center">0</span>
-                <span className="text-right">{receiptAmount(line.lineTotalMinor)}</span>
-              </div>
-            </li>
-          ))}
+          {sale.items.map((line, i) =>
+            compact ? (
+              <li key={`${line.itemId}-${i}`} className="py-1">
+                <div className={`${COMPACT_GRID} tabular-nums`}>
+                  <span className="wrap-break-word">{line.itemName}</span>
+                  <span className="text-center">{formatQty(line.qty, line.unit)}</span>
+                  <span className="text-right">{receiptAmount(line.priceAtSaleMinor)}</span>
+                  <span className="text-center">0</span>
+                  <span className="text-right">{receiptAmount(line.lineTotalMinor)}</span>
+                </div>
+                {line.notes?.trim() && <p className="text-[12px]">({line.notes.trim()})</p>}
+              </li>
+            ) : (
+              <li key={`${line.itemId}-${i}`} className={`py-1 ${i > 0 ? "border-t border-dotted border-current" : ""}`}>
+                <p className="font-bold">{line.itemName}</p>
+                {line.notes?.trim() && <p className="text-[12px]">({line.notes.trim()})</p>}
+                <div className={`${ITEM_GRID} tabular-nums`}>
+                  <span>{formatQty(line.qty, line.unit)}</span>
+                  <span className="text-right">{receiptAmount(line.priceAtSaleMinor)}</span>
+                  <span className="text-center">0</span>
+                  <span className="text-right">{receiptAmount(line.lineTotalMinor)}</span>
+                </div>
+              </li>
+            ),
+          )}
         </ul>
 
         <dl className="border-y-2 border-current py-1.5">

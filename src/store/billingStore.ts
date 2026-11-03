@@ -103,7 +103,14 @@ interface BillingState {
   activeOrderVersion: number | null;
   /** The resumed order's own number, shown in the checkout header. */
   activeOrderNo: number | null;
-  setActiveOrder: (orderId: number | null, version: number | null, orderNo?: number | null) => void;
+  /** The resumed order's note and prep time, prefilled when it's held again. */
+  activeOrderHold: { notes: string; prepMinutes: number } | null;
+  setActiveOrder: (
+    orderId: number | null,
+    version: number | null,
+    orderNo?: number | null,
+    hold?: { notes: string; prepMinutes: number } | null,
+  ) => void;
   /** Bumped every time the draft is cleared (completed, held or reset), so
    * the checkout header re-reads the shift's next order number. */
   draftGeneration: number;
@@ -194,6 +201,7 @@ const initialCartState = {
   activeOrderId: null as number | null,
   activeOrderVersion: null as number | null,
   activeOrderNo: null as number | null,
+  activeOrderHold: null as { notes: string; prepMinutes: number } | null,
   tenderedAmount: null as number | null,
   splitRows: [] as SplitRow[],
   customer: null as Customer | null,
@@ -210,8 +218,8 @@ export const useBillingStore = create<BillingState>((set) => ({
   toppingPicker: null,
   openToppingPicker: (itemName, groupId) => set({ toppingPicker: { itemName, groupId } }),
   closeToppingPicker: () => set({ toppingPicker: null }),
-  setActiveOrder: (activeOrderId, activeOrderVersion, activeOrderNo = null) =>
-    set({ activeOrderId, activeOrderVersion, activeOrderNo }),
+  setActiveOrder: (activeOrderId, activeOrderVersion, activeOrderNo = null, activeOrderHold = null) =>
+    set({ activeOrderId, activeOrderVersion, activeOrderNo, activeOrderHold }),
   setOrderType: (orderType) => set({ orderType }),
   setDeliveryDetails: (deliveryDetails) => set({ deliveryDetails }),
 
@@ -460,8 +468,8 @@ export const useBillingStore = create<BillingState>((set) => ({
         qty: Math.min(line.qty, Math.max(item.stockQty, item.soldByAmount ? 0.01 : 1)),
         // A parked table order doesn't carry per-line notes today (see
         // `ParkedCartLine` on the Rust side) — resuming one just starts
-        // each line with no note, same as before this feature existed.
-        notes: "",
+        // each line with no note. A resumed order's lines keep theirs.
+        notes: line.notes ?? "",
         soldByAmount: item.soldByAmount,
         unit: item.unit,
         toppingCategoryId: item.toppingCategoryId,

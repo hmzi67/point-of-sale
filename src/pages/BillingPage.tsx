@@ -388,8 +388,8 @@ export function BillingPage() {
       <div
         className={
           IS_ANDROID
-            ? "fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] w-full flex-col gap-4 overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-soft-lg"
-            : "billing-checkout flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-y-auto rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-84 lg:w-92 xl:w-100 2xl:w-108 h-full min-h-0"
+            ? "counter-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] w-full flex-col gap-4 overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-soft-lg"
+            : "counter-panel billing-checkout flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-y-auto rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-84 lg:w-92 xl:w-100 2xl:w-108 h-full min-h-0"
         }
       >
         {IS_ANDROID && (
@@ -447,7 +447,7 @@ export function BillingPage() {
          * cart size, instead of trailing right under a short item list. */}
         <CartPanel currency={config.currency} onEditLine={setEditingItemId} />
 
-        <dl className="space-y-1.5 sm:space-y-2 rounded-xl border border-line bg-surface-2/40 p-2.5 sm:p-3 text-xs sm:text-sm tabular-nums">
+        <dl className="counter-total space-y-1.5 sm:space-y-2 rounded-xl border border-line bg-surface-2/40 p-2.5 sm:p-3 text-xs sm:text-sm tabular-nums">
           {/* Only when something sits between it and the total — otherwise it repeats the total. */}
           {totals.subtotalMinor !== totals.totalMinor && (
             <div className="flex justify-between text-fg-muted">
@@ -507,7 +507,7 @@ export function BillingPage() {
             type="button"
             onClick={() => setShowHoldModal(true)}
             disabled={cartOrder.length === 0 || isSubmitting}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-fg hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
+            className="counter-hold flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-fg hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
             title="Hold order with custom preparation time & clear cart for next customer"
           >
             <Pause className="h-4 w-4 text-accent-text" />
@@ -518,7 +518,7 @@ export function BillingPage() {
             type="button"
             onClick={askToPlaceOrder}
             disabled={cartOrder.length === 0 || isSubmitting}
-            className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl bg-accent px-3 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
+            className="counter-place flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl bg-accent px-3 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
           >
             <span className="whitespace-nowrap">{isSubmitting ? "Placing order…" : "Place order"}</span>
             <span className="flex items-center gap-2 whitespace-nowrap tabular-nums">{formatMinor(totals.totalMinor, config.currency)} <ArrowRight className="h-4 w-4" /></span>

@@ -63,7 +63,7 @@ export function DropdownSelect<T extends string | number>({
         type="button"
         onClick={() => setIsOpen((o) => !o)}
         disabled={disabled}
-        className="flex w-full items-center justify-between gap-2 rounded-2xl bg-surface-2 py-2.5 pl-4 pr-3 text-sm font-medium text-fg-2 disabled:cursor-not-allowed disabled:opacity-60"
+        className="dropdown-trigger flex w-full items-center justify-between gap-2 rounded-2xl bg-surface-2 py-2.5 pl-4 pr-3 text-sm font-medium text-fg-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="truncate">{selected ? selected.label : placeholder}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-fg-muted transition-transform ${isOpen ? "rotate-180" : ""}`} />

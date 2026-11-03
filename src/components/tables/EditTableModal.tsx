@@ -8,14 +8,17 @@ import { runAction } from "../../utils/runAction";
 
 interface EditTableModalProps {
   table: TableSummary;
-  onSave: (name: string, seats: number) => Promise<void>;
+  onSave: (name: string, seats: number, floor: string) => Promise<void>;
+  /** Floors already in use, offered as suggestions. */
+  floors: string[];
   onClose: () => void;
 }
 
-export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) {
+export function EditTableModal({ table, onSave, floors, onClose }: EditTableModalProps) {
   const [name, setName] = useState(table.name);
   const [seats, setSeats] = useState(table.seats);
-  const unchanged = name.trim() === table.name && seats === table.seats;
+  const [floor, setFloor] = useState(table.floor ?? "");
+  const unchanged = name.trim() === table.name && seats === table.seats && floor.trim() === (table.floor ?? "");
   const validSeats = Number.isSafeInteger(seats) && seats > 0;
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +28,7 @@ export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) 
     const trimmed = name.trim();
     if (!trimmed || unchanged || !validSeats) return;
     await runAction(setIsSaving, setError, async () => {
-      await onSave(trimmed, seats);
+      await onSave(trimmed, seats, floor);
     });
   };
 
@@ -56,6 +59,22 @@ export function EditTableModal({ table, onSave, onClose }: EditTableModalProps) 
             autoFocus
             className="w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none"
           />
+        </label>
+
+        <label className="mt-4 block">
+          <span className="mb-1 block text-xs font-medium text-fg-muted">Floor (optional)</span>
+          <input
+            value={floor}
+            onChange={(e) => setFloor(e.target.value)}
+            list="edit-table-floors"
+            placeholder="Main hall"
+            className="w-full rounded-md border border-line-strong px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none"
+          />
+          <datalist id="edit-table-floors">
+            {floors.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
         </label>
 
         <div className="mt-4">

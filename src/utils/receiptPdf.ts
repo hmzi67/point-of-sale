@@ -43,6 +43,16 @@ export interface ReceiptPaper {
 }
 export const PAPER_80MM: ReceiptPaper = { widthMm: 80, marginMm: 4 };
 
+/** The compact design: Items / QTY / Rate / Disc / Amount, one row per item.
+ * Same as `COMPACT_*` in `printer::escpos`. */
+const COMPACT_COLUMNS: Array<[number, number, "left" | "center" | "right"]> = [
+  [0, 0.32, "left"],
+  [0.32, 0.44, "center"],
+  [0.44, 0.63, "right"],
+  [0.64, 0.76, "center"],
+  [0.76, 1, "right"],
+];
+
 /** Arimo (Arial's metrics, SIL OFL — `src/assets/fonts/Arimo-OFL.txt`),
  * embedded so the PDF looks the same in every viewer and on every printer;
  * the same face the thermal receipt is drawn in. */
@@ -159,9 +169,9 @@ function drawReceiptContent(
     write(fit(value, span * 0.45), right, "right", SIZE_TOTAL, false);
     y += lineMm(SIZE_TOTAL);
   };
-  const columns = (cells: string[], bold: boolean) => {
+  const columns = (cells: string[], bold: boolean, layout = COLUMNS) => {
     cells.forEach((text, i) => {
-      const [from, to, align] = COLUMNS[i];
+      const [from, to, align] = layout[i];
       const x = align === "left" ? left + from * span : align === "right" ? left + to * span : left + ((from + to) / 2) * span;
       font(SIZE_BODY, bold);
       write(fit(text, (to - from) * span - 1), x, align, SIZE_BODY, bold);
@@ -227,14 +237,29 @@ function drawReceiptContent(
   }
   y += 2.5;
 
-  columns(["Qty", "Rate", "Disc", "Amount"], true);
+  const compact = config.receiptTemplate === "compact";
+  if (compact) columns(["Items", "QTY", "Rate", "Disc", "Amount"], true, COMPACT_COLUMNS);
+  else columns(["Qty", "Rate", "Disc", "Amount"], true);
   rule("thick");
   sale.items.forEach((line, i) => {
-    if (i > 0) rule("dotted");
-    wrapped(line.itemName, "left", SIZE_BODY, true);
-    if (line.notes?.trim()) wrapped(`(${line.notes.trim()})`, "left", SIZE_SMALL, false);
     // The discount is taken off the whole bill, never per line.
-    columns([formatQty(line.qty, line.unit), receiptAmount(line.priceAtSaleMinor), "0", receiptAmount(line.lineTotalMinor)], false);
+    const numbers = [formatQty(line.qty, line.unit), receiptAmount(line.priceAtSaleMinor), "0", receiptAmount(line.lineTotalMinor)];
+    if (compact) {
+      // A long name wraps inside its column; the numbers stay on its first line.
+      font(SIZE_BODY, false);
+      const nameLines = doc.splitTextToSize(line.itemName, COMPACT_COLUMNS[0][1] * span - 1) as string[];
+      columns([nameLines[0], ...numbers], false, COMPACT_COLUMNS);
+      for (const extra of nameLines.slice(1)) {
+        write(extra, left, "left", SIZE_BODY, false);
+        y += lineMm(SIZE_BODY);
+      }
+      if (line.notes?.trim()) wrapped(`(${line.notes.trim()})`, "left", SIZE_SMALL, false);
+    } else {
+      if (i > 0) rule("dotted");
+      wrapped(line.itemName, "left", SIZE_BODY, true);
+      if (line.notes?.trim()) wrapped(`(${line.notes.trim()})`, "left", SIZE_SMALL, false);
+      columns(numbers, false);
+    }
   });
   rule("thick");
 

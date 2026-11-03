@@ -68,6 +68,9 @@ pub enum Row {
     Text { text: String, align: Align, size: f32, bold: bool },
     /// One line of cells; a cell too long for its slot is cut short.
     Cells { cells: Vec<Cell>, size: f32 },
+    /// Like `Cells`, but the first cell wraps downward inside its column
+    /// (a long item name in the compact design).
+    ItemLine { cells: Vec<Cell>, size: f32 },
     /// A bold label with its value right after it: `Date #:  17/10/2026`.
     Pair { label: String, value: String, size: f32 },
     /// Text centred between two dashed runs: `------ text ------`.
@@ -83,7 +86,7 @@ impl Row {
     pub fn text(&self) -> String {
         match self {
             Row::Text { text, .. } | Row::Banner { text, .. } => text.clone(),
-            Row::Cells { cells, .. } => cells.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join(" "),
+            Row::Cells { cells, .. } | Row::ItemLine { cells, .. } => cells.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join(" "),
             Row::Pair { label, value, .. } => format!("{label} {value}"),
             Row::Rule(_) | Row::ShortRule(_) | Row::Gap(_) => String::new(),
         }
@@ -262,6 +265,24 @@ fn draw_row(canvas: &mut Canvas, fonts: &Fonts, row: &Row) {
                 let font = fonts.pick(cell.bold);
                 let text = fit(font, *size, &cell.text, to - from);
                 draw_text(canvas, font, *size, place(cell.align, from, to, text_width(font, *size, &text)), top, &text);
+            }
+        }
+        Row::ItemLine { cells, size } => {
+            let span = full.1 - full.0;
+            let (name, rest) = cells.split_first().expect("an item line has a name");
+            let font = fonts.pick(name.bold);
+            let x = full.0 + name.from * span;
+            let lines = wrap(font, *size, &name.text, (name.to - name.from) * span);
+            let first_top = canvas.height;
+            for line in &lines {
+                let top = canvas.grow(line_height(*size));
+                draw_text(canvas, font, *size, x, top, line);
+            }
+            for cell in rest {
+                let (from, to) = (full.0 + cell.from * span, full.0 + cell.to * span);
+                let font = fonts.pick(cell.bold);
+                let text = fit(font, *size, &cell.text, to - from);
+                draw_text(canvas, font, *size, place(cell.align, from, to, text_width(font, *size, &text)), first_top, &text);
             }
         }
         Row::Banner { text, size } => {

@@ -1,4 +1,4 @@
-import { Store, KeyRound, LayoutGrid, Printer, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Store, KeyRound, LayoutGrid, Printer, ReceiptText, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppearanceSection } from "../components/settings/AppearanceSection";
 import { AreaPinSection } from "../components/settings/AreaPinSection";
@@ -12,15 +12,17 @@ import { BusinessCountersSection } from "../components/settings/BusinessCounters
 import { ModulesSection } from "../components/settings/ModulesSection";
 import { PrinterSettingsSection } from "../components/settings/PrinterSettingsSection";
 import { ResetSalesSection } from "../components/settings/ResetSalesSection";
+import { ReceiptDesignSection } from "../components/settings/ReceiptDesignSection";
 import { SettingsTabs, type SettingsTab } from "../components/settings/SettingsTabs";
 import { StoreIdentitySection } from "../components/settings/StoreIdentitySection";
 import { useModuleEnabled } from "../hooks/useModules";
 import { useAppConfig } from "../hooks/useAppConfig";
 
-type TabKey = "general" | "printer" | "license" | "security" | "modules";
+type TabKey = "general" | "receipt" | "printer" | "license" | "security" | "modules";
 
 const TABS: SettingsTab<TabKey>[] = [
   { key: "general", label: "General", icon: SlidersHorizontal, description: "Store details & appearance" },
+  { key: "receipt", label: "Receipt design", icon: ReceiptText, description: "Choose how receipts look" },
   { key: "printer", label: "Printer", icon: Printer, description: "Devices & receipt printing" },
   { key: "license", label: "Licence & Sync", icon: ShieldCheck, description: "Licence, business & counters, web dashboard" },
   { key: "security", label: "Security", icon: KeyRound, description: "Protected areas & PINs" },
@@ -84,6 +86,8 @@ export function SettingsPage() {
             <AppearanceSection />
           </>
         )}
+
+        {active === "receipt" && <ReceiptDesignSection config={config} />}
 
         {active === "printer" && <PrinterSettingsSection config={config} />}
 

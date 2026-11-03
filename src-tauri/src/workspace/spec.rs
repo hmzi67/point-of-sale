@@ -99,6 +99,8 @@ pub const CONFIG_COLUMNS: &[&str] = &[
     "receipt_social",
     "receipt_show_stamp",
     "receipt_show_credit",
+    "receipt_template",
+    "cash_quick_amounts",
     "sensitive_area_pin_hash",
     "service_charge_percent",
     "scale_barcode_enabled",

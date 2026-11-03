@@ -159,6 +159,8 @@ export async function handleBrowserMock<TResult>(
         storeName: "Diwan Demo POS",
         receiptHeader: "Welcome to Diwan",
         receiptFooter: "Thank you for visiting!",
+        cashQuickAmounts: "",
+        receiptTemplate: "stacked",
       } as unknown as TResult;
 
     case "config_get_ui_prefs":
@@ -323,6 +325,32 @@ export async function handleBrowserMock<TResult>(
       };
       mockOrders.push(order);
       return order as unknown as TResult;
+    }
+
+    case "orders_update_and_hold": {
+      const oid = Number(args?.orderId);
+      const edit = args?.edit as Omit<CreateAndHoldOrderInput, "clientRef">;
+      const found = mockOrders.find((o) => o.id === oid);
+      if (!found) throw new Error(`Order #${oid} not found`);
+      found.lines = edit.lines.map((l, idx) => {
+        const item = MOCK_ITEMS.find((it) => it.id === l.itemId);
+        return {
+          ...found.lines[0],
+          id: idx + 1,
+          itemId: l.itemId,
+          itemName: item?.name || `Item ${l.itemId}`,
+          qty: l.qty,
+          priceAtOrderMinor: item?.priceMinor || 10000,
+          notes: l.notes || null,
+        };
+      });
+      found.customerName = edit.customerName || null;
+      found.notes = edit.notes || null;
+      found.estimatedPrepMinutes = edit.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES;
+      found.heldFromStatus = found.status;
+      found.status = "held";
+      found.version += 1;
+      return { ...found } as unknown as TResult;
     }
 
     case "orders_resume": {

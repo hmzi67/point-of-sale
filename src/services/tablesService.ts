@@ -7,8 +7,8 @@ export function getTables(): Promise<TableSummary[]> {
 }
 
 /** Adds a new physical table to the floor. Owner/admin only. */
-export function addTable(name: string, seats: number): Promise<TableSummary> {
-  return call<TableSummary>("tables_add_table", { name, seats });
+export function addTable(name: string, seats: number, floor: string): Promise<TableSummary> {
+  return call<TableSummary>("tables_add_table", { name, seats, floor });
 }
 
 /** Removes a physical table from the floor entirely. Owner/admin only.
@@ -58,6 +58,6 @@ export function shiftTableOrder(fromTableId: number, toTableId: number): Promise
 }
 
 /** Updates a table name and seating capacity together. */
-export function updateTable(tableId: number, name: string, seats: number): Promise<TableSummary> {
-  return call<TableSummary>("tables_update_table", { tableId, name, seats });
+export function updateTable(tableId: number, name: string, seats: number, floor: string): Promise<TableSummary> {
+  return call<TableSummary>("tables_update_table", { tableId, name, seats, floor });
 }

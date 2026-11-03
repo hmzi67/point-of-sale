@@ -6,6 +6,11 @@ export function createAndHoldOrder(input: CreateAndHoldOrderInput): Promise<Orde
   return call<Order>("orders_create_and_hold", { input });
 }
 
+/** Saves a resumed order's edits onto that same order and holds it again. */
+export function updateAndHoldOrder(orderId: number, version: number, edit: Omit<CreateAndHoldOrderInput, "clientRef">): Promise<Order> {
+  return call<Order>("orders_update_and_hold", { orderId, version, edit });
+}
+
 /** Lists all open orders (takeaway, dine-in) that are not yet completed or cancelled. */
 export function listActiveOrders(): Promise<Order[]> {
   return call<Order[]>("orders_list_active", {});

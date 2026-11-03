@@ -4,15 +4,18 @@ import { SeatCountField } from "./SeatCountField";
 import { runAction } from "../../utils/runAction";
 
 interface AddTableFormProps {
-  onAdd: (name: string, seats: number) => Promise<void>;
+  onAdd: (name: string, seats: number, floor: string) => Promise<void>;
+  /** Floors already in use, offered as suggestions. */
+  floors: string[];
   onCancel: () => void;
 }
 
 /** Inline "add a table" form — TablesPage is admin/owner-only (see
  * `roleCanAccessModule`), so no further role check is needed here. */
-export function AddTableForm({ onAdd, onCancel }: AddTableFormProps) {
+export function AddTableForm({ onAdd, floors, onCancel }: AddTableFormProps) {
   const [name, setName] = useState("");
   const [seats, setSeats] = useState(4);
+  const [floor, setFloor] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +23,7 @@ export function AddTableForm({ onAdd, onCancel }: AddTableFormProps) {
     e.preventDefault();
     if (!name.trim() || !Number.isSafeInteger(seats) || seats < 1) return;
     await runAction(setIsSaving, setError, async () => {
-      await onAdd(name.trim(), seats);
+      await onAdd(name.trim(), seats, floor);
     });
   };
 
@@ -38,6 +41,21 @@ export function AddTableForm({ onAdd, onCancel }: AddTableFormProps) {
           autoFocus
           className="mt-1 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
         />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-fg-muted">Floor (optional)</label>
+        <input
+          value={floor}
+          onChange={(e) => setFloor(e.target.value)}
+          list="table-floors"
+          placeholder="Main hall"
+          className="mt-1 rounded-md border border-line-strong px-2.5 py-1.5 text-sm"
+        />
+        <datalist id="table-floors">
+          {floors.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
       </div>
       <SeatCountField value={seats} onChange={setSeats} disabled={isSaving} />
 

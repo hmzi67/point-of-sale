@@ -510,6 +510,7 @@ pub fn run() {
             commands::tokens_get_adhoc_groups,
             commands::tokens_print_adhoc,
             commands::orders_create_and_hold,
+            commands::orders_update_and_hold,
             commands::orders_list_active,
             commands::orders_get,
             commands::orders_resume,

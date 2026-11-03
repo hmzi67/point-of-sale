@@ -433,6 +433,44 @@ textarea {
   }
 }
 
+/* The counter in the light theme: a white panel with firmer lines and darker
+   text than the page, done by re-scoping the theme tokens for this panel. The
+   dark theme is untouched. */
+:root[data-theme="light"] .counter-panel {
+  --t-bg-surface: #ffffff;
+  --t-surface-2: #f2f4ef;
+  --t-surface-3: #e6e9e2;
+  --t-border-default: #cbd0c7;
+  --t-border-strong: #a7aea4;
+  --t-text-secondary: #2f3732;
+  --t-text-muted: #454f49;
+  --t-text-faint: #68726b;
+  box-shadow: 0 1px 3px rgba(31, 36, 33, 0.08), 0 12px 28px -10px rgba(31, 36, 33, 0.16);
+}
+:root[data-theme="light"] .counter-panel .counter-total {
+  border-color: color-mix(in srgb, var(--t-accent) 35%, transparent);
+  background: var(--t-accent-tint);
+}
+:root[data-theme="light"] .counter-panel .counter-total > :last-child dd {
+  color: var(--t-accent-text);
+}
+:root[data-theme="light"] .counter-panel .counter-method[aria-pressed="true"] {
+  border-color: var(--t-accent);
+  background: var(--t-accent);
+  color: var(--t-accent-ink);
+}
+:root[data-theme="light"] .counter-panel .dropdown-trigger {
+  border: 1px solid var(--t-border-default);
+  border-radius: 0.75rem;
+  color: var(--t-text-primary);
+}
+:root[data-theme="light"] .counter-panel .counter-hold:disabled {
+  opacity: 0.65;
+}
+:root[data-theme="light"] .counter-panel .counter-place:enabled {
+  box-shadow: 0 8px 18px -8px color-mix(in srgb, var(--t-accent) 75%, transparent);
+}
+
 /* The on-screen receipt is paper: black on white in either theme, in the
    same face as the print and the PDF (Arimo, `assets/fonts`). Like
    `receiptPdf.ts`, it is deliberately outside the theme tokens. */

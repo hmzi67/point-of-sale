@@ -505,6 +505,24 @@ const COL_QTY: (f32, f32) = (0.0, 0.2);
 const COL_RATE: (f32, f32) = (0.2, 0.46);
 const COL_DISC: (f32, f32) = (0.52, 0.7);
 const COL_AMOUNT: (f32, f32) = (0.72, 1.0);
+/// The compact design's columns: Items / QTY / Rate / Disc / Amount, one row
+/// per item. Same as `COMPACT_COLUMNS` in `receiptPdf.ts`.
+const COMPACT_ITEM: (f32, f32) = (0.0, 0.32);
+const COMPACT_QTY: (f32, f32) = (0.32, 0.44);
+const COMPACT_RATE: (f32, f32) = (0.44, 0.63);
+const COMPACT_DISC: (f32, f32) = (0.64, 0.76);
+const COMPACT_AMOUNT: (f32, f32) = (0.76, 1.0);
+
+/// One compact row's cells, name first.
+fn compact_cells(name: &str, qty: String, rate: String, disc: &str, total: String, bold: bool) -> Vec<Cell> {
+    vec![
+        Cell::new(name, COMPACT_ITEM.0, COMPACT_ITEM.1 - 0.01, Align::Left, bold),
+        Cell::new(qty, COMPACT_QTY.0, COMPACT_QTY.1, Align::Center, bold),
+        Cell::new(rate, COMPACT_RATE.0, COMPACT_RATE.1, Align::Right, bold),
+        Cell::new(disc, COMPACT_DISC.0, COMPACT_DISC.1, Align::Center, bold),
+        Cell::new(total, COMPACT_AMOUNT.0, COMPACT_AMOUNT.1, Align::Right, bold),
+    ]
+}
 
 /// A bold label with its value right after it ("Invoice #:  119728").
 fn info_row(label: &str, value: impl Into<String>) -> Row {
@@ -616,22 +634,37 @@ pub fn receipt_rows(sale: &Sale, config: &AppConfig, tables_module_enabled: bool
         ],
         size: SIZE_BODY,
     };
-    rows.push(columns("Qty".into(), "Rate".into(), "Disc".into(), "Amount".into(), true));
+    let compact = config.receipt_template == "compact";
+    rows.push(if compact {
+        Row::Cells { cells: compact_cells("Items", "QTY".into(), "Rate".into(), "Disc", "Amount".into(), true), size: SIZE_BODY }
+    } else {
+        columns("Qty".into(), "Rate".into(), "Disc".into(), "Amount".into(), true)
+    });
     rows.push(Row::Rule(Rule::Thick));
     for (i, line) in sale.items.iter().enumerate() {
-        if i > 0 {
-            rows.push(Row::Rule(Rule::Dotted));
-        }
-        rows.push(Row::Text { text: line.item_name.clone(), align: Align::Left, size: SIZE_BODY, bold: true });
-        if let Some(note) = line.notes.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
-            rows.push(Row::Text { text: format!("({note})"), align: Align::Left, size: SIZE_SMALL, bold: false });
-        }
         let qty = match &line.unit {
             Some(unit) => format!("{} {unit}", format_qty(line.qty)),
             None => format_qty(line.qty),
         };
+        let note = line.notes.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(|note| Row::Text {
+            text: format!("({note})"),
+            align: Align::Left,
+            size: SIZE_SMALL,
+            bold: false,
+        });
         // The discount is taken off the whole bill, never per line.
-        rows.push(columns(qty, amount(line.price_at_sale_minor), "0".into(), amount(line.line_total_minor), false));
+        if compact {
+            let cells = compact_cells(&line.item_name, qty, amount(line.price_at_sale_minor), "0", amount(line.line_total_minor), false);
+            rows.push(Row::ItemLine { cells, size: SIZE_BODY });
+            rows.extend(note);
+        } else {
+            if i > 0 {
+                rows.push(Row::Rule(Rule::Dotted));
+            }
+            rows.push(Row::Text { text: line.item_name.clone(), align: Align::Left, size: SIZE_BODY, bold: true });
+            rows.extend(note);
+            rows.push(columns(qty, amount(line.price_at_sale_minor), "0".into(), amount(line.line_total_minor), false));
+        }
     }
     rows.push(Row::Rule(Rule::Thick));
 
@@ -847,7 +880,7 @@ pub fn build_token_bytes(token: &TokenSummary, is_reprint: bool) -> Vec<u8> {
         }
     }
 
-    token_foot(&mut out, total_qty, "*** PREPARE FRESH ***");
+    token_foot(&mut out, total_qty, &[], "*** PREPARE FRESH ***");
     out
 }
 
@@ -910,12 +943,17 @@ fn token_item(out: &mut Vec<u8>, name: &str, qty_text: &str) {
 }
 
 /// The item count, closing rules and the closing line, then feed and cut.
-fn token_foot(out: &mut Vec<u8>, total_qty: f64, closing: &str) {
+/// `amounts`: rows under the item count (only the customer's copy has prices).
+fn token_foot(out: &mut Vec<u8>, total_qty: f64, amounts: &[(&str, String)], closing: &str) {
     out.extend(divider().as_bytes());
     out.push(b'\n');
     out.extend(bold(true));
     out.extend(two_col("TOTAL ITEMS:", &format_qty(total_qty)).as_bytes());
     out.push(b'\n');
+    for (label, value) in amounts {
+        out.extend(two_col(label, value).as_bytes());
+        out.push(b'\n');
+    }
     out.extend(bold(false));
     out.extend(double_divider().as_bytes());
     out.push(b'\n');
@@ -946,7 +984,7 @@ pub fn print_token(token: &TokenSummary, config: &AppConfig, is_reprint: bool) -
 }
 
 /// Builds thermal print bytes for an active order token (takeaway or dine-in).
-pub fn build_order_token_bytes(order: &crate::db::orders::Order, _config: &AppConfig, is_kitchen: bool) -> Vec<u8> {
+pub fn build_order_token_bytes(order: &crate::db::orders::Order, config: &AppConfig, is_kitchen: bool) -> Vec<u8> {
     let mut out = Vec::new();
     let title = if is_kitchen { "*** KITCHEN TICKET ***" } else { "*** CUSTOMER TOKEN ***" };
     let type_or_table = match &order.table_name {
@@ -977,11 +1015,32 @@ pub fn build_order_token_bytes(order: &crate::db::orders::Order, _config: &AppCo
     }
     detail_line(&mut out, "Notes", order.notes.as_deref());
 
-    token_items_header(&mut out);
+    if is_kitchen {
+        token_items_header(&mut out);
+    } else {
+        out.extend(divider().as_bytes());
+        out.push(b'\n');
+        out.extend(bold(true));
+        out.extend(two_col("ITEM / DESCRIPTION", "AMOUNT").as_bytes());
+        out.push(b'\n');
+        out.extend(bold(false));
+        out.extend(divider().as_bytes());
+        out.push(b'\n');
+    }
     let mut total_qty = 0.0;
+    let mut items_minor = 0;
     for line in order.lines.iter().filter(|line| line.status != "voided") {
         total_qty += line.qty;
-        token_item(&mut out, &line.item_name, &format!("{}x", format_qty(line.qty)));
+        if is_kitchen {
+            token_item(&mut out, &line.item_name, &format!("{}x", format_qty(line.qty)));
+        } else {
+            // Rounded per line, like the sale the order becomes.
+            let line_minor = (line.qty * line.price_at_order_minor as f64).round() as i64;
+            items_minor += line_minor;
+            token_item(&mut out, &line.item_name, &amount(line_minor));
+            out.extend(truncate_line(&format!("  {} x {}", format_qty(line.qty), amount(line.price_at_order_minor))).as_bytes());
+            out.push(b'\n');
+        }
         if let Some(line_note) = line.notes.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
             out.extend(truncate_line(&format!("  * {line_note}")).as_bytes());
             out.push(b'\n');
@@ -989,7 +1048,15 @@ pub fn build_order_token_bytes(order: &crate::db::orders::Order, _config: &AppCo
     }
 
     let closing = if is_kitchen { "*** PREPARE FRESH ***" } else { "*** THANK YOU FOR YOUR ORDER ***" };
-    token_foot(&mut out, total_qty, closing);
+    let money = |minor: i64| format!("{} {}", config.currency, amount(minor));
+    let mut amounts = Vec::new();
+    if !is_kitchen {
+        if order.delivery_charge_minor > 0 {
+            amounts.push(("DELIVERY FEE:", money(order.delivery_charge_minor)));
+        }
+        amounts.push(("TOTAL:", money(items_minor + order.delivery_charge_minor)));
+    }
+    token_foot(&mut out, total_qty, &amounts, closing);
     out
 }
 
@@ -1767,6 +1834,8 @@ mod tests {
             receipt_social: None,
             receipt_show_stamp: true,
             receipt_show_credit: true,
+            receipt_template: "stacked".into(),
+            cash_quick_amounts: String::new(),
             onboarding_completed: true,
             printer_connection_type: None,
             printer_bluetooth_address: None,
@@ -1973,8 +2042,16 @@ mod tests {
             payments: vec![crate::db::sales::PaymentPart { method: "credit".into(), amount_minor: 138_000 }],
             ..reference_sale()
         };
-        for (name, sale) in [("1-dine-in-paid", reference_sale()), ("2-takeaway-paid", takeaway), ("3-long", long), ("4-unpaid", unpaid)] {
-            let (bitmap, height) = receipt_image::render(&receipt_rows(&sale, &config, true, None), receipt_stamp(&sale, &config));
+        let compact = AppConfig { receipt_template: "compact".into(), ..reference_config() };
+        for (name, sale, config) in [
+            ("1-dine-in-paid", reference_sale(), &config),
+            ("2-takeaway-paid", takeaway, &config),
+            ("3-long", long.clone(), &config),
+            ("4-unpaid", unpaid, &config),
+            ("5-compact", reference_sale(), &compact),
+            ("6-compact-long", long, &compact),
+        ] {
+            let (bitmap, height) = receipt_image::render(&receipt_rows(&sale, config, true, None), receipt_stamp(&sale, config));
             let width = receipt_image::WIDTH_PX;
             let image = image::GrayImage::from_fn(width as u32, height as u32, |x, y| {
                 let byte = bitmap[y as usize * width.div_ceil(8) + x as usize / 8];
@@ -1996,6 +2073,22 @@ mod tests {
         config.receipt_show_credit = false;
         assert_eq!(receipt_stamp(&reference_sale(), &config), None);
         assert!(!receipt_text(&reference_sale(), &config, true).contains("Code Hunts"));
+    }
+
+    #[test]
+    fn the_compact_design_puts_each_item_on_one_row_and_a_long_name_wraps_in_its_column() {
+        let mut config = reference_config();
+        config.receipt_template = "compact".into();
+        let text = receipt_text(&reference_sale(), &config, true);
+        assert!(text.contains("Items QTY Rate Disc Amount"), "{text}");
+        assert!(text.contains("Half Rotisserie Chicken 1 1,250 0 1,250"), "{text}");
+        let rows = receipt_rows(&reference_sale(), &config, true, None);
+        assert!(!rows.contains(&Row::Rule(Rule::Dotted)), "no dotted rule in the compact design");
+
+        let one_item = |name: &str| Sale { items: vec![line(1, name, 1.0, 13_000)], ..reference_sale() };
+        let height = |sale: &Sale| receipt_image::render(&receipt_rows(sale, &config, true, None), None).1;
+        let long = one_item("A very long item name that needs more than one line in its column");
+        assert!(height(&long) > height(&one_item("Tea")), "the long name wraps instead of being cut");
     }
 
     #[test]
@@ -2740,6 +2833,10 @@ mod tests {
         let customer_bytes = build_order_token_bytes(&order, &sample_config(), false);
         let customer_text = String::from_utf8_lossy(&customer_bytes);
         assert!(customer_text.contains("CUSTOMER TOKEN"));
+        assert!(customer_text.contains("2 x 500"), "the unit price: {customer_text}");
+        assert!(customer_text.contains("TOTAL:"), "{customer_text}");
+        assert!(customer_text.contains(&format!("{} 1,000", sample_config().currency)), "{customer_text}");
+        assert!(!kitchen_text.contains("TOTAL:") && !kitchen_text.contains("500"), "no prices in the kitchen: {kitchen_text}");
         assert!(customer_text.contains("TOKEN #5"));
         assert!(customer_text.contains("THANK YOU FOR YOUR ORDER"));
     }

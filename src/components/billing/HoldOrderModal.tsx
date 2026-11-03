@@ -1,13 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { Check, ChefHat, Clock, Pause, Ticket } from "lucide-react";
-import { createAndHoldOrder, printOrderToken } from "../../services/ordersService";
+import { createAndHoldOrder, printOrderToken, updateAndHoldOrder } from "../../services/ordersService";
 import { reportWarning } from "../../services/logService";
 import { useBillingStore } from "../../store";
 import type { Order } from "../../types";
 import { formatMinor } from "../../utils/format";
 import { ModalHeader } from "../ui/ModalCard";
 import { ModalOverlay } from "../ui/ModalOverlay";
-import { ORDER_TYPE_LABELS } from "../../utils/orderType";
+import { DEFAULT_PREP_MINUTES, ORDER_TYPE_LABELS } from "../../utils/orderType";
 import { runAction } from "../../utils/runAction";
 
 interface HoldOrderModalProps {
@@ -35,10 +35,15 @@ export function HoldOrderModal({
   const cartOrder = useBillingStore((state) => state.cartOrder);
   const tableId = useBillingStore((state) => state.tableId);
   const clearCart = useBillingStore((state) => state.clearCart);
+  const activeOrderId = useBillingStore((state) => state.activeOrderId);
+  const activeOrderVersion = useBillingStore((state) => state.activeOrderVersion);
+  const activeOrderNo = useBillingStore((state) => state.activeOrderNo);
+  const activeOrderHold = useBillingStore((state) => state.activeOrderHold);
+  const draftCustomerName = useBillingStore((state) => state.customerName);
 
-  const [customerName, setCustomerName] = useState("");
-  const [notes, setNotes] = useState("");
-  const [prepMinutes, setPrepMinutes] = useState(15);
+  const [customerName, setCustomerName] = useState(draftCustomerName);
+  const [notes, setNotes] = useState(activeOrderHold?.notes ?? "");
+  const [prepMinutes, setPrepMinutes] = useState(activeOrderHold?.prepMinutes ?? DEFAULT_PREP_MINUTES);
   const [printKitchen, setPrintKitchen] = useState(false);
   const [printCustomer, setPrintCustomer] = useState(false);
   const willPrint = printKitchen || printCustomer;
@@ -54,23 +59,26 @@ export function HoldOrderModal({
     if (cartOrder.length === 0) return;
 
     await runAction(setIsSubmitting, setError, async () => {
-      const clientRef = crypto.randomUUID();
       const lines = cartOrder.map((id) => ({
         itemId: id,
         qty: cart[id].qty,
         notes: cart[id].notes || null,
       }));
 
-      const order = await createAndHoldOrder({
-        clientRef,
+      const details = {
         orderType,
         tableId,
         customerName: customerName.trim() || null,
         notes: notes.trim() || null,
-        estimatedPrepMinutes: prepMinutes > 0 ? prepMinutes : 15,
+        estimatedPrepMinutes: prepMinutes > 0 ? prepMinutes : DEFAULT_PREP_MINUTES,
         delivery: deliveryDetails,
         lines,
-      });
+      };
+      // A resumed cart is that order, edited — never a second order.
+      const order =
+        activeOrderId !== null && activeOrderVersion !== null
+          ? await updateAndHoldOrder(activeOrderId, activeOrderVersion, details)
+          : await createAndHoldOrder({ clientRef: crypto.randomUUID(), ...details });
 
       // Only what the cashier ticked. The order is already held, so a print
       // failure is reported, never thrown.
@@ -97,8 +105,8 @@ export function HoldOrderModal({
       <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-soft-lg">
         <ModalHeader
           icon={Pause}
-          title="Hold Active Order"
-          subtitle="Save to queue & clear cart for the next customer"
+          title={activeOrderId !== null ? `Update Order #${activeOrderNo ?? activeOrderId}` : "Hold Active Order"}
+          subtitle={activeOrderId !== null ? "Save your changes to this order & clear cart" : "Save to queue & clear cart for the next customer"}
           onClose={onClose}
           className="pb-4"
         />

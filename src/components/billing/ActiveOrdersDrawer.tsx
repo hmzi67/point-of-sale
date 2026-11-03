@@ -86,10 +86,13 @@ export function ActiveOrdersDrawer({
       // 3. Load active unpaid lines into cart
       const activeLines = updated.lines
         .filter((l) => l.status === "active" && l.saleId === null)
-        .map((l) => ({ itemId: l.itemId, qty: l.qty }));
+        .map((l) => ({ itemId: l.itemId, qty: l.qty, notes: l.notes }));
 
       loadParkedCart(activeLines, 0, (id) => byId.get(id));
-      setActiveOrder(updated.id, updated.version, updated.orderNo);
+      setActiveOrder(updated.id, updated.version, updated.orderNo, {
+        notes: updated.notes ?? "",
+        prepMinutes: updated.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES,
+      });
       setTableId(updated.tableId);
       setCustomerName(updated.customerName || "");
 

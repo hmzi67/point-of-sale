@@ -2133,9 +2133,10 @@ pub fn tables_add_table(
     session: State<'_, Session>,
     name: String,
     seats: i64,
+    floor: Option<String>,
 ) -> Result<TableSummary, String> {
     require_module_admin(&db, &[module_key::TABLES], &session)?;
-    query(&db, |conn| tables::add_table(conn, &name, seats))
+    query(&db, |conn| tables::add_table(conn, &name, seats, floor.as_deref()))
 }
 
 /// Directly sets a table's status (e.g. marking one reserved for a booking).
@@ -2150,7 +2151,7 @@ pub fn tables_update_table_status(
     query(&db, |conn| tables::update_table_status(conn, table_id, &status))
 }
 
-/// Updates a table name and seat count.
+/// Updates a table's name, seat count and floor.
 #[tauri::command]
 pub fn tables_update_table(
     db: State<'_, Db>,
@@ -2158,9 +2159,10 @@ pub fn tables_update_table(
     table_id: i64,
     name: String,
     seats: i64,
+    floor: Option<String>,
 ) -> Result<TableSummary, String> {
     require_module_admin(&db, &[module_key::TABLES], &session)?;
-    query(&db, |conn| tables::update_table(conn, table_id, &name, seats))
+    query(&db, |conn| tables::update_table(conn, table_id, &name, seats, floor.as_deref()))
 }
 
 /// Removes a physical table from the floor entirely. Owner/Admin only, same
@@ -2584,6 +2586,20 @@ pub fn orders_create_and_hold(
         let order = orders::add_lines(tx, order.id, order.version, &input.lines, Some(user.id))?;
         orders::hold(tx, order.id, order.version, Some(user.id))
     })
+}
+
+/// Hold on a resumed cart: saves the edits onto that same order.
+#[tauri::command]
+pub fn orders_update_and_hold(
+    db: State<'_, Db>,
+    session: State<'_, Session>,
+    order_id: i64,
+    version: i64,
+    edit: orders::OrderEdit,
+) -> Result<orders::Order, String> {
+    let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    selling_shift(&db, user.id, true)?;
+    transact(&db, |tx| orders::edit_and_hold(tx, order_id, version, edit, Some(user.id)))
 }
 
 #[tauri::command]

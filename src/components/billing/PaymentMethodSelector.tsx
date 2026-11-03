@@ -31,7 +31,7 @@ export function PaymentMethodSelector() {
           onClick={() => setPaymentMethod(value)}
           aria-pressed={paymentMethod === value}
           className={[
-            "flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-1.5 text-[0.6875rem] font-semibold leading-tight whitespace-nowrap transition-colors",
+            "counter-method flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-1.5 text-[0.6875rem] font-semibold leading-tight whitespace-nowrap transition-colors",
             paymentMethod === value ? "border-accent/40 bg-accent-soft text-accent-text" : "border-line bg-surface-2/50 text-fg-muted hover:border-line-strong hover:text-fg-2",
           ].join(" ")}
         >

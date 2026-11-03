@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCheckoutPayments, defaultDueDate } from "./checkoutPayments";
+import { buildCheckoutPayments, defaultDueDate, parseQuickAmounts } from "./checkoutPayments";
 
 describe("buildCheckoutPayments", () => {
   it("leaves a single-method sale as just its method", () => {
@@ -41,5 +41,12 @@ describe("buildCheckoutPayments", () => {
 describe("defaultDueDate", () => {
   it("counts calendar days forward across a month end", () => {
     expect(defaultDueDate(7, new Date(2026, 0, 28))).toBe("2026-02-04");
+  });
+});
+
+describe("parseQuickAmounts", () => {
+  it("keeps positive numbers, sorted, without repeats", () => {
+    expect(parseQuickAmounts("2000, 1000,abc, ,-5,1000,1500.50")).toEqual([1000, 1500.5, 2000]);
+    expect(parseQuickAmounts("")).toEqual([]);
   });
 });

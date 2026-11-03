@@ -31,6 +31,12 @@ pub struct AppConfig {
     pub receipt_social: Option<String>,
     pub receipt_show_stamp: bool,
     pub receipt_show_credit: bool,
+    /// The chosen receipt design: "stacked" (item name on its own line) or
+    /// "compact" (one row per item). Applies to print, PDF and screen alike.
+    pub receipt_template: String,
+    /// Comma-separated cash buttons for the checkout ("1000,1500,2000");
+    /// empty means the checkout suggests round amounts itself.
+    pub cash_quick_amounts: String,
     /// Set once the first-time setup wizard finishes. `false` is what tells
     /// the frontend to route a freshly-installed client into onboarding
     /// instead of the normal app.
@@ -170,6 +176,8 @@ pub struct AppConfigUpdate {
     pub receipt_social: Option<String>,
     pub receipt_show_stamp: Option<bool>,
     pub receipt_show_credit: Option<bool>,
+    pub receipt_template: Option<String>,
+    pub cash_quick_amounts: Option<String>,
     pub onboarding_completed: Option<bool>,
     pub printer_connection_type: Option<String>,
     pub printer_bluetooth_address: Option<String>,
@@ -202,6 +210,8 @@ fn from_row(row: &Row<'_>) -> Result<AppConfig, rusqlite::Error> {
         receipt_social: row.get("receipt_social")?,
         receipt_show_stamp: row.get::<_, i64>("receipt_show_stamp")? != 0,
         receipt_show_credit: row.get::<_, i64>("receipt_show_credit")? != 0,
+        receipt_template: row.get("receipt_template")?,
+        cash_quick_amounts: row.get("cash_quick_amounts")?,
         onboarding_completed: row.get::<_, i64>("onboarding_completed")? != 0,
         printer_connection_type: row.get("printer_connection_type")?,
         printer_bluetooth_address: row.get("printer_bluetooth_address")?,
@@ -269,7 +279,8 @@ pub fn get(conn: &Connection) -> Result<AppConfig, rusqlite::Error> {
                 service_charge_percent, scale_barcode_enabled, scale_barcode_prefix,
                 scale_item_code_digits, scale_value_kind, scale_value_decimals, offline_sales,
                 business_address, business_website,
-                receipt_tagline, receipt_social, receipt_show_stamp, receipt_show_credit
+                receipt_tagline, receipt_social, receipt_show_stamp, receipt_show_credit,
+                receipt_template, cash_quick_amounts
            FROM app_config WHERE id = 1",
         [],
         from_row,
@@ -308,7 +319,9 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
                 receipt_tagline = COALESCE(?25, receipt_tagline),
                 receipt_social = COALESCE(?26, receipt_social),
                 receipt_show_stamp = COALESCE(?27, receipt_show_stamp),
-                receipt_show_credit = COALESCE(?28, receipt_show_credit)
+                receipt_show_credit = COALESCE(?28, receipt_show_credit),
+                receipt_template = COALESCE(?29, receipt_template),
+                cash_quick_amounts = COALESCE(?30, cash_quick_amounts)
           WHERE id = 1",
         params![
             patch.business_name,
@@ -339,6 +352,8 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
             patch.receipt_social,
             patch.receipt_show_stamp,
             patch.receipt_show_credit,
+            patch.receipt_template,
+            patch.cash_quick_amounts,
         ],
     )?;
 

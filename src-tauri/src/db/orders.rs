@@ -76,7 +76,7 @@ pub fn can_transition(from: &str, to: &str) -> bool {
     )
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeliveryDetails {
     pub delivery_rider_id: Option<i64>,
@@ -151,6 +151,20 @@ pub struct NewLine {
     pub qty: f64,
     #[serde(default)]
     pub notes: Option<String>,
+}
+
+/// What the hold dialog saves onto a resumed order: the cart (`lines`, one per
+/// item) and the details around it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderEdit {
+    pub order_type: String,
+    pub table_id: Option<i64>,
+    pub customer_name: Option<String>,
+    pub notes: Option<String>,
+    pub estimated_prep_minutes: Option<i64>,
+    pub delivery: Option<DeliveryDetails>,
+    pub lines: Vec<NewLine>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -324,95 +338,7 @@ pub fn create_order(
     {
         return get_order(tx, id);
     }
-    if !ORDER_TYPES.contains(&order_type) {
-        return Err(OrderError::InvalidOrderType(order_type.to_string()));
-    }
-    match (order_type, table_id) {
-        ("dine_in", None) => return Err(OrderError::TableRequired),
-        ("dine_in", Some(table)) => {
-            let exists: bool =
-                tx.query_row("SELECT EXISTS(SELECT 1 FROM tables WHERE id = ?1)", params![table], |row| row.get(0))?;
-            if !exists {
-                return Err(OrderError::TableNotFound);
-            }
-        }
-        (_, Some(_)) => return Err(OrderError::TableOnlyForDineIn),
-        (_, None) => {}
-    }
-
-    let (
-        delivery_rider_id,
-        rider_source,
-        mut delivery_rider_name,
-        delivery_rider_phone,
-        delivery_platform_id,
-        mut delivery_platform_name,
-        customer_phone,
-        delivery_address,
-        delivery_charge_minor,
-        delivery_status,
-        platform_order_ref,
-    ) = match delivery {
-        Some(d) => (
-            d.delivery_rider_id,
-            d.rider_source,
-            d.delivery_rider_name,
-            d.delivery_rider_phone,
-            d.delivery_platform_id,
-            d.delivery_platform_name,
-            d.customer_phone,
-            d.delivery_address,
-            d.delivery_charge_minor.unwrap_or(0),
-            d.delivery_status,
-            d.platform_order_ref,
-        ),
-        None => (None, None, None, None, None, None, None, None, 0, None, None),
-    };
-
-    if order_type == "delivery" {
-        let phone_valid = customer_phone.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
-        let addr_valid = delivery_address.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
-        if !phone_valid || !addr_valid {
-            return Err(OrderError::DeliveryCustomerInfoRequired);
-        }
-
-        let is_user_rider = rider_source.as_deref() == Some("user") && delivery_rider_id.is_some();
-        let is_manual_rider = delivery_rider_name.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false)
-            && delivery_rider_phone.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
-
-        if !is_user_rider && !is_manual_rider {
-            return Err(OrderError::DeliveryRiderRequired);
-        }
-
-        if is_user_rider {
-            if let Some(rid) = delivery_rider_id {
-                if delivery_rider_name.is_none() {
-                    delivery_rider_name = tx
-                        .query_row("SELECT name FROM users WHERE id = ?1", params![rid], |r| r.get(0))
-                        .optional()?;
-                }
-            }
-        }
-    } else if order_type == "third_party_delivery" {
-        if delivery_platform_id.is_none()
-            && delivery_platform_name.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true)
-        {
-            return Err(OrderError::DeliveryPlatformRequired);
-        }
-        if let Some(pid) = delivery_platform_id {
-            if delivery_platform_name.is_none() {
-                delivery_platform_name = tx
-                    .query_row("SELECT name FROM delivery_platforms WHERE id = ?1", params![pid], |r| r.get(0))
-                    .optional()?;
-            }
-        }
-    }
-
-    let final_delivery_status = if is_delivery(order_type) {
-        Some(delivery_status.unwrap_or_else(|| DELIVERY_PLACED.to_string()))
-    } else {
-        None
-    };
+    let d = resolve_details(tx, order_type, table_id, delivery)?;
 
     // Resolve shift: use explicitly passed shift_id, or look for open shift for user / store
     let effective_shift_id = match shift_id {
@@ -465,17 +391,17 @@ pub fn create_order(
             notes,
             prep_minutes,
             effective_shift_id,
-            delivery_rider_id,
-            rider_source,
-            delivery_rider_name,
-            delivery_rider_phone,
-            delivery_platform_id,
-            delivery_platform_name,
-            customer_phone,
-            delivery_address,
-            delivery_charge_minor,
-            final_delivery_status,
-            platform_order_ref,
+            d.delivery_rider_id,
+            d.rider_source,
+            d.delivery_rider_name,
+            d.delivery_rider_phone,
+            d.delivery_platform_id,
+            d.delivery_platform_name,
+            d.customer_phone,
+            d.delivery_address,
+            d.delivery_charge_minor.unwrap_or(0),
+            d.delivery_status,
+            d.platform_order_ref,
         ],
     )?;
     let order_id = tx.last_insert_rowid();
@@ -484,6 +410,78 @@ pub fn create_order(
         tx.execute("UPDATE tables SET status = 'occupied' WHERE id = ?1", params![table])?;
     }
     get_order(tx, order_id)
+}
+
+/// Checks an order type against its table and delivery details, and fills in
+/// the rider / platform names from their ids and the first delivery status.
+fn resolve_details(
+    tx: &Transaction,
+    order_type: &str,
+    table_id: Option<i64>,
+    delivery: Option<DeliveryDetails>,
+) -> Result<DeliveryDetails, OrderError> {
+    if !ORDER_TYPES.contains(&order_type) {
+        return Err(OrderError::InvalidOrderType(order_type.to_string()));
+    }
+    match (order_type, table_id) {
+        ("dine_in", None) => return Err(OrderError::TableRequired),
+        ("dine_in", Some(table)) => {
+            let exists: bool =
+                tx.query_row("SELECT EXISTS(SELECT 1 FROM tables WHERE id = ?1)", params![table], |row| row.get(0))?;
+            if !exists {
+                return Err(OrderError::TableNotFound);
+            }
+        }
+        (_, Some(_)) => return Err(OrderError::TableOnlyForDineIn),
+        (_, None) => {}
+    }
+
+    let mut d = delivery.unwrap_or_default();
+    if order_type == "delivery" {
+        let phone_valid = d.customer_phone.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+        let addr_valid = d.delivery_address.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+        if !phone_valid || !addr_valid {
+            return Err(OrderError::DeliveryCustomerInfoRequired);
+        }
+
+        let is_user_rider = d.rider_source.as_deref() == Some("user") && d.delivery_rider_id.is_some();
+        let is_manual_rider = d.delivery_rider_name.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+            && d.delivery_rider_phone.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+
+        if !is_user_rider && !is_manual_rider {
+            return Err(OrderError::DeliveryRiderRequired);
+        }
+
+        if is_user_rider {
+            if let Some(rid) = d.delivery_rider_id {
+                if d.delivery_rider_name.is_none() {
+                    d.delivery_rider_name = tx
+                        .query_row("SELECT name FROM users WHERE id = ?1", params![rid], |r| r.get(0))
+                        .optional()?;
+                }
+            }
+        }
+    } else if order_type == "third_party_delivery" {
+        if d.delivery_platform_id.is_none()
+            && d.delivery_platform_name.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true)
+        {
+            return Err(OrderError::DeliveryPlatformRequired);
+        }
+        if let Some(pid) = d.delivery_platform_id {
+            if d.delivery_platform_name.is_none() {
+                d.delivery_platform_name = tx
+                    .query_row("SELECT name FROM delivery_platforms WHERE id = ?1", params![pid], |r| r.get(0))
+                    .optional()?;
+            }
+        }
+    }
+
+    d.delivery_status = if is_delivery(order_type) {
+        Some(d.delivery_status.take().unwrap_or_else(|| DELIVERY_PLACED.to_string()))
+    } else {
+        None
+    };
+    Ok(d)
 }
 
 pub fn update_delivery_status(
@@ -617,25 +615,65 @@ pub fn add_lines(
         if !line.qty.is_finite() || line.qty <= 0.0 {
             return Err(OrderError::InvalidQuantity);
         }
-        let (name, price_minor, is_active): (String, i64, i64) = tx
-            .query_row(
-                "SELECT name, price_minor, is_active FROM items WHERE id = ?1",
-                params![line.item_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()?
-            .ok_or(OrderError::ItemNotFound(line.item_id))?;
-        if is_active == 0 {
-            return Err(OrderError::ItemInactive(name));
-        }
-        let notes = line.notes.as_deref().map(str::trim).filter(|s| !s.is_empty());
-        tx.execute(
-            "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor, notes, added_by)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![order_id, line.item_id, line.qty, price_minor, notes, user_id],
-        )?;
+        insert_line(tx, order_id, line, user_id)?;
     }
     finish(tx, order_id)
+}
+
+fn insert_line(tx: &Transaction, order_id: i64, line: &NewLine, user_id: Option<i64>) -> Result<(), OrderError> {
+    let (name, price_minor, is_active): (String, i64, i64) = tx
+        .query_row(
+            "SELECT name, price_minor, is_active FROM items WHERE id = ?1",
+            params![line.item_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?
+        .ok_or(OrderError::ItemNotFound(line.item_id))?;
+    if is_active == 0 {
+        return Err(OrderError::ItemInactive(name));
+    }
+    let notes = line.notes.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    tx.execute(
+        "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor, notes, added_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![order_id, line.item_id, line.qty, price_minor, notes, user_id],
+    )?;
+    Ok(())
+}
+
+/// Makes the order's active, unpaid lines match the cart. A kept line keeps
+/// its order price and a new item takes the live one. A line already sent to
+/// the kitchen can only grow (a top-up line); shrinking it is a void.
+fn sync_lines(tx: &Transaction, order_id: i64, lines: &[NewLine], user_id: Option<i64>) -> Result<(), OrderError> {
+    let mut wanted = lines.to_vec();
+    let mut existing: Vec<OrderLine> = get_order(tx, order_id)?
+        .lines
+        .into_iter()
+        .filter(|l| l.status == LINE_ACTIVE && l.sale_id.is_none())
+        .collect();
+    existing.sort_by_key(|l| l.sent_at.is_none());
+    for line in &existing {
+        let want = wanted.iter_mut().find(|w| w.item_id == line.item_id);
+        let want_qty = want.as_ref().map_or(0.0, |w| w.qty);
+        if line.sent_at.is_some() {
+            if want_qty + QTY_EPSILON < line.qty {
+                return Err(OrderError::LineAlreadySent);
+            }
+            if let Some(want) = want {
+                want.qty -= line.qty;
+            }
+        } else if let Some(want) = want.filter(|w| w.qty > QTY_EPSILON) {
+            let notes = want.notes.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            tx.execute("UPDATE order_items SET qty = ?1, notes = ?2 WHERE id = ?3", params![want.qty, notes, line.id])?;
+            want.qty = 0.0;
+        } else {
+            tx.execute("DELETE FROM order_items WHERE id = ?1", params![line.id])?;
+        }
+    }
+    for line in wanted.iter().filter(|w| w.qty > QTY_EPSILON) {
+        insert_line(tx, order_id, line, user_id)?;
+    }
+    Ok(())
 }
 
 /// Changes or removes a line the kitchen has not been told about yet.
@@ -811,6 +849,61 @@ pub fn resume(tx: &Transaction, order_id: i64, expected_version: i64, user_id: O
     set_status(tx, order_id, HELD, &to, user_id)?;
     tx.execute("UPDATE orders SET held_from_status = NULL WHERE id = ?1", params![order_id])?;
     finish(tx, order_id)
+}
+
+/// Saves a resumed order's edits onto that same order and holds it again, so
+/// it keeps its number and never turns into a second order.
+pub fn edit_and_hold(
+    tx: &Transaction,
+    order_id: i64,
+    expected_version: i64,
+    edit: OrderEdit,
+    user_id: Option<i64>,
+) -> Result<Order, OrderError> {
+    if edit.lines.is_empty() {
+        return Err(OrderError::NoLines);
+    }
+    if edit.lines.iter().any(|l| !l.qty.is_finite() || l.qty <= 0.0) {
+        return Err(OrderError::InvalidQuantity);
+    }
+    let head = begin(tx, order_id, expected_version)?;
+    refuse_if_held(&head, "changed")?;
+    let d = resolve_details(tx, &edit.order_type, edit.table_id, edit.delivery)?;
+    sync_lines(tx, order_id, &edit.lines, user_id)?;
+    tx.execute(
+        "UPDATE orders SET
+            order_type = ?1, table_id = ?2, customer_name = ?3, notes = ?4, estimated_prep_minutes = ?5,
+            delivery_rider_id = ?6, rider_source = ?7, delivery_rider_name = ?8, delivery_rider_phone = ?9,
+            delivery_platform_id = ?10, delivery_platform_name = ?11, customer_phone = ?12,
+            delivery_address = ?13, delivery_charge_minor = ?14, delivery_status = ?15, platform_order_ref = ?16
+          WHERE id = ?17",
+        params![
+            edit.order_type,
+            edit.table_id,
+            edit.customer_name,
+            edit.notes,
+            edit.estimated_prep_minutes.unwrap_or(15),
+            d.delivery_rider_id,
+            d.rider_source,
+            d.delivery_rider_name,
+            d.delivery_rider_phone,
+            d.delivery_platform_id,
+            d.delivery_platform_name,
+            d.customer_phone,
+            d.delivery_address,
+            d.delivery_charge_minor.unwrap_or(0),
+            d.delivery_status,
+            d.platform_order_ref,
+            order_id,
+        ],
+    )?;
+    if let Some(table) = edit.table_id {
+        tx.execute("UPDATE tables SET status = 'occupied' WHERE id = ?1", params![table])?;
+    }
+    if let Some(old_table) = head.table_id.filter(|old| Some(*old) != edit.table_id) {
+        free_table_if_idle(tx, old_table)?;
+    }
+    hold(tx, order_id, expected_version + 1, user_id)
 }
 
 /// Kitchen display bump: forward only, repeating it is a no-op. The order
@@ -1645,6 +1738,117 @@ mod tests {
     }
 
     // ---- hold / resume ------------------------------------------------------
+
+    fn takeaway_edit(lines: Vec<NewLine>) -> OrderEdit {
+        OrderEdit {
+            order_type: "takeaway".into(),
+            table_id: None,
+            customer_name: Some("Ali".into()),
+            notes: Some("less spicy".into()),
+            estimated_prep_minutes: Some(25),
+            delivery: None,
+            lines,
+        }
+    }
+
+    #[test]
+    fn holding_a_resumed_order_again_updates_it_instead_of_adding_another() {
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        let noodles = item_id(&conn, "Instant Noodles");
+        let order = cola_order(&mut conn, "edit-same", 1.0);
+        let held = run(&mut conn, |tx| hold(tx, order.id, order.version, None)).unwrap();
+        let resumed = run(&mut conn, |tx| resume(tx, held.id, held.version, None)).unwrap();
+        let old_cola_price = resumed.lines[0].price_at_order_minor;
+        conn.execute("UPDATE items SET price_minor = price_minor + 500 WHERE id = ?1", [cola]).unwrap();
+
+        let edit = takeaway_edit(vec![
+            NewLine { item_id: cola, qty: 3.0, notes: Some("no ice".into()) },
+            NewLine { item_id: noodles, qty: 2.0, notes: None },
+        ]);
+        let edited = run(&mut conn, |tx| edit_and_hold(tx, resumed.id, resumed.version, edit, None)).unwrap();
+
+        assert_eq!(edited.id, order.id);
+        assert_eq!(edited.order_no, order.order_no);
+        assert_eq!(edited.status, "held");
+        assert_eq!(edited.customer_name.as_deref(), Some("Ali"));
+        assert_eq!(edited.notes.as_deref(), Some("less spicy"));
+        assert_eq!(edited.estimated_prep_minutes, 25);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM orders"), 1);
+        assert_eq!(list_active_orders(&conn).unwrap().len(), 1);
+
+        assert_eq!(edited.lines.len(), 2);
+        let kept = edited.lines.iter().find(|l| l.item_id == cola).unwrap();
+        assert_eq!(kept.qty, 3.0);
+        assert_eq!(kept.notes.as_deref(), Some("no ice"));
+        assert_eq!(kept.price_at_order_minor, old_cola_price);
+        assert_eq!(edited.lines.iter().find(|l| l.item_id == noodles).unwrap().qty, 2.0);
+
+        // Round two: an item taken out of the cart leaves the order.
+        let resumed = run(&mut conn, |tx| resume(tx, edited.id, edited.version, None)).unwrap();
+        let edit = takeaway_edit(vec![NewLine { item_id: noodles, qty: 1.0, notes: None }]);
+        let edited = run(&mut conn, |tx| edit_and_hold(tx, resumed.id, resumed.version, edit, None)).unwrap();
+        assert_eq!(edited.lines.len(), 1);
+        assert_eq!(edited.lines[0].item_id, noodles);
+    }
+
+    #[test]
+    fn editing_a_resumed_order_leaves_paid_lines_alone_and_refuses_a_stale_copy() {
+        let mut conn = test_conn();
+        let noodles = item_id(&conn, "Instant Noodles");
+        let order = cola_order(&mut conn, "edit-paid", 1.0);
+        let paid = pay_all(&mut conn, &order).order;
+
+        let edit = takeaway_edit(vec![NewLine { item_id: noodles, qty: 1.0, notes: None }]);
+        let stale = run(&mut conn, |tx| edit_and_hold(tx, paid.id, paid.version - 1, edit.clone(), None));
+        assert!(matches!(stale, Err(OrderError::Stale { .. })));
+
+        let edited = run(&mut conn, |tx| edit_and_hold(tx, paid.id, paid.version, edit, None)).unwrap();
+        assert_eq!(edited.lines.len(), 2);
+        assert!(edited.lines.iter().any(|l| l.sale_id.is_some()));
+    }
+
+    #[test]
+    fn a_line_sent_to_the_kitchen_can_grow_but_not_shrink_in_an_edit() {
+        let mut conn = test_conn();
+        route_cola(&conn);
+        let cola = item_id(&conn, "Cola 500ml");
+        let order = cola_order(&mut conn, "edit-sent", 2.0);
+        let order = send(&mut conn, &order).order;
+
+        let shrink = takeaway_edit(vec![NewLine { item_id: cola, qty: 1.0, notes: None }]);
+        let refused = run(&mut conn, |tx| edit_and_hold(tx, order.id, order.version, shrink, None));
+        assert!(matches!(refused, Err(OrderError::LineAlreadySent)));
+
+        let grow = takeaway_edit(vec![NewLine { item_id: cola, qty: 3.0, notes: None }]);
+        let edited = run(&mut conn, |tx| edit_and_hold(tx, order.id, order.version, grow, None)).unwrap();
+        assert_eq!(edited.lines.iter().map(|l| l.qty).sum::<f64>(), 3.0);
+        assert_eq!(edited.lines.iter().filter(|l| l.sent_at.is_none()).count(), 1);
+    }
+
+    #[test]
+    fn moving_an_edited_order_to_another_table_frees_the_old_one() {
+        let mut conn = test_conn();
+        let cola = item_id(&conn, "Cola 500ml");
+        conn.execute_batch("INSERT INTO tables (name, seats) VALUES ('Move A', 4), ('Move B', 4);").unwrap();
+        let (a, b) = (table_id(&conn, "Move A"), table_id(&conn, "Move B"));
+        let order = run(&mut conn, |tx| create_order(tx, "edit-table", "dine_in", Some(a), None, None, None, None, None, None)).unwrap();
+        let order = with_cola(&mut conn, &order, 1.0);
+
+        let edit = OrderEdit {
+            order_type: "dine_in".into(),
+            table_id: Some(b),
+            ..takeaway_edit(vec![NewLine { item_id: cola, qty: 1.0, notes: None }])
+        };
+        let edited = run(&mut conn, |tx| edit_and_hold(tx, order.id, order.version, edit, None)).unwrap();
+
+        assert_eq!(edited.table_id, Some(b));
+        let status = |conn: &Connection, id: i64| -> String {
+            conn.query_row("SELECT status FROM tables WHERE id = ?1", [id], |row| row.get(0)).unwrap()
+        };
+        assert_eq!(status(&conn, a), "free");
+        assert_eq!(status(&conn, b), "occupied");
+    }
 
     #[test]
     fn hold_and_resume_return_to_the_status_the_order_was_held_from() {

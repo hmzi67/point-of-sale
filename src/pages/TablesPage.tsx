@@ -21,6 +21,7 @@ import {
 } from "../services/tablesService";
 import { useBillingStore } from "../store";
 import type { TableSummary } from "../types";
+import { groupByFloor } from "../utils/tableFloors";
 import { runAction } from "../utils/runAction";
 
 /** Restaurant floor view: one card per table, color-coded by status. Tapping
@@ -107,15 +108,18 @@ export function TablesPage() {
       reload();
     });
 
-  const handleAddTable = async (name: string, seats: number) => {
-    await addTable(name, seats);
+  const groups = groupByFloor(tables);
+  const floors = groups.flatMap((group) => (group.floor ? [group.floor] : []));
+
+  const handleAddTable = async (name: string, seats: number, floor: string) => {
+    await addTable(name, seats, floor);
     setShowAddForm(false);
     reload();
   };
 
-  const handleUpdateTable = async (name: string, seats: number) => {
+  const handleUpdateTable = async (name: string, seats: number, floor: string) => {
     if (!editingTable) return;
-    await updateTable(editingTable.id, name, seats);
+    await updateTable(editingTable.id, name, seats, floor);
     setEditingTable(null);
     reload();
   };
@@ -161,7 +165,7 @@ export function TablesPage() {
         </button>
       </div>
 
-      {showAddForm && <AddTableForm onAdd={handleAddTable} onCancel={() => setShowAddForm(false)} />}
+      {showAddForm && <AddTableForm onAdd={handleAddTable} floors={floors} onCancel={() => setShowAddForm(false)} />}
 
       {error && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
@@ -176,25 +180,30 @@ export function TablesPage() {
           No tables yet — add one to get started.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {tables.map((table) => (
-            <TableCard
-              key={table.id}
-              table={table}
-              busy={busyId === table.id}
-              onSeat={() => void seatTable(table)}
-              onResume={() => void resumeTable(table)}
-              onRelease={() => void releaseTable(table)}
-              onReserve={() => void reserveTable(table)}
-              onShift={() => setShiftingTable(table)}
-              onEdit={() => setEditingTable(table)}
-              onDelete={() => {
-                setDeleteError(null);
-                setDeletingTable(table);
-              }}
-            />
-          ))}
-        </div>
+        groups.map((group) => (
+          <div key={group.floor ?? ""} className="space-y-3">
+            {groups.length > 1 && <h3 className="text-sm font-semibold text-fg">{group.floor ?? "Other tables"}</h3>}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {group.tables.map((table) => (
+                <TableCard
+                  key={table.id}
+                  table={table}
+                  busy={busyId === table.id}
+                  onSeat={() => void seatTable(table)}
+                  onResume={() => void resumeTable(table)}
+                  onRelease={() => void releaseTable(table)}
+                  onReserve={() => void reserveTable(table)}
+                  onShift={() => setShiftingTable(table)}
+                  onEdit={() => setEditingTable(table)}
+                  onDelete={() => {
+                    setDeleteError(null);
+                    setDeletingTable(table);
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        ))
       )}
 
       {shiftingTable && (
@@ -208,6 +217,7 @@ export function TablesPage() {
 
       {editingTable && (
         <EditTableModal
+          floors={floors}
           table={editingTable}
           onSave={handleUpdateTable}
           onClose={() => setEditingTable(null)}

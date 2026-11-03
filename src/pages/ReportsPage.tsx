@@ -30,6 +30,7 @@ import {
   VoidReportView,
 } from "../components/reports/SalesInsightReports";
 import { WorstSellers } from "../components/reports/WorstSellers";
+import { MonthlySalesCalendar } from "../components/reports/MonthlySalesCalendar";
 import { CounterSalesReport } from "../components/reports/CounterSalesReport";
 import { ProductWiseSalesTable } from "../components/reports/ProductWiseSalesTable";
 import { RefundsTable } from "../components/reports/RefundsTable";
@@ -61,12 +62,13 @@ const TopEntriesChart = lazy(() =>
   import("../components/reports/TopEntriesChart").then((m) => ({ default: m.TopEntriesChart })),
 );
 
-type SalesView = "overview" | "counters" | "tables" | "products" | "refunds" | "delivery";
+type SalesView = "overview" | "calendar" | "counters" | "tables" | "products" | "refunds" | "delivery";
 type InsightView = "profit" | "orderProfit" | "payments" | "tax" | "voids" | "inventory";
 type View = SalesView | InsightView;
 
 const TABS: { key: View; label: string; icon: LucideIcon }[] = [
   { key: "overview", label: "Overview", icon: BarChart3 },
+  { key: "calendar", label: "Monthly View", icon: CalendarDays },
   { key: "profit", label: "Profit & Loss", icon: PiggyBank },
   { key: "orderProfit", label: "Order Profit", icon: ReceiptText },
   { key: "products", label: "Product Wise Sales", icon: Boxes },
@@ -80,7 +82,7 @@ const TABS: { key: View; label: string; icon: LucideIcon }[] = [
   { key: "inventory", label: "Inventory", icon: Warehouse },
 ];
 
-const SALES_VIEWS: View[] = ["overview", "counters", "tables", "products", "refunds", "delivery"];
+const SALES_VIEWS: View[] = ["overview", "calendar", "counters", "tables", "products", "refunds", "delivery"];
 
 const chartFallback = <div className="h-[21rem] animate-pulse rounded-2xl border border-line bg-surface-2" />;
 
@@ -222,7 +224,7 @@ export function ReportsPage() {
         </div>
         <ExportButtons
           // Counter Wise Sales has its own CSV button (see CounterSalesReport).
-          view={SALES_VIEWS.includes(view) && view !== "counters" ? (view as Exclude<SalesView, "counters">) : null}
+          view={SALES_VIEWS.includes(view) && view !== "counters" && view !== "calendar" ? (view as Exclude<SalesView, "counters" | "calendar">) : null}
           summary={summary}
           topItems={topItems}
           series={series}
@@ -237,8 +239,8 @@ export function ReportsPage() {
 
       <div className="space-y-4 rounded-2xl border border-line bg-surface p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <span className="flex items-center gap-2 text-xs font-semibold text-fg-2"><CalendarDays className="h-4 w-4 text-accent-text" />Reporting period</span>
-          <DateRangePicker />
+          <span className="flex items-center gap-2 text-xs font-semibold text-fg-2"><CalendarDays className="h-4 w-4 text-accent-text" />{view === "calendar" ? "Sales by day" : "Reporting period"}</span>
+          {view !== "calendar" && <DateRangePicker />}
         </div>
 
         <div className="flex flex-wrap gap-2 border-t border-line pt-4">
@@ -275,6 +277,8 @@ export function ReportsPage() {
 
           <TopItemsTable items={topItems} currency={config.currency} isLoading={isLoading} />
         </>
+      ) : view === "calendar" ? (
+        <MonthlySalesCalendar currency={config.currency} />
       ) : view === "products" ? (
         <>
           {productSalesError && (

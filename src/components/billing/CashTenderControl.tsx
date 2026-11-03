@@ -1,5 +1,7 @@
 import { Banknote, RotateCcw } from "lucide-react";
+import { useAppConfig } from "../../hooks/useAppConfig";
 import { useBillingStore } from "../../store";
+import { parseQuickAmounts } from "../../utils/checkoutPayments";
 import { decimalToMinor, formatMinor, minorToDecimal } from "../../utils/format";
 
 interface CashTenderControlProps {
@@ -18,15 +20,18 @@ export function CashTenderControl({ currency, totalMinor }: CashTenderControlPro
   const isShort = currentTenderedMinor < totalMinor;
   const shortMinor = totalMinor - currentTenderedMinor;
 
-  // Generate sensible quick cash preset options (next round 50, 100, 500, 1000, 5000)
-  const presets: number[] = [];
+  // The shop's own cash buttons from Settings, or else sensible suggestions
+  // (next round 100, 500, 1000, 5000).
+  const { config } = useAppConfig();
+  const configured = parseQuickAmounts(config.cashQuickAmounts);
+  const presets = configured.filter((amount) => amount > totalDecimal);
   const roundedUp100 = Math.ceil(totalDecimal / 100) * 100;
   const roundedUp500 = Math.ceil(totalDecimal / 500) * 500;
   const roundedUp1000 = Math.ceil(totalDecimal / 1000) * 1000;
   const roundedUp5000 = Math.ceil(totalDecimal / 5000) * 5000;
 
   for (const val of [roundedUp100, roundedUp500, roundedUp1000, roundedUp5000]) {
-    if (val > totalDecimal && !presets.includes(val)) {
+    if (configured.length === 0 && val > totalDecimal && !presets.includes(val)) {
       presets.push(val);
     }
   }
@@ -88,7 +93,7 @@ export function CashTenderControl({ currency, totalMinor }: CashTenderControlPro
         >
           Exact
         </button>
-        {presets.slice(0, 3).map((amt) => (
+        {(configured.length > 0 ? presets : presets.slice(0, 3)).map((amt) => (
           <button
             key={amt}
             type="button"

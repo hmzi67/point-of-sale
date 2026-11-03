@@ -25,6 +25,12 @@ export interface AppConfig {
   receiptSocial: string | null;
   receiptShowStamp: boolean;
   receiptShowCredit: boolean;
+  /** The chosen receipt design, used by print, PDF and screen alike:
+   * item name on its own line, or one row per item. */
+  receiptTemplate: "stacked" | "compact";
+  /** Comma-separated cash buttons for the checkout ("1000,1500,2000");
+   * empty means the checkout suggests round amounts itself. */
+  cashQuickAmounts: string;
   /** Set once the first-time setup wizard finishes. `false` on a brand-new
    * install routes the app into onboarding instead of the normal screens. */
   onboardingCompleted: boolean;
