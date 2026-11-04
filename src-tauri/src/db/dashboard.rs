@@ -134,7 +134,7 @@ fn delivery_stats_query(
                 COALESCE(SUM(
                     COALESCE(
                         (SELECT SUM(s.total_minor) FROM sales s WHERE s.order_id = o.id),
-                        (SELECT COALESCE(SUM(ROUND(oi.price_at_order_minor * oi.qty)), 0)
+                        (SELECT COALESCE(SUM(CAST(ROUND(oi.price_at_order_minor * oi.qty) AS INTEGER)), 0)
                            FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'active')
                     )
                 ), 0)
@@ -404,6 +404,32 @@ mod tests {
         let (start, end) = wide_range();
         let summary = get_summary(&conn, &start, &end, Platform::Desktop).unwrap();
         assert!(summary.delivery_stats.is_none(), "delivery module is disabled by default");
+    }
+
+    #[test]
+    fn delivery_stats_count_a_delivery_order_with_no_sale_yet() {
+        let conn = test_conn();
+        conn.execute("UPDATE app_config SET business_type = 'restaurant' WHERE id = 1", []).unwrap();
+        conn.execute(
+            "UPDATE enabled_modules SET desktop_enabled = 1
+              WHERE module_id = (SELECT id FROM modules WHERE key = 'delivery')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO orders (order_no, order_type, client_ref, created_at)
+             VALUES (1, 'delivery', 'unpaid', datetime('now', 'localtime'))",
+            [],
+        ).unwrap();
+        let order = conn.last_insert_rowid();
+        let item = conn.query_row("SELECT id FROM items LIMIT 1", [], |row| row.get::<_, i64>(0)).unwrap();
+        conn.execute(
+            "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor) VALUES (?1, ?2, 2.5, 1001)",
+            rusqlite::params![order, item],
+        ).unwrap();
+
+        let (start, end) = wide_range();
+        let stats = get_summary(&conn, &start, &end, Platform::Desktop).unwrap().delivery_stats.unwrap();
+        assert_eq!((stats.order_count, stats.sales_minor), (1, 2503));
     }
 
     #[test]

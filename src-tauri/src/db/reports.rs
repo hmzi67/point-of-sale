@@ -876,7 +876,7 @@ pub fn get_delivery_report(
                 o.created_at,
                 COALESCE(
                     (SELECT SUM(s.total_minor) FROM sales s WHERE s.order_id = o.id),
-                    (SELECT COALESCE(SUM(ROUND(oi.price_at_order_minor * oi.qty)), 0)
+                    (SELECT COALESCE(SUM(CAST(ROUND(oi.price_at_order_minor * oi.qty) AS INTEGER)), 0)
                        FROM order_items oi WHERE oi.order_id = o.id AND oi.status = 'active')
                 ) AS total_minor
            FROM orders o
@@ -1610,6 +1610,25 @@ mod tests {
         let report = get_refunds_summary(&conn, &days_ago(30), &days_ago(0)).unwrap();
         assert!(report.refunds.is_empty());
         assert_eq!(report.grand_total_refunded_minor, 0);
+    }
+
+    #[test]
+    fn delivery_report_includes_a_delivery_order_with_no_sale_yet() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO orders (order_no, order_type, client_ref, created_at)
+             VALUES (1, 'delivery', 'unpaid', datetime('now', 'localtime'))",
+            [],
+        ).unwrap();
+        let order = conn.last_insert_rowid();
+        let item = conn.query_row("SELECT id FROM items LIMIT 1", [], |row| row.get::<_, i64>(0)).unwrap();
+        conn.execute(
+            "INSERT INTO order_items (order_id, item_id, qty, price_at_order_minor) VALUES (?1, ?2, 2.5, 1001)",
+            rusqlite::params![order, item],
+        ).unwrap();
+
+        let report = get_delivery_report(&conn, &days_ago(1), &days_ago(0)).unwrap();
+        assert_eq!((report.total_orders, report.total_sales_minor), (1, 2503));
     }
 
     #[test]
