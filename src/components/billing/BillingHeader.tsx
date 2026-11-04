@@ -55,7 +55,7 @@ export function BillingHeader({
       <div className="flex min-w-0 flex-wrap items-center gap-3">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-fg">Billing</h2>
-          <p className="hidden md:block text-xs text-fg-muted">Find an item, build an order, and check out.</p>
+          <p className="hidden md:block text-xs text-fg-muted">Find an item, add it to the bill, and check out.</p>
         </div>
         <div className="hidden xl:flex items-center gap-1.5 rounded-xl border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg-2 shadow-soft">
           <Calendar className="h-3 w-3 text-fg-muted" />
@@ -128,8 +128,8 @@ export function BillingHeader({
             type="button"
             onClick={() => hasItems && clearCart()}
             disabled={!hasItems}
-            aria-label="Clear the current order"
-            title={hasItems ? "Clear the current order" : undefined}
+            aria-label="Clear the cart"
+            title={hasItems ? "Clear the cart" : undefined}
             className="flex h-6 w-6 items-center justify-center rounded-full text-fg-muted hover:bg-surface-3 hover:text-fg-2 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
           >
             <Power className="h-3.5 w-3.5" />

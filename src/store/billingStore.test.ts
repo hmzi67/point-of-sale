@@ -204,6 +204,12 @@ describe("loadParkedCart", () => {
     expect(store().discountMode).toBe("flat");
     expect(store().discountValue).toBe(12.5);
   });
+
+  it("brings a percent discount back as a percent, so adding items recalculates it", () => {
+    store().loadParkedCart([{ itemId: 1, qty: 1 }], 1250, () => item({ id: 1, stockQty: 2 }), 10);
+    expect(store().discountMode).toBe("percent");
+    expect(store().discountValue).toBe(10);
+  });
 });
 
 describe("clearCart", () => {

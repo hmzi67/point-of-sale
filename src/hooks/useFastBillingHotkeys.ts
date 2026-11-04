@@ -31,6 +31,9 @@ import { findItemByCode } from "../utils/itemLookup";
  *    plain-Enter buffer-lookup/amount-popup branches below and independent
  *    of the buffer's contents — it's a distinct combination, never treated
  *    as part of a typed item code.
+ *  - Ctrl+P (Cmd+P on macOS) completes the sale and prints the bill, for a
+ *    store, which has no confirmation popup to choose that in. Elsewhere it
+ *    is left to the system.
  *  - Ctrl+K (Cmd+K on macOS) opens "Print Token" for the current order —
  *    mnemonic for KOT (Kitchen Order Ticket). Fires `onPrintToken` whenever
  *    the Tables module is enabled, dine-in (`tableId` set) or Takeaway
@@ -58,6 +61,7 @@ export type HotkeyAction =
   | { type: "toggleHelp" }
   | { type: "closeHelp" }
   | { type: "placeOrder" }
+  | { type: "placeAndPrint" }
   | { type: "printToken" }
   | { type: "clearBuffer" }
   | { type: "moveLine"; delta: 1 | -1 }
@@ -75,6 +79,7 @@ export interface HotkeyContext {
   tablesEnabled: boolean;
   tablePopupOpen: boolean;
   hasActiveLine: boolean;
+  canPlaceAndPrint: boolean;
 }
 
 /**
@@ -92,6 +97,7 @@ export function resolveHotkey(key: string, mod: boolean, ctx: HotkeyContext): Ho
 
   // Mod combos are checked before the buffer, so they are never typed into it.
   if (key === "Enter" && mod) return { type: "placeOrder" };
+  if ((key === "p" || key === "P") && mod && ctx.canPlaceAndPrint) return { type: "placeAndPrint" };
   // Ctrl+K only has a target when the Tables module mounts `OrderTypeAndTable`.
   if ((key === "k" || key === "K") && mod) return ctx.tablesEnabled ? { type: "printToken" } : null;
 
@@ -136,8 +142,10 @@ export function useFastBillingHotkeys(options: {
    * the same "Print Token" flow the mouse button opens, for a dine-in table
    * or a Takeaway order alike (see `OrderTypeAndTable`). */
   onPrintToken: () => void;
+  /** Null when placing an order already offers printing (the restaurant popup). */
+  onPlaceAndPrint: (() => void) | null;
 }) {
-  const { enabled, items, tablesEnabled, tableId, onPlaceOrder, onPrintToken } = options;
+  const { enabled, items, tablesEnabled, tableId, onPlaceOrder, onPrintToken, onPlaceAndPrint } = options;
 
   const [buffer, setBuffer] = useState("");
   const [tablePopupOpen, setTablePopupOpen] = useState(false);
@@ -182,6 +190,7 @@ export function useFastBillingHotkeys(options: {
         tablesEnabled,
         tablePopupOpen,
         hasActiveLine: activeLineItemId !== null,
+        canPlaceAndPrint: onPlaceAndPrint !== null,
       });
       if (action === null) return;
       // Escape only clears/closes; the amount popup decides below whether Enter is consumed.
@@ -198,6 +207,9 @@ export function useFastBillingHotkeys(options: {
           return;
         case "placeOrder":
           onPlaceOrder();
+          return;
+        case "placeAndPrint":
+          onPlaceAndPrint?.();
           return;
         case "printToken":
           onPrintToken();
@@ -258,6 +270,7 @@ export function useFastBillingHotkeys(options: {
     showHelp,
     activeLineItemId,
     onPlaceOrder,
+    onPlaceAndPrint,
     onPrintToken,
   ]);
 

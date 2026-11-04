@@ -16,6 +16,11 @@ edition = "2021"
 name = "tauri_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Dev tool for a demo install; not part of any app bundle.
+[[example]]
+name = "seed_inventory_images"
+path = "../scripts/seed_inventory_images.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

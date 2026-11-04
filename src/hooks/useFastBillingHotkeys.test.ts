@@ -8,6 +8,7 @@ const idle: HotkeyContext = {
   tablesEnabled: true,
   tablePopupOpen: false,
   hasActiveLine: false,
+  canPlaceAndPrint: false,
 };
 
 describe("resolveHotkey", () => {
@@ -23,6 +24,13 @@ describe("resolveHotkey", () => {
     expect(resolveHotkey("Escape", false, ctx)).toEqual({ type: "closeHelp" });
     expect(resolveHotkey("Delete", false, ctx)).toBeNull();
     expect(resolveHotkey("?", false, ctx)).toEqual({ type: "toggleHelp" });
+  });
+
+  it("completes and prints on Ctrl/Cmd+P only where that shortcut exists", () => {
+    expect(resolveHotkey("p", true, { ...idle, canPlaceAndPrint: true })).toEqual({ type: "placeAndPrint" });
+    expect(resolveHotkey("p", true, idle)).toBeNull();
+    expect(resolveHotkey("p", false, { ...idle, canPlaceAndPrint: true })).toBeNull();
+    expect(resolveHotkey("p", true, { ...idle, canPlaceAndPrint: true, textEntryFocused: true })).toBeNull();
   });
 
   it("places the order on Ctrl/Cmd+Enter even with a code half-typed", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Download, Printer, X } from "lucide-react";
 import { useLogoDataUrl } from "../../hooks/useLogoDataUrl";
 import { printReceiptThermal } from "../../services/billingService";
@@ -38,8 +38,13 @@ export function ReceiptModal({ sale, config, tablesEnabled, autoPrint = false, o
     });
   };
 
+  // A ref, because StrictMode runs this effect twice in dev, which sent two
+  // print jobs at once and left the printer stuck part-way through the logo.
+  const autoPrinted = useRef(false);
   useEffect(() => {
-    if (autoPrint) void printThermal();
+    if (!autoPrint || autoPrinted.current) return;
+    autoPrinted.current = true;
+    void printThermal();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

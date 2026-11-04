@@ -1,0 +1,681 @@
+{
+ "categories": [
+  {
+   "name": "Beverages",
+   "is_topping": false,
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b1/SZ_Shenzhen_Nanshan_Longzhu_Blvd_Shirble_Plaza_mall_shop_Freshippo_Supermarket_beverage_bottles_March_2025_R12S_01.jpg/1280px-SZ_Shenzhen_Nanshan_Longzhu_Blvd_Shirble_Plaza_mall_shop_Freshippo_Supermarket_beverage_bottles_March_2025_R12S_01.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:SZ_Shenzhen_Nanshan_Longzhu_Blvd_Shirble_Plaza_mall_shop_Freshippo_Supermarket_beverage_bottles_March_2025_R12S_01.jpg",
+    "license": "CC0",
+    "author": "MSLONAG BOAKS TEN",
+    "title": "File:SZ Shenzhen Nanshan Longzhu Blvd Shirble Plaza mall shop Freshippo Supermarket beverage bottles March 2025 R12S 01.jpg"
+   }
+  },
+  {
+   "name": "Snacks",
+   "is_topping": false,
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bb/Assorted_snacks.jpg/1280px-Assorted_snacks.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Assorted_snacks.jpg",
+    "license": "CC BY-SA 3.0",
+    "author": "User Jeffrey O. Gustafson on en.wikipedia",
+    "title": "File:Assorted snacks.jpg"
+   }
+  },
+  {
+   "name": "Grocery",
+   "is_topping": false,
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0d/Grocery_store_shelf_in_Russia.jpg/1280px-Grocery_store_shelf_in_Russia.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Grocery_store_shelf_in_Russia.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "Alexander Davronov",
+    "title": "File:Grocery store shelf in Russia.jpg"
+   }
+  },
+  {
+   "name": "Meat",
+   "is_topping": false,
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/48/Meat_display_in_butcher%27s_shop%2C_Bodmin%2C_Cornwall_-_January_2023.jpg/1280px-Meat_display_in_butcher%27s_shop%2C_Bodmin%2C_Cornwall_-_January_2023.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Meat_display_in_butcher%27s_shop,_Bodmin,_Cornwall_-_January_2023.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "Mutney",
+    "title": "File:Meat display in butcher's shop, Bodmin, Cornwall - January 2023.jpg"
+   }
+  },
+  {
+   "name": "Pizza Toppings",
+   "is_topping": true,
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6e/Pizza_preparada_con_salsa_de_guayaba_en_Calvillo_02.jpg/1280px-Pizza_preparada_con_salsa_de_guayaba_en_Calvillo_02.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Pizza_preparada_con_salsa_de_guayaba_en_Calvillo_02.jpg",
+    "license": "CC BY 4.0",
+    "author": "ProtoplasmaKid",
+    "title": "File:Pizza preparada con salsa de guayaba en Calvillo 02.jpg"
+   }
+  },
+  {
+   "name": "Dairy & Eggs",
+   "is_topping": false,
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2a/Armenian_dairy_products.jpg/1280px-Armenian_dairy_products.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Armenian_dairy_products.jpg",
+    "license": "CC0",
+    "author": "Grasshalm",
+    "title": "File:Armenian dairy products.jpg"
+   }
+  },
+  {
+   "name": "Fresh Produce",
+   "is_topping": false,
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/13/Fresh_cut_fruits_and_vegetables.jpg/1280px-Fresh_cut_fruits_and_vegetables.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Fresh_cut_fruits_and_vegetables.jpg",
+    "license": "Public domain",
+    "author": "Peggy Greb, U.S. Department of Agriculture",
+    "title": "File:Fresh cut fruits and vegetables.jpg"
+   }
+  },
+  {
+   "name": "Bakery",
+   "is_topping": false,
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4b/Items_in_GAIL%27s_Bakery%2C_Seven_Dials%2C_Brighton_1_2024-03-15.jpg/1280px-Items_in_GAIL%27s_Bakery%2C_Seven_Dials%2C_Brighton_1_2024-03-15.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Items_in_GAIL%27s_Bakery,_Seven_Dials,_Brighton_1_2024-03-15.jpg",
+    "license": "CC0",
+    "author": "Andy Li",
+    "title": "File:Items in GAIL's Bakery, Seven Dials, Brighton 1 2024-03-15.jpg"
+   }
+  }
+ ],
+ "items": [
+  {
+   "name": "Cola 500ml",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/10/Glass_cola.jpg/1280px-Glass_cola.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Glass_cola.jpg",
+    "license": "Public domain",
+    "author": "pic_p_ter",
+    "title": "File:Glass cola.jpg"
+   }
+  },
+  {
+   "name": "Orange Juice 1L",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/67/Orange_juice_1_edit1.jpg/1280px-Orange_juice_1_edit1.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Orange_juice_1_edit1.jpg",
+    "license": "Public domain",
+    "author": "Agency of the United States Department of Agriculture\nEdited Version by: Arad",
+    "title": "File:Orange juice 1 edit1.jpg"
+   }
+  },
+  {
+   "name": "Mineral Water 1.5L",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ad/Bottle_of_Water.jpg/1280px-Bottle_of_Water.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Bottle_of_Water.jpg",
+    "license": "CC0",
+    "author": "Jiafei Slay Queen",
+    "title": "File:Bottle of Water.jpg"
+   }
+  },
+  {
+   "name": "Green Tea (25 bags)",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a4/Teabag_with_green_tag.jpg/1280px-Teabag_with_green_tag.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Teabag_with_green_tag.jpg",
+    "license": "CC0",
+    "author": "Jan Mesaros https://pixabay.com/users/humusak-137455/",
+    "title": "File:Teabag with green tag.jpg"
+   }
+  },
+  {
+   "name": "Energy Drink 250ml",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a3/Red_Bell_Energy_Drink_250ml_can.jpg/1280px-Red_Bell_Energy_Drink_250ml_can.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Red_Bell_Energy_Drink_250ml_can.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "JonathanAaronBridgemohan",
+    "title": "File:Red Bell Energy Drink 250ml can.jpg"
+   }
+  },
+  {
+   "name": "Salted Chips 60g",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/17/Potato_Chips_%2851717716019%29.jpg/1280px-Potato_Chips_%2851717716019%29.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Potato_Chips_(51717716019).jpg",
+    "license": "CC BY 2.0",
+    "author": "Kanesue",
+    "title": "File:Potato Chips (51717716019).jpg"
+   }
+  },
+  {
+   "name": "Chocolate Bar 40g",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5f/Green_and_Black%27s_dark_chocolate_bar_1.jpg/1280px-Green_and_Black%27s_dark_chocolate_bar_1.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Green_and_Black%27s_dark_chocolate_bar_1.jpg",
+    "license": "CC0",
+    "author": "Mx. Granger",
+    "title": "File:Green and Black's dark chocolate bar 1.jpg"
+   }
+  },
+  {
+   "name": "Biscuits Family Pack",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/39/Shrewsbury_biscuits_%28with_fruit%29.JPG/1280px-Shrewsbury_biscuits_%28with_fruit%29.JPG?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Shrewsbury_biscuits_(with_fruit).JPG",
+    "license": "CC BY-SA 4.0",
+    "author": "Emerald-wiki",
+    "title": "File:Shrewsbury biscuits (with fruit).JPG"
+   }
+  },
+  {
+   "name": "Roasted Peanuts 100g",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/36/Roasted_Peanuts_with_shell.jpg/1280px-Roasted_Peanuts_with_shell.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Roasted_Peanuts_with_shell.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "Sanjay Acharya",
+    "title": "File:Roasted Peanuts with shell.jpg"
+   }
+  },
+  {
+   "name": "Instant Noodles",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ae/Typical_instant_noodles_%281%29.jpg/1280px-Typical_instant_noodles_%281%29.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Typical_instant_noodles_(1).jpg",
+    "license": "CC0",
+    "author": "Ninosan",
+    "title": "File:Typical instant noodles (1).jpg"
+   }
+  },
+  {
+   "name": "Basmati Rice 5kg",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fe/Basmati_rice_textureCNE_02.jpg/1280px-Basmati_rice_textureCNE_02.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Basmati_rice_textureCNE_02.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "CNEcija12345",
+    "title": "File:Basmati rice textureCNE 02.jpg"
+   }
+  },
+  {
+   "name": "Cooking Oil 1L",
+   "image": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/3/33/Bottle_1_liter_Sunflower_refined_oil.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "page": "https://commons.wikimedia.org/wiki/File:Bottle_1_liter_Sunflower_refined_oil.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "Exgsp Gmbh LLC BOTTLE 1 liter Sunflower refined oil",
+    "title": "File:Bottle 1 liter Sunflower refined oil.jpg"
+   }
+  },
+  {
+   "name": "Sugar 1kg",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/05/Sugar_White.jpg/1280px-Sugar_White.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Sugar_White.jpg",
+    "license": "CC BY-SA 3.0",
+    "author": "Donovan Govan.",
+    "title": "File:Sugar White.jpg"
+   }
+  },
+  {
+   "name": "Wheat Flour 10kg",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/64/All-Purpose_Flour_%284107895947%29.jpg/1280px-All-Purpose_Flour_%284107895947%29.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:All-Purpose_Flour_(4107895947).jpg",
+    "license": "CC BY-SA 2.0",
+    "author": "Veganbaking.net from USA",
+    "title": "File:All-Purpose Flour (4107895947).jpg"
+   }
+  },
+  {
+   "name": "Tea Leaves 400g",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7a/Ceylon_black_tea_leaves.jpg/1280px-Ceylon_black_tea_leaves.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Ceylon_black_tea_leaves.jpg",
+    "license": "CC BY-SA 3.0",
+    "author": "Patrick Kolencherry",
+    "title": "File:Ceylon black tea leaves.jpg"
+   }
+  },
+  {
+   "name": "Chicken",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b8/Raw_chicken_slices.jpg/1280px-Raw_chicken_slices.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Raw_chicken_slices.jpg",
+    "license": "CC0",
+    "author": "kakyusei",
+    "title": "File:Raw chicken slices.jpg"
+   }
+  },
+  {
+   "name": "Chawal",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/16/Cooked_white_rice.jpg/1280px-Cooked_white_rice.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Cooked_white_rice.jpg",
+    "license": "CC BY 2.0",
+    "author": "Calgary Reviews from Calgary, Canada",
+    "title": "File:Cooked white rice.jpg"
+   }
+  },
+  {
+   "name": "Extra cheese",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e1/Chopped_veggies_and_shredded_cheese_in_a_bowl_%2814980801713%29.jpg/1280px-Chopped_veggies_and_shredded_cheese_in_a_bowl_%2814980801713%29.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Chopped_veggies_and_shredded_cheese_in_a_bowl_(14980801713).jpg",
+    "license": "CC BY 2.0",
+    "author": "Personal Creations",
+    "title": "File:Chopped veggies and shredded cheese in a bowl (14980801713).jpg"
+   }
+  },
+  {
+   "name": "Beef Mince",
+   "barcode": "8901234500163",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d1/Hackfleisch-1.jpg/1280px-Hackfleisch-1.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Hackfleisch-1.jpg",
+    "license": "CC BY-SA 3.0",
+    "author": "No machine-readable author provided. Rainer Zenz assumed (based on copyright cla",
+    "title": "File:Hackfleisch-1.jpg"
+   },
+   "new": {
+    "category": "Meat",
+    "description": "Freshly minced lean beef, priced per kilogram.",
+    "price": 1400,
+    "cost": 1150,
+    "stock": 25,
+    "low_stock": 5,
+    "unit": "kg"
+   }
+  },
+  {
+   "name": "Mutton Leg",
+   "barcode": "8901234500170",
+   "image": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/d/d6/Lamb_meat.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "page": "https://commons.wikimedia.org/wiki/File:Lamb_meat.jpg",
+    "license": "Public domain",
+    "author": "Pujanak",
+    "title": "File:Lamb meat.jpg"
+   },
+   "new": {
+    "category": "Meat",
+    "description": "Bone-in leg of mutton, priced per kilogram.",
+    "price": 2400,
+    "cost": 2050,
+    "stock": 18,
+    "low_stock": 4,
+    "unit": "kg"
+   }
+  },
+  {
+   "name": "Fish Fillet",
+   "barcode": "8901234500187",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cc/Salmon_fillet.JPG/1280px-Salmon_fillet.JPG?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Salmon_fillet.JPG",
+    "license": "CC BY-SA 3.0",
+    "author": "BrokenSphere",
+    "title": "File:Salmon fillet.JPG"
+   },
+   "new": {
+    "category": "Meat",
+    "description": "Boneless fresh fish fillet, priced per kilogram.",
+    "price": 1800,
+    "cost": 1500,
+    "stock": 14,
+    "low_stock": 3,
+    "unit": "kg"
+   }
+  },
+  {
+   "name": "Sliced Mushrooms",
+   "barcode": "8901234500194",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cf/Sliced_Mushrooms_1_2018-06-17.JPG/1280px-Sliced_Mushrooms_1_2018-06-17.JPG?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Sliced_Mushrooms_1_2018-06-17.JPG",
+    "license": "CC BY-SA 4.0",
+    "author": "FASTILY",
+    "title": "File:Sliced Mushrooms 1 2018-06-17.JPG"
+   },
+   "new": {
+    "category": "Pizza Toppings",
+    "description": "Fresh sliced button mushrooms.",
+    "price": 150,
+    "cost": 90,
+    "stock": 60,
+    "low_stock": 10
+   }
+  },
+  {
+   "name": "Black Olives",
+   "barcode": "8901234500200",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Black_olives_%28pitted%29_-_Massachusetts.jpg/1280px-Black_olives_%28pitted%29_-_Massachusetts.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Black_olives_(pitted)_-_Massachusetts.jpg",
+    "license": "CC0",
+    "author": "Daderot",
+    "title": "File:Black olives (pitted) - Massachusetts.jpg"
+   },
+   "new": {
+    "category": "Pizza Toppings",
+    "description": "Pitted black olives.",
+    "price": 120,
+    "cost": 70,
+    "stock": 60,
+    "low_stock": 10
+   }
+  },
+  {
+   "name": "Jalapenos",
+   "barcode": "8901234500217",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/60/Liat_Portal_for_Foodie_Disorder_-_Jalape%C3%B1o_Peppers.jpg/1280px-Liat_Portal_for_Foodie_Disorder_-_Jalape%C3%B1o_Peppers.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Liat_Portal_for_Foodie_Disorder_-_Jalape%C3%B1o_Peppers.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "HaJunkiyada",
+    "title": "File:Liat Portal for Foodie Disorder - Jalapeño Peppers.jpg"
+   },
+   "new": {
+    "category": "Pizza Toppings",
+    "description": "Hot green jalapeno peppers.",
+    "price": 100,
+    "cost": 60,
+    "stock": 60,
+    "low_stock": 10
+   }
+  },
+  {
+   "name": "Pepperoni",
+   "barcode": "8901234500224",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/Vegetarian_pepperoni.jpg/1280px-Vegetarian_pepperoni.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Vegetarian_pepperoni.jpg",
+    "license": "CC BY 2.0",
+    "author": "Thriving Vegetarian",
+    "title": "File:Vegetarian pepperoni.jpg"
+   },
+   "new": {
+    "category": "Pizza Toppings",
+    "description": "Thin-sliced spicy pepperoni.",
+    "price": 200,
+    "cost": 120,
+    "stock": 50,
+    "low_stock": 10
+   }
+  },
+  {
+   "name": "Fresh Milk 1L",
+   "barcode": "8901234500231",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c8/Oat_milk_glass_and_bottles.jpg/1280px-Oat_milk_glass_and_bottles.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Oat_milk_glass_and_bottles.jpg",
+    "license": "CC BY 4.0",
+    "author": "Shisma",
+    "title": "File:Oat milk glass and bottles.jpg"
+   },
+   "new": {
+    "category": "Dairy & Eggs",
+    "description": "Full-cream pasteurised milk.",
+    "price": 280,
+    "cost": 240,
+    "stock": 40,
+    "low_stock": 10
+   }
+  },
+  {
+   "name": "Eggs (12 Pack)",
+   "barcode": "8901234500248",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/71/Liat_Portal_for_Foodie_Disorder_-_Eggs_in_carton.jpg/1280px-Liat_Portal_for_Foodie_Disorder_-_Eggs_in_carton.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Liat_Portal_for_Foodie_Disorder_-_Eggs_in_carton.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "HaJunkiyada",
+    "title": "File:Liat Portal for Foodie Disorder - Eggs in carton.jpg"
+   },
+   "new": {
+    "category": "Dairy & Eggs",
+    "description": "A dozen farm-fresh eggs.",
+    "price": 420,
+    "cost": 360,
+    "stock": 30,
+    "low_stock": 8
+   }
+  },
+  {
+   "name": "Salted Butter 200g",
+   "barcode": "8901234500255",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/84/Butter_block.JPG/1280px-Butter_block.JPG?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Butter_block.JPG",
+    "license": "Public domain",
+    "author": "Meanos",
+    "title": "File:Butter block.JPG"
+   },
+   "new": {
+    "category": "Dairy & Eggs",
+    "description": "Creamy salted table butter.",
+    "price": 650,
+    "cost": 560,
+    "stock": 18,
+    "low_stock": 5
+   }
+  },
+  {
+   "name": "Cheddar Cheese 200g",
+   "barcode": "8901234500262",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Mature_Cheddar_%28Western_Cape%29_-_2018-07-21_-_7972.jpg/1280px-Mature_Cheddar_%28Western_Cape%29_-_2018-07-21_-_7972.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Mature_Cheddar_(Western_Cape)_-_2018-07-21_-_7972.jpg",
+    "license": "CC BY 4.0",
+    "author": "Pierre-Selim Huard",
+    "title": "File:Mature Cheddar (Western Cape) - 2018-07-21 - 7972.jpg"
+   },
+   "new": {
+    "category": "Dairy & Eggs",
+    "description": "Mature cheddar cheese wedge.",
+    "price": 950,
+    "cost": 790,
+    "stock": 15,
+    "low_stock": 4
+   }
+  },
+  {
+   "name": "Plain Yogurt 500g",
+   "barcode": "8901234500279",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Plain_Yogurt.jpg/1280px-Plain_Yogurt.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Plain_Yogurt.jpg",
+    "license": "CC0",
+    "author": "Alabama Extension",
+    "title": "File:Plain Yogurt.jpg"
+   },
+   "new": {
+    "category": "Dairy & Eggs",
+    "description": "Thick set plain yogurt.",
+    "price": 220,
+    "cost": 180,
+    "stock": 24,
+    "low_stock": 6
+   }
+  },
+  {
+   "name": "Bananas (Dozen)",
+   "barcode": "8901234500286",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a3/Bunch_with_conjoined_bananas.jpg/1280px-Bunch_with_conjoined_bananas.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Bunch_with_conjoined_bananas.jpg",
+    "license": "CC0",
+    "author": "Themium",
+    "title": "File:Bunch with conjoined bananas.jpg"
+   },
+   "new": {
+    "category": "Fresh Produce",
+    "description": "Ripe yellow bananas, sold by the dozen.",
+    "price": 240,
+    "cost": 180,
+    "stock": 30,
+    "low_stock": 6
+   }
+  },
+  {
+   "name": "Red Apples",
+   "barcode": "8901234500293",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e6/2020-03-14_23_55_38_A_single_Nature%27s_Promise_Organic_Red_Delicious_Apple_in_the_Franklin_Farm_section_of_Oak_Hill%2C_Fairfax_County%2C_Virginia.jpg/1280px-2020-03-14_23_55_38_A_single_Nature%27s_Promise_Organic_Red_Delicious_Apple_in_the_Franklin_Farm_section_of_Oak_Hill%2C_Fairfax_County%2C_Virginia.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:2020-03-14_23_55_38_A_single_Nature%27s_Promise_Organic_Red_Delicious_Apple_in_the_Franklin_Farm_section_of_Oak_Hill,_Fairfax_County,_Virginia.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "Famartin",
+    "title": "File:2020-03-14 23 55 38 A single Nature's Promise Organic Red Delicious Apple in the Franklin Farm section of Oak Hill, Fairfax County, Virginia.jpg"
+   },
+   "new": {
+    "category": "Fresh Produce",
+    "description": "Crisp sweet red apples, priced per kilogram.",
+    "price": 450,
+    "cost": 360,
+    "stock": 40,
+    "low_stock": 8,
+    "unit": "kg"
+   }
+  },
+  {
+   "name": "Tomatoes",
+   "barcode": "8901234500309",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/35/Liat_Portal_for_Foodie_Disorder_-_Tomatoes_on_the_Vine.jpg/1280px-Liat_Portal_for_Foodie_Disorder_-_Tomatoes_on_the_Vine.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Liat_Portal_for_Foodie_Disorder_-_Tomatoes_on_the_Vine.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "HaJunkiyada",
+    "title": "File:Liat Portal for Foodie Disorder - Tomatoes on the Vine.jpg"
+   },
+   "new": {
+    "category": "Fresh Produce",
+    "description": "Vine-ripened red tomatoes, priced per kilogram.",
+    "price": 180,
+    "cost": 130,
+    "stock": 50,
+    "low_stock": 10,
+    "unit": "kg"
+   }
+  },
+  {
+   "name": "Red Onions",
+   "barcode": "8901234500316",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/94/Three_whole_red_onions.jpg/1280px-Three_whole_red_onions.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Three_whole_red_onions.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "Anja",
+    "title": "File:Three whole red onions.jpg"
+   },
+   "new": {
+    "category": "Fresh Produce",
+    "description": "Fresh red onions, priced per kilogram.",
+    "price": 140,
+    "cost": 100,
+    "stock": 60,
+    "low_stock": 10,
+    "unit": "kg"
+   }
+  },
+  {
+   "name": "Potatoes",
+   "barcode": "8901234500323",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f4/Russet_Potatoes_%2815460075017%29.jpg/1280px-Russet_Potatoes_%2815460075017%29.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Russet_Potatoes_(15460075017).jpg",
+    "license": "CC BY-SA 2.0",
+    "author": "Willis Lam",
+    "title": "File:Russet Potatoes (15460075017).jpg"
+   },
+   "new": {
+    "category": "Fresh Produce",
+    "description": "Washed all-purpose potatoes, priced per kilogram.",
+    "price": 110,
+    "cost": 80,
+    "stock": 70,
+    "low_stock": 15,
+    "unit": "kg"
+   }
+  },
+  {
+   "name": "White Bread Loaf",
+   "barcode": "8901234500330",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/77/Tin_Loaf_-_one_slash_in_the_crust.jpg/1280px-Tin_Loaf_-_one_slash_in_the_crust.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Tin_Loaf_-_one_slash_in_the_crust.jpg",
+    "license": "CC BY 2.0",
+    "author": "Mike Finn",
+    "title": "File:Tin Loaf - one slash in the crust.jpg"
+   },
+   "new": {
+    "category": "Bakery",
+    "description": "Soft sliced white sandwich loaf, baked daily.",
+    "price": 180,
+    "cost": 140,
+    "stock": 20,
+    "low_stock": 5
+   }
+  },
+  {
+   "name": "Butter Croissant",
+   "barcode": "8901234500347",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3b/Croissant%2C_whole.jpg/1280px-Croissant%2C_whole.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Croissant,_whole.jpg",
+    "license": "CC BY-SA 3.0",
+    "author": "SKopp",
+    "title": "File:Croissant, whole.jpg"
+   },
+   "new": {
+    "category": "Bakery",
+    "description": "Flaky all-butter croissant, baked fresh.",
+    "price": 250,
+    "cost": 170,
+    "stock": 24,
+    "low_stock": 6
+   }
+  },
+  {
+   "name": "Naan (Pack of 4)",
+   "barcode": "8901234500354",
+   "image": {
+    "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1d/Naan_baked_in_Tandoor.jpg/1280px-Naan_baked_in_Tandoor.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "page": "https://commons.wikimedia.org/wiki/File:Naan_baked_in_Tandoor.jpg",
+    "license": "CC BY-SA 4.0",
+    "author": "Ravi Dwivedi",
+    "title": "File:Naan baked in Tandoor.jpg"
+   },
+   "new": {
+    "category": "Bakery",
+    "description": "Soft tandoori naan, pack of four.",
+    "price": 200,
+    "cost": 130,
+    "stock": 30,
+    "low_stock": 6
+   }
+  },
+  {
+   "name": "Margherita Pizza 12in",
+   "barcode": "8901234500361",
+   "image": {
+    "url": "https://upload.wikimedia.org/wikipedia/commons/a/a3/Eq_it-na_pizza-margherita_sep2005_sml.jpg?utm_source=en.wikipedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+    "page": "https://commons.wikimedia.org/wiki/File:Eq_it-na_pizza-margherita_sep2005_sml.jpg",
+    "license": "CC BY-SA 3.0",
+    "author": "Valerio Capello at English Wikipedia",
+    "title": "File:Eq it-na pizza-margherita sep2005 sml.jpg"
+   },
+   "new": {
+    "category": "Bakery",
+    "description": "Tomato, mozzarella and basil. Add toppings at the till.",
+    "price": 1450,
+    "cost": 850,
+    "stock": 20,
+    "low_stock": 4,
+    "toppings": "Pizza Toppings"
+   }
+  }
+ ]
+}

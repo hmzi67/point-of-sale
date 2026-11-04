@@ -36,7 +36,7 @@ use crate::db::users;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped whenever `schema.sql` gains tables. Stored in `PRAGMA user_version`.
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 
 /// Every table the app expects to exist after `apply()`. Checked afterwards so
 /// a typo in `schema.sql` fails loudly at startup instead of at first query.
@@ -169,6 +169,24 @@ pub fn missing_tables(conn: &Connection) -> Result<Vec<&'static str>, rusqlite::
         .collect())
 }
 
+/// v13->v14: `business_type` now decides what Billing offers, but setup used
+/// to default it to `retail` with no consequence, so a working restaurant may
+/// carry that value. Any sign of restaurant use keeps its screens; the owner
+/// can still change it in Settings. An untouched install becomes a store.
+fn keep_working_restaurants(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE app_config SET business_type = 'restaurant'
+          WHERE id = 1 AND business_type != 'restaurant'
+            AND (service_charge_percent > 0
+                 OR EXISTS (SELECT 1 FROM tables)
+                 OR EXISTS (SELECT 1 FROM orders)
+                 OR EXISTS (SELECT 1 FROM table_orders)
+                 OR EXISTS (SELECT 1 FROM tokens))",
+        [],
+    )?;
+    Ok(())
+}
+
 /// Brings the database up to date and seeds anything missing.
 ///
 /// Safe to run on every launch: it reports what was missing beforehand, applies
@@ -223,6 +241,10 @@ pub fn apply(conn: &Connection) -> Result<(), rusqlite::Error> {
             "schema incomplete after apply, missing: {}",
             missing_after.join(", ")
         )));
+    }
+
+    if previous_version > 0 && previous_version < 14 {
+        keep_working_restaurants(conn)?;
     }
 
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -374,6 +396,8 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("sales", "tendered_minor", "INTEGER"),
     ("sales", "change_minor", "INTEGER"),
     ("orders", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
+    ("orders", "discount_minor", "INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0)"),
+    ("orders", "discount_percent", "REAL"),
     ("tokens", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
     // v13 — see schema.sql's `sales`/`sale_items` comments.
     ("sales", "customer_id", "INTEGER REFERENCES customers (id) ON DELETE SET NULL"),
@@ -1373,6 +1397,44 @@ mod tests {
             )
             .unwrap();
         assert_eq!(salary_enabled, 0, "a client's toggle must survive restart");
+    }
+
+    #[test]
+    fn upgrading_keeps_a_working_restaurant_and_makes_an_untouched_install_a_store() {
+        let business_type = |conn: &Connection| -> String {
+            conn.query_row("SELECT business_type FROM app_config WHERE id = 1", [], |row| row.get(0)).unwrap()
+        };
+        let upgrade = |conn: &Connection| {
+            conn.execute_batch("PRAGMA user_version = 13;").unwrap();
+            apply(conn).unwrap();
+        };
+
+        // `test_conn` is a debug build, so it carries the demo floor; a client's
+        // release install has no tables until someone adds one.
+        let test_conn = || {
+            let conn = test_conn();
+            conn.execute_batch("PRAGMA foreign_keys = OFF; DELETE FROM tables; PRAGMA foreign_keys = ON;").unwrap();
+            conn
+        };
+
+        let untouched = test_conn();
+        upgrade(&untouched);
+        assert_eq!(business_type(&untouched), "retail");
+
+        let with_a_table = test_conn();
+        with_a_table.execute("INSERT INTO tables (name, seats) VALUES ('T1', 4)", []).unwrap();
+        upgrade(&with_a_table);
+        assert_eq!(business_type(&with_a_table), "restaurant");
+
+        let with_service_charge = test_conn();
+        with_service_charge.execute("UPDATE app_config SET service_charge_percent = 5", []).unwrap();
+        upgrade(&with_service_charge);
+        assert_eq!(business_type(&with_service_charge), "restaurant");
+
+        // Only the upgrade infers it: a later switch to store mode must stick.
+        with_a_table.execute("UPDATE app_config SET business_type = 'retail'", []).unwrap();
+        apply(&with_a_table).unwrap();
+        assert_eq!(business_type(&with_a_table), "retail");
     }
 
     #[test]

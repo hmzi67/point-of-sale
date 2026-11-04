@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Printer, ShoppingBag } from "lucide-react";
 import { ModalCard } from "../ui/ModalCard";
+import { useIsRestaurant } from "../../hooks/useAppConfig";
 import { formatMinor } from "../../utils/format";
 
 interface PlaceOrderConfirmModalProps {
@@ -28,6 +29,7 @@ export function PlaceOrderConfirmModal({
   onPlaceAndPrint,
   onCancel,
 }: PlaceOrderConfirmModalProps) {
+  const isRestaurant = useIsRestaurant();
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const action =
@@ -42,7 +44,7 @@ export function PlaceOrderConfirmModal({
   }, [onPlace, onPlaceAndPrint, onCancel]);
 
   return (
-    <ModalCard title="Place this order?" icon={ShoppingBag} width="sm" onClose={onCancel}>
+    <ModalCard title={isRestaurant ? "Place this order?" : "Complete this sale?"} icon={ShoppingBag} width="sm" onClose={onCancel}>
       <dl className="space-y-2 rounded-xl border border-line bg-surface-2/40 p-3 text-sm tabular-nums">
         <div className="flex justify-between text-fg-muted">
           <dt>Items</dt>
@@ -71,7 +73,7 @@ export function PlaceOrderConfirmModal({
           autoFocus
           className="rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-accent-ink hover:bg-accent-hover"
         >
-          Place order <span className="ml-1 text-xs opacity-70">Enter</span>
+          {isRestaurant ? "Place order" : "Complete sale"} <span className="ml-1 text-xs opacity-70">Enter</span>
         </button>
         <button
           type="button"
@@ -79,7 +81,7 @@ export function PlaceOrderConfirmModal({
           className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3 text-sm font-semibold text-fg hover:bg-surface-3"
         >
           <Printer className="h-4 w-4 text-accent-text" />
-          Place &amp; print bill <span className="text-xs text-fg-muted">P</span>
+          {isRestaurant ? "Place" : "Complete"} &amp; print bill <span className="text-xs text-fg-muted">P</span>
         </button>
         <button type="button" onClick={onCancel} className="py-1.5 text-sm text-fg-muted hover:text-fg-2">
           Back to cart

@@ -73,6 +73,7 @@ use crate::printer::layout::{
 };
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use rusb::{Direction, TransferType};
+use std::sync::Mutex;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::time::Duration;
 
@@ -1051,10 +1052,13 @@ pub fn build_order_token_bytes(order: &crate::db::orders::Order, config: &AppCon
     let money = |minor: i64| format!("{} {}", config.currency, amount(minor));
     let mut amounts = Vec::new();
     if !is_kitchen {
+        if order.discount_minor > 0 {
+            amounts.push(("DISCOUNT:", format!("-{}", money(order.discount_minor))));
+        }
         if order.delivery_charge_minor > 0 {
             amounts.push(("DELIVERY FEE:", money(order.delivery_charge_minor)));
         }
-        amounts.push(("TOTAL:", money(items_minor + order.delivery_charge_minor)));
+        amounts.push(("TOTAL:", money((items_minor - order.discount_minor).max(0) + order.delivery_charge_minor)));
     }
     token_foot(&mut out, total_qty, &amounts, closing);
     out
@@ -1570,11 +1574,33 @@ pub enum PrinterError {
 /// receipt instead" rather than ever taking the whole app down with it. This
 /// is the one and only place that guarantee needs to live: every
 /// `commands::*print*` command funnels through here.
+///
+/// Jobs go one at a time: two at once break each other on the wire and leave
+/// the printer waiting for the rest of an image.
 fn send_to_printer(bytes: &[u8], config: &AppConfig) -> Result<(), PrinterError> {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| send_to_printer_dispatch(bytes, config)));
-    result.unwrap_or_else(|_| {
+    let mut last_job_failed = LAST_JOB_FAILED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let recovery = last_job_failed.then(|| after_a_failed_job(bytes));
+    let job = recovery.as_deref().unwrap_or(bytes);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| send_to_printer_dispatch(job, config)));
+    let result = result.unwrap_or_else(|_| {
         Err(PrinterError::Io("the printer driver hit an internal error".to_string()))
-    })
+    });
+    *last_job_failed = result.is_err();
+    result
+}
+
+/// Held for the length of each job. True when the last job failed, so the
+/// printer may be part-way through an image.
+static LAST_JOB_FAILED: Mutex<bool> = Mutex::new(false);
+
+/// A printer cut off inside an image takes the next bytes it gets as the rest
+/// of that image, and then prints whatever follows as text. Blank bytes finish
+/// the image, at worst as a white gap, and a printer that wasn't stuck ignores
+/// them (see `wake_padding`).
+fn after_a_failed_job(bytes: &[u8]) -> Vec<u8> {
+    let mut job = vec![0; receipt_image::MAX_IMAGE_BYTES];
+    job.extend_from_slice(bytes);
+    job
 }
 
 fn send_to_printer_dispatch(bytes: &[u8], config: &AppConfig) -> Result<(), PrinterError> {
@@ -1638,10 +1664,10 @@ fn send_to_printer_dispatch(bytes: &[u8], config: &AppConfig) -> Result<(), Prin
 const USB_PRINTER_CLASS: u8 = 0x07;
 
 /// How long to wait for the printer to accept the write before giving up.
-/// A receipt is small (well under 1 KB of ESC/POS bytes), so this only
-/// needs to cover a slow/busy printer, not a large transfer.
+/// A receipt is a picture sent in one write, and the printer takes it about as
+/// fast as it prints, so a long bill must not be cut off part-way.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-const USB_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const USB_WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Finds the first attached USB device that exposes a Printer-class (0x07)
 /// interface with a bulk OUT endpoint, and writes `bytes` to it.
@@ -1698,8 +1724,14 @@ fn send_to_printer_usb(bytes: &[u8]) -> Result<(), PrinterError> {
 
                 let result = handle
                     .write_bulk(endpoint.address(), bytes, USB_WRITE_TIMEOUT)
-                    .map(|_| ())
-                    .map_err(|e| PrinterError::Io(format!("USB write failed: {e}")));
+                    .map_err(|e| PrinterError::Io(format!("USB write failed: {e}")))
+                    .and_then(|written| {
+                        if written == bytes.len() {
+                            Ok(())
+                        } else {
+                            Err(PrinterError::Io(format!("the printer only accepted {written} of {} bytes", bytes.len())))
+                        }
+                    });
 
                 let _ = handle.release_interface(iface_num);
                 if had_kernel_driver {
@@ -2788,6 +2820,8 @@ mod tests {
             completed_at: None,
             cancelled_at: None,
             due_minor: 100000,
+            discount_minor: 0,
+            discount_percent: None,
             delivery_rider_id: None,
             rider_source: None,
             delivery_rider_name: None,
@@ -2839,6 +2873,59 @@ mod tests {
         assert!(!kitchen_text.contains("TOTAL:") && !kitchen_text.contains("500"), "no prices in the kitchen: {kitchen_text}");
         assert!(customer_text.contains("TOKEN #5"));
         assert!(customer_text.contains("THANK YOU FOR YOUR ORDER"));
+        assert!(!customer_text.contains("DISCOUNT:"), "{customer_text}");
+
+        let discounted = crate::db::orders::Order { discount_minor: 10000, ..order };
+        let customer_text = String::from_utf8_lossy(&build_order_token_bytes(&discounted, &sample_config(), false)).into_owned();
+        let currency = sample_config().currency;
+        assert!(customer_text.contains(&format!("-{currency} 100")), "{customer_text}");
+        assert!(customer_text.contains(&format!("{currency} 900")), "the total is after the discount: {customer_text}");
+        let kitchen_text = String::from_utf8_lossy(&build_order_token_bytes(&discounted, &sample_config(), true)).into_owned();
+        assert!(!kitchen_text.contains("DISCOUNT:"), "no money in the kitchen: {kitchen_text}");
+    }
+
+    /// The data size of each `GS v 0` image in a job, walking it the way a
+    /// printer does, so a malformed image would throw the walk off.
+    fn image_sizes(job: &[u8]) -> Vec<usize> {
+        let mut sizes = Vec::new();
+        let mut at = 0;
+        while at < job.len() {
+            if job[at..].starts_with(&[GS, b'v', b'0', 0]) {
+                let width = job[at + 4] as usize + ((job[at + 5] as usize) << 8);
+                let height = job[at + 6] as usize + ((job[at + 7] as usize) << 8);
+                sizes.push(width * height);
+                at += 8 + width * height;
+            } else {
+                at += 1;
+            }
+        }
+        assert_eq!(at, job.len(), "an image ran past the end of the job");
+        sizes
+    }
+
+    #[test]
+    fn a_discount_only_adds_a_row_and_the_receipt_stays_well_formed() {
+        let logo = LogoRaster { width_px: 288, height_px: 160, bitmap: vec![0xFF; 36 * 160] };
+        let job = |discount_minor| {
+            let sale = Sale { discount_minor, ..sample_sale() };
+            build_receipt_bytes(&sale, &sample_config(), Some(&logo), true)
+        };
+        let (plain, discounted) = (job(0), job(100));
+        let (plain_images, discounted_images) = (image_sizes(&plain), image_sizes(&discounted));
+        assert!(discounted.ends_with(&feed_and_cut()) && plain.ends_with(&feed_and_cut()));
+        assert_eq!(discounted_images[0], 36 * 160, "the logo comes first");
+        assert!(discounted_images.iter().sum::<usize>() > plain_images.iter().sum::<usize>(), "the discount row prints");
+    }
+
+    #[test]
+    fn the_job_after_a_failed_one_can_finish_any_image_the_printer_was_stuck_in() {
+        let logo = LogoRaster { width_px: 288, height_px: 160, bitmap: vec![0xFF; 36 * 160] };
+        let job = build_receipt_bytes(&sample_sale(), &sample_config(), Some(&logo), true);
+        let largest = image_sizes(&job).into_iter().max().unwrap();
+
+        let recovery = after_a_failed_job(&job);
+        assert!(recovery.iter().take_while(|byte| **byte == 0).count() >= largest);
+        assert!(recovery.ends_with(&job), "then the whole receipt, unchanged");
     }
 
     #[test]

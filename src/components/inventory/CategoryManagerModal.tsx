@@ -4,6 +4,7 @@ import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { ModalCard, inputClass } from "../ui/ModalCard";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { ItemImage } from "../billing/ItemImage";
+import { useIsRestaurant } from "../../hooks/useAppConfig";
 import { useInventoryStore } from "../../store";
 import { uploadItemImage } from "../../services/inventoryService";
 import { categoryIcon } from "../../utils/categoryIcon";
@@ -24,6 +25,7 @@ export function CategoryManagerModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [isTopping, setIsTopping] = useState(false);
+  const isRestaurant = useIsRestaurant();
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -129,13 +131,15 @@ export function CategoryManagerModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-fg">Topping group</p>
-            <p className="text-xs text-fg-muted">Its items are offered as toppings and hidden from the billing menu.</p>
+        {isRestaurant && (
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-fg">Topping group</p>
+              <p className="text-xs text-fg-muted">Its items are offered as toppings and hidden from the billing menu.</p>
+            </div>
+            <ToggleSwitch checked={isTopping} onChange={setIsTopping} label="Topping group" />
           </div>
-          <ToggleSwitch checked={isTopping} onChange={setIsTopping} label="Topping group" />
-        </div>
+        )}
         {error && <p className="mt-2 text-xs text-danger-text">{error}</p>}
         <div className="mt-3 flex justify-end gap-2">
           {editing && (

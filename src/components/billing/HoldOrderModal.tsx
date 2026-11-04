@@ -13,6 +13,7 @@ import { runAction } from "../../utils/runAction";
 interface HoldOrderModalProps {
   currency: string;
   totalMinor: number;
+  discountMinor: number;
   onClose: () => void;
   onOrderHeld: (order: Order, printError?: string) => void;
 }
@@ -28,6 +29,7 @@ const PRINTS = [
 export function HoldOrderModal({
   currency,
   totalMinor,
+  discountMinor,
   onClose,
   onOrderHeld,
 }: HoldOrderModalProps) {
@@ -40,6 +42,8 @@ export function HoldOrderModal({
   const activeOrderNo = useBillingStore((state) => state.activeOrderNo);
   const activeOrderHold = useBillingStore((state) => state.activeOrderHold);
   const draftCustomerName = useBillingStore((state) => state.customerName);
+  const discountMode = useBillingStore((state) => state.discountMode);
+  const discountValue = useBillingStore((state) => state.discountValue);
 
   const [customerName, setCustomerName] = useState(draftCustomerName);
   const [notes, setNotes] = useState(activeOrderHold?.notes ?? "");
@@ -74,11 +78,15 @@ export function HoldOrderModal({
         delivery: deliveryDetails,
         lines,
       };
+      const discount = {
+        minor: discountMinor,
+        percent: discountMode === "percent" && discountMinor > 0 ? discountValue : null,
+      };
       // A resumed cart is that order, edited — never a second order.
       const order =
         activeOrderId !== null && activeOrderVersion !== null
-          ? await updateAndHoldOrder(activeOrderId, activeOrderVersion, details)
-          : await createAndHoldOrder({ clientRef: crypto.randomUUID(), ...details });
+          ? await updateAndHoldOrder(activeOrderId, activeOrderVersion, details, discount)
+          : await createAndHoldOrder({ clientRef: crypto.randomUUID(), ...details }, discount);
 
       // Only what the cashier ticked. The order is already held, so a print
       // failure is reported, never thrown.
@@ -242,7 +250,12 @@ export function HoldOrderModal({
                 {ORDER_TYPE_LABELS[orderType]}
               )
             </span>
-            <span className="font-semibold text-fg">
+            <span className="text-right font-semibold text-fg">
+              {discountMinor > 0 && (
+                <span className="block font-medium text-fg-muted">
+                  Discount: -{formatMinor(discountMinor, currency)}
+                </span>
+              )}
               Total: {formatMinor(totalMinor, currency)}
             </span>
           </div>

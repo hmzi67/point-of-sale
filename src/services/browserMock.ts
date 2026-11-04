@@ -1,5 +1,5 @@
 import type { User, ManagedUser } from "../types/auth";
-import type { DeliveryPlatform, Order, CreateAndHoldOrderInput, OrdersPayInput } from "../types/orders";
+import type { DeliveryPlatform, Order, OrderDiscount, CreateAndHoldOrderInput, OrdersPayInput } from "../types/orders";
 import type { Sale } from "../types/billing";
 import type { Item, Category } from "../types/inventory";
 import { DEFAULT_PREP_MINUTES } from "../utils/orderType";
@@ -184,6 +184,7 @@ export async function handleBrowserMock<TResult>(
         enabled: true,
         desktopEnabled: true,
         androidEnabled: true,
+        available: true,
         locked: false,
         desktopLocked: false,
         androidLocked: false,
@@ -274,6 +275,7 @@ export async function handleBrowserMock<TResult>(
 
     case "orders_create_and_hold": {
       const input = args?.input as CreateAndHoldOrderInput;
+      const discount = args?.discount as OrderDiscount;
       const id = nextOrderId++;
       const lines = (input.lines || []).map((l, idx) => {
         const item = MOCK_ITEMS.find((it) => it.id === l.itemId);
@@ -306,7 +308,9 @@ export async function handleBrowserMock<TResult>(
         notes: input.notes || null,
         estimatedPrepMinutes: input.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES,
         paymentStatus: "unpaid",
-        dueMinor,
+        dueMinor: dueMinor - discount.minor,
+        discountMinor: discount.minor,
+        discountPercent: discount.percent,
         createdAt: new Date().toISOString(),
         completedAt: null,
         cancelledAt: null,
@@ -344,6 +348,9 @@ export async function handleBrowserMock<TResult>(
           notes: l.notes || null,
         };
       });
+      const discount = args?.discount as OrderDiscount;
+      found.discountMinor = discount.minor;
+      found.discountPercent = discount.percent;
       found.customerName = edit.customerName || null;
       found.notes = edit.notes || null;
       found.estimatedPrepMinutes = edit.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES;

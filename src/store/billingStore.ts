@@ -165,7 +165,8 @@ interface BillingState {
   deliveryDetails: DeliveryDetails | null;
   setDeliveryDetails: (details: DeliveryDetails | null) => void;
   /** Replaces the cart with a resumed table order's lines. */
-  loadParkedCart: (lines: ParkedCartLine[], discountMinor: number, resolveItem: (id: number) => Item | undefined) => void;
+  /** `discountPercent`: the discount was typed as a percent, so it stays one. */
+  loadParkedCart: (lines: ParkedCartLine[], discountMinor: number, resolveItem: (id: number) => Item | undefined, discountPercent?: number | null) => void;
   clearCart: () => void;
 
   /** Which `soldByAmount` item's amount-entry popup is currently open, if
@@ -451,7 +452,7 @@ export const useBillingStore = create<BillingState>((set) => ({
   setTableId: (tableId) => set({ tableId }),
   setCustomerName: (customerName) => set({ customerName }),
 
-  loadParkedCart: (lines, discountMinor, resolveItem) => {
+  loadParkedCart: (lines, discountMinor, resolveItem, discountPercent = null) => {
     const cart: Record<number, CartEntry> = {};
     const cartOrder: number[] = [];
 
@@ -482,8 +483,8 @@ export const useBillingStore = create<BillingState>((set) => ({
       cart,
       cartOrder,
       activeLineItemId: null,
-      discountMode: "flat",
-      discountValue: minorToDecimal(discountMinor),
+      discountMode: discountPercent !== null ? "percent" : "flat",
+      discountValue: discountPercent ?? minorToDecimal(discountMinor),
     });
   },
 

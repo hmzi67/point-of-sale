@@ -21,6 +21,9 @@ pub const WIDTH_PX: usize = LINE_WIDTH * 12;
 /// cheap printers, which can drop one very tall image.
 const BAND_ROWS: usize = 128;
 
+/// The data of the largest image command a receipt sends (the logo is smaller).
+pub const MAX_IMAGE_BYTES: usize = BAND_ROWS * WIDTH_PX.div_ceil(8);
+
 /// Text sizes in dots, at the head's 203 dpi (~2.47 dots per point): body
 /// 10 pt, shop name 13.5 pt, the smallest line 9 pt — nothing prints smaller.
 pub const SIZE_BODY: f32 = 25.0;

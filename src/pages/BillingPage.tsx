@@ -1,4 +1,4 @@
-import { ArrowRight, Pause, ShoppingBag, X } from "lucide-react";
+import { ArrowRight, Pause, Printer, ShoppingBag, X } from "lucide-react";
 import { useWorkspaceDataChanged } from "../hooks/useWorkspaceDataChanged";
 import { useEffect, useRef, useState } from "react";
 import { ActiveOrdersDrawer } from "../components/billing/ActiveOrdersDrawer";
@@ -30,7 +30,7 @@ import { useModuleEnabled } from "../hooks/useModules";
 import { createSale } from "../services/billingService";
 import { getOrder, listActiveOrders, payOrder, transitionOrder } from "../services/ordersService";
 import { getCategories, getItems } from "../services/inventoryService";
-import { useAppConfig } from "../hooks/useAppConfig";
+import { useAppConfig, useIsRestaurant } from "../hooks/useAppConfig";
 import { useBillingStore, useShiftStore } from "../store";
 import { IS_ANDROID } from "../services/platform";
 import { computeCartTotals } from "../utils/billingTotals";
@@ -43,6 +43,8 @@ import { DEFAULT_PREP_MINUTES, isDeliveryOrder } from "../utils/orderType";
 
 export function BillingPage() {
   const { config } = useAppConfig();
+  const isRestaurant = useIsRestaurant();
+  const servicePercent = isRestaurant ? config.serviceChargePercent : 0;
   const tablesEnabled = useModuleEnabled("tables");
   const shiftsEnabled = useModuleEnabled("shifts");
   const loadShift = useShiftStore((state) => state.load);
@@ -211,6 +213,7 @@ export function BillingPage() {
     // wrapper isn't invoked until a real Ctrl/Cmd+Enter keypress — well
     // after render — so the forward reference is safe.
     onPlaceOrder: () => askToPlaceOrder(),
+    onPlaceAndPrint: isRestaurant ? null : () => void completeSaleOnce(true),
     onPrintToken: () => setTokenPrintRequestId((n) => n + 1),
   });
 
@@ -225,14 +228,17 @@ export function BillingPage() {
     discountValue,
     taxExempt ? 0 : config.taxPercent,
     deliveryChargeMinor,
-    serviceWaived ? 0 : config.serviceChargePercent,
+    serviceWaived ? 0 : servicePercent,
   );
   // What the server derives as the sale total — the delivery fee lives on
   // the order, not the sale, so tenders must add up to this, not the total.
   const payableMinor = totals.totalMinor - totals.deliveryChargeMinor;
 
+  // A restaurant confirms first; a store's sale goes straight through.
   const askToPlaceOrder = () => {
-    if (cartOrder.length > 0 && !isSubmitting) setIsConfirmingOrder(true);
+    if (cartOrder.length === 0 || isSubmitting) return;
+    if (isRestaurant) setIsConfirmingOrder(true);
+    else void completeSaleOnce(false);
   };
   const cashChangeMinor =
     paymentMethod === "cash" && tenderedAmount !== null && tenderedAmount > 0
@@ -319,7 +325,7 @@ export function BillingPage() {
         setCompletedSale(sale);
       } else {
         const change = sale.changeMinor ? ` · Change ${formatMinor(sale.changeMinor, config.currency)}` : "";
-        setNotice(`Order placed — Sale #${sale.receiptNo}${change}`);
+        setNotice(`${isRestaurant ? "Order placed" : "Sale complete"} — Sale #${sale.receiptNo}${change}`);
         window.setTimeout(() => setNotice(null), 5000);
       }
       clearCart();
@@ -331,13 +337,28 @@ export function BillingPage() {
     if (ok && followUpError) setError(followUpError);
   };
 
+  // With no popup in between, this is what stops a double press selling twice:
+  // `billing_create_sale` has no idempotency key and can wait 4 s on a reservation.
+  const saleInFlight = useRef(false);
+  const completeSaleOnce = async (printBill: boolean) => {
+    if (saleInFlight.current || cartOrder.length === 0) return;
+    saleInFlight.current = true;
+    try {
+      await completeSale(printBill);
+    } finally {
+      saleInFlight.current = false;
+    }
+  };
+
   return (
     <div className="billing-layout flex h-full flex-col gap-3.5 md:flex-row md:gap-4 lg:gap-5">
       {/* Browsing column */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 sm:gap-3.5 pb-20 md:pb-0 lg:pb-0">
         <BillingHeader
           onRefunded={() => loadCatalog()}
-          onOpenActiveOrders={() => setIsOpenActiveOrders(true)}
+          // A store never starts one, but one left over (from another counter
+          // or before a type change) must stay reachable so it can be settled.
+          onOpenActiveOrders={isRestaurant || activeOrdersCount > 0 ? () => setIsOpenActiveOrders(true) : undefined}
           activeOrdersCount={activeOrdersCount}
           hasLateOrders={hasLateOrders}
           onShiftClick={() => setShiftStage("choose")}
@@ -394,12 +415,12 @@ export function BillingPage() {
       >
         {IS_ANDROID && (
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-fg">Your order</h3>
+            <h3 className="text-base font-semibold text-fg">{isRestaurant ? "Your order" : "Current sale"}</h3>
             <button
               type="button"
               onClick={() => setIsCartOpen(false)}
               className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-2"
-              aria-label="Close order"
+              aria-label={isRestaurant ? "Close order" : "Close sale"}
             >
               <X className="h-5 w-5" />
             </button>
@@ -463,9 +484,9 @@ export function BillingPage() {
               onToggle={() => setTaxExempt(!taxExempt)}
             />
           )}
-          {config.serviceChargePercent > 0 && (
+          {servicePercent > 0 && (
             <ChargeRow
-              label={`Service (${config.serviceChargePercent}%)`}
+              label={`Service (${servicePercent}%)`}
               amount={formatMinor(totals.serviceChargeMinor, config.currency)}
               on={!serviceWaived}
               onToggle={() => setServiceWaived(!serviceWaived)}
@@ -503,16 +524,29 @@ export function BillingPage() {
         {error && <p className="rounded-2xl bg-danger-soft px-3 py-2 text-sm text-danger-text">{error}</p>}
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowHoldModal(true)}
-            disabled={cartOrder.length === 0 || isSubmitting}
-            className="counter-hold flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-fg hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Hold order with custom preparation time & clear cart for next customer"
-          >
-            <Pause className="h-4 w-4 text-accent-text" />
-            <span>Hold</span>
-          </button>
+          {isRestaurant && (
+            <button
+              type="button"
+              onClick={() => setShowHoldModal(true)}
+              disabled={cartOrder.length === 0 || isSubmitting}
+              className="counter-hold flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3.5 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-fg hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Hold order with custom preparation time & clear cart for next customer"
+            >
+              <Pause className="h-4 w-4 text-accent-text" />
+              <span>Hold</span>
+            </button>
+          )}
+          {!isRestaurant && (
+            <button
+              type="button"
+              onClick={() => void completeSaleOnce(true)}
+              disabled={cartOrder.length === 0 || isSubmitting}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-left text-xs font-semibold leading-tight text-fg hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Printer className="h-4 w-4 shrink-0 text-accent-text" />
+              <span>Complete<br />&amp; print</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -520,7 +554,7 @@ export function BillingPage() {
             disabled={cartOrder.length === 0 || isSubmitting}
             className="counter-place flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl bg-accent px-3 sm:px-4 py-3 sm:py-3.5 text-sm font-semibold text-accent-ink transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-fg-muted"
           >
-            <span className="whitespace-nowrap">{isSubmitting ? "Placing order…" : "Place order"}</span>
+            <span className="whitespace-nowrap">{isRestaurant ? (isSubmitting ? "Placing order…" : "Place order") : isSubmitting ? "Completing sale…" : "Complete sale"}</span>
             <span className="flex items-center gap-2 whitespace-nowrap tabular-nums">{formatMinor(totals.totalMinor, config.currency)} <ArrowRight className="h-4 w-4" /></span>
           </button>
         </div>
@@ -619,6 +653,7 @@ export function BillingPage() {
         <HoldOrderModal
           currency={config.currency}
           totalMinor={totals.totalMinor}
+          discountMinor={totals.discountMinor}
           onClose={() => setShowHoldModal(false)}
           onOrderHeld={(order, printError) => {
             setNotice(`Order #${order.orderNo} held (${order.estimatedPrepMinutes}m target). Cart cleared.`);

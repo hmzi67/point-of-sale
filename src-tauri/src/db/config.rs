@@ -360,6 +360,18 @@ pub fn update(conn: &Connection, patch: AppConfigUpdate) -> Result<AppConfig, ru
     get(conn)
 }
 
+/// Held orders plus carts parked on tables. A business that stops being a
+/// restaurant must settle these first, or they vanish with the screens that
+/// reach them.
+pub fn open_restaurant_work(conn: &Connection) -> Result<i64, rusqlite::Error> {
+    conn.query_row(
+        "SELECT (SELECT COUNT(*) FROM orders WHERE status != 'cancelled' AND completed_at IS NULL)
+              + (SELECT COUNT(*) FROM table_orders WHERE status = 'open')",
+        [],
+        |row| row.get(0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

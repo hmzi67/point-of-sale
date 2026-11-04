@@ -15,6 +15,7 @@ import type { DeliveryStatus, Item, Order, OrderStatus } from "../../types";
 import { formatMinor } from "../../utils/format";
 import { DEFAULT_PREP_MINUTES, isDeliveryOrder, ORDER_TYPE_LABELS, THIRD_PARTY_FALLBACK_LABEL } from "../../utils/orderType";
 import { runAction } from "../../utils/runAction";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 interface ActiveOrdersDrawerProps {
   isOpen: boolean;
@@ -37,6 +38,7 @@ export function ActiveOrdersDrawer({
   >("all");
   const [now, setNow] = useState(Date.now());
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
+  const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
 
   const loadParkedCart = useBillingStore((state) => state.loadParkedCart);
   const setActiveOrder = useBillingStore((state) => state.setActiveOrder);
@@ -88,7 +90,7 @@ export function ActiveOrdersDrawer({
         .filter((l) => l.status === "active" && l.saleId === null)
         .map((l) => ({ itemId: l.itemId, qty: l.qty, notes: l.notes }));
 
-      loadParkedCart(activeLines, 0, (id) => byId.get(id));
+      loadParkedCart(activeLines, updated.discountMinor, (id) => byId.get(id), updated.discountPercent);
       setActiveOrder(updated.id, updated.version, updated.orderNo, {
         notes: updated.notes ?? "",
         prepMinutes: updated.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES,
@@ -134,7 +136,7 @@ export function ActiveOrdersDrawer({
     });
 
   const handleCancel = (order: Order) => {
-    if (!window.confirm(`Are you sure you want to cancel Order #${order.orderNo}?`)) return;
+    setOrderToCancel(null);
     return runForOrder(order.id, async () => {
       await cancelOrder(order.id, order.version, "Cancelled from active orders drawer");
       await fetchOrders();
@@ -481,6 +483,12 @@ export function ActiveOrdersDrawer({
                           + {order.lines.filter((l) => l.status === "active").length - 4} more items...
                         </li>
                       )}
+                      {order.discountMinor > 0 && (
+                        <li className="flex justify-between font-medium text-success-text">
+                          <span>Discount{order.discountPercent !== null ? ` (${order.discountPercent}%)` : ""}</span>
+                          <span>-{formatMinor(order.discountMinor, currency)}</span>
+                        </li>
+                      )}
                     </ul>
                   </div>
 
@@ -489,7 +497,7 @@ export function ActiveOrdersDrawer({
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => handleCancel(order)}
+                        onClick={() => setOrderToCancel(order)}
                         disabled={isBusy}
                         title="Cancel order"
                         className="rounded-lg p-1.5 text-danger-text hover:bg-danger-soft disabled:opacity-50"
@@ -578,6 +586,18 @@ export function ActiveOrdersDrawer({
           )}
         </div>
       </div>
+
+      {orderToCancel && (
+        <ConfirmDialog
+          title={`Cancel Order #${orderToCancel.orderNo}?`}
+          message="It will be removed from Active Orders. This can't be undone."
+          confirmLabel="Cancel order"
+          cancelLabel="Keep order"
+          isDangerous
+          onConfirm={() => void handleCancel(orderToCancel)}
+          onCancel={() => setOrderToCancel(null)}
+        />
+      )}
     </>
   );
 }

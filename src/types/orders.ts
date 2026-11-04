@@ -56,6 +56,9 @@ export interface Order {
   estimatedPrepMinutes: number;
   paymentStatus: OrderPaymentStatus;
   dueMinor: number;
+  /** The cart's discount while held; `discountPercent` if it was typed as a percent. */
+  discountMinor: number;
+  discountPercent: number | null;
   createdAt: string;
   completedAt: string | null;
   cancelledAt: string | null;
@@ -78,6 +81,11 @@ export interface NewOrderLineInput {
   itemId: number;
   qty: number;
   notes?: string | null;
+}
+
+export interface OrderDiscount {
+  minor: number;
+  percent: number | null;
 }
 
 export interface CreateAndHoldOrderInput {

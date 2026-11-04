@@ -3,7 +3,7 @@ import { ArrowUpRight, Zap } from "lucide-react";
 import type { VisibleModule } from "../../hooks/useModules";
 
 const DESCRIPTIONS: Record<string, string> = {
-  billing: "Create & manage orders",
+  billing: "Create bills & take payment",
   inventory: "Products & stock levels",
   reports: "Explore your numbers",
   tables: "Manage your floor",

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ClipboardList, Pencil, UserRound, X } from "lucide-react";
+import { useIsRestaurant } from "../../hooks/useAppConfig";
 import { useModuleEnabled } from "../../hooks/useModules";
 import { useBillingStore, useShiftStore } from "../../store";
 import { getNextOrderNo } from "../../services/billingService";
@@ -14,6 +15,7 @@ import { CustomerPickerModal } from "./CustomerPickerModal";
  * cleared the moment the order is completed or reset. */
 export function OrderSummaryHeader({ currency }: { currency: string }) {
   const customersEnabled = useModuleEnabled("customers");
+  const isRestaurant = useIsRestaurant();
   const customerName = useBillingStore((state) => state.customerName);
   const setCustomerName = useBillingStore((state) => state.setCustomerName);
   const customer = useBillingStore((state) => state.customer);
@@ -78,7 +80,7 @@ export function OrderSummaryHeader({ currency }: { currency: string }) {
             <p className="truncate text-sm font-semibold text-fg sm:text-base">{customerName || "Counter Sale"}</p>
           )}
           <p className="truncate text-[11px] font-medium text-fg-muted">
-            {orderNo !== null ? `Order #${String(orderNo).padStart(3, "0")}` : "No open shift"}
+            {orderNo !== null ? `${isRestaurant ? "Order" : "Sale"} #${String(orderNo).padStart(3, "0")}` : "No open shift"}
             {customer?.phone ? ` · ${customer.phone}` : ""}
             {customer && customer.balanceMinor > 0 && (
               <span className={customer.overdueMinor > 0 ? "text-danger-text" : "text-warning-text"}>

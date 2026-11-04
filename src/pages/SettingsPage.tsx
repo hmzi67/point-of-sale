@@ -26,7 +26,7 @@ const TABS: SettingsTab<TabKey>[] = [
   { key: "printer", label: "Printer", icon: Printer, description: "Devices & receipt printing" },
   { key: "license", label: "Licence & Sync", icon: ShieldCheck, description: "Licence, business & counters, web dashboard" },
   { key: "security", label: "Security", icon: KeyRound, description: "Protected areas & PINs" },
-  { key: "modules", label: "Modules", icon: LayoutGrid, description: "Features & kitchen counters" },
+  { key: "modules", label: "Modules", icon: LayoutGrid, description: "Turn features on or off" },
 ];
 
 const DEFAULT_TAB: TabKey = "general";

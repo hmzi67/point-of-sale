@@ -1,4 +1,5 @@
 import { ShoppingBag, Plus } from "lucide-react";
+import { useIsRestaurant } from "../../hooks/useAppConfig";
 import { useBillingStore } from "../../store";
 import { CartRow } from "./CartRow";
 
@@ -12,6 +13,7 @@ interface CartPanelProps {
  * `CartRow` whose entry changed. */
 export function CartPanel({ currency, onEditLine }: CartPanelProps) {
   const cartOrder = useBillingStore((state) => state.cartOrder);
+  const isRestaurant = useIsRestaurant();
 
   if (cartOrder.length === 0) {
     // flex-1 here is exactly right (see the non-empty branch's comment) —
@@ -24,8 +26,8 @@ export function CartPanel({ currency, onEditLine }: CartPanelProps) {
           <ShoppingBag className="h-7 w-7" strokeWidth={1.5} />
           <span className="absolute -bottom-1 -right-1 rounded-full border-4 border-surface bg-accent p-1 text-accent-ink"><Plus className="h-3 w-3" /></span>
         </span>
-        <p className="mt-1 text-sm font-semibold text-fg">Your order starts here</p>
-        <p className="max-w-52 text-xs leading-relaxed text-fg-muted">Add products from the menu to see your order and total.</p>
+        <p className="mt-1 text-sm font-semibold text-fg">{isRestaurant ? "Your order starts here" : "Your cart is empty"}</p>
+        <p className="max-w-52 text-xs leading-relaxed text-fg-muted">{isRestaurant ? "Add products from the menu to see your order and total." : "Scan or add products to see the total."}</p>
       </div>
     );
   }

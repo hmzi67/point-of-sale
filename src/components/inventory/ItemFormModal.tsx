@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Plus } from "lucide-react";
 import { useInventoryStore } from "../../store";
 import { getCatalog, setItemCatalog, suggestShortCode, uploadItemImage } from "../../services/inventoryService";
+import { useIsRestaurant } from "../../hooks/useAppConfig";
 import { useModuleEnabled } from "../../hooks/useModules";
 import { decimalToMinor, minorToDecimal } from "../../utils/format";
 import { readImageFile } from "../../utils/image";
@@ -79,6 +80,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
   // entirely for a client that doesn't have Tables enabled, same as
   // BillingPage hides the table picker.
   const tokensEnabled = useModuleEnabled("tables");
+  const isRestaurant = useIsRestaurant();
 
   const [form, setForm] = useState<FormState>(() => toFormState(item));
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -556,7 +558,7 @@ export function ItemFormModal({ item, onClose }: ItemFormModalProps) {
             ),
           )}
 
-          {toppingGroups.length > 0 && (
+          {isRestaurant && toppingGroups.length > 0 && (
             <div>
               <label className="block text-xs font-medium text-fg-muted" htmlFor="item-toppings">
                 Toppings <span className="text-fg-muted">(optional)</span>

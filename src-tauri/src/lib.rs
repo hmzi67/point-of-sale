@@ -1,9 +1,9 @@
 mod area_access_session;
 mod attempt_limiter;
 mod commands;
-mod db;
+pub mod db;
 mod iap;
-mod images;
+pub mod images;
 mod license;
 mod printer;
 mod product_owner_session;

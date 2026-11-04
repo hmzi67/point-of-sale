@@ -124,8 +124,11 @@ pub struct Order {
     pub table_name: Option<String>,
     /// Derived: "unpaid" | "partial" | "paid".
     pub payment_status: String,
-    /// What the unpaid active lines still cost (price × qty, rounded).
+    /// What the unpaid active lines still cost (price × qty, rounded), less
+    /// the held discount, plus delivery.
     pub due_minor: i64,
+    pub discount_minor: i64,
+    pub discount_percent: Option<f64>,
     pub created_at: String,
     pub completed_at: Option<String>,
     pub cancelled_at: Option<String>,
@@ -151,6 +154,14 @@ pub struct NewLine {
     pub qty: f64,
     #[serde(default)]
     pub notes: Option<String>,
+}
+
+/// The cart's discount as the hold dialog sends it. `percent` is set when it
+/// was typed as a percent; `minor` is what that came to on this cart.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct OrderDiscount {
+    pub minor: i64,
+    pub percent: Option<f64>,
 }
 
 /// What the hold dialog saves onto a resumed order: the cart (`lines`, one per
@@ -513,7 +524,8 @@ pub fn get_order(conn: &Connection, order_id: i64) -> Result<Order, OrderError> 
                     t.name, o.shift_id,
                     o.delivery_rider_id, o.rider_source, o.delivery_rider_name, o.delivery_rider_phone,
                     o.delivery_platform_id, o.delivery_platform_name, o.customer_phone, o.delivery_address,
-                    o.delivery_charge_minor, o.delivery_status, o.platform_order_ref
+                    o.delivery_charge_minor, o.delivery_status, o.platform_order_ref,
+                    o.discount_minor, o.discount_percent
                FROM orders o
           LEFT JOIN tables t ON t.id = o.table_id
               WHERE o.id = ?1",
@@ -533,6 +545,8 @@ pub fn get_order(conn: &Connection, order_id: i64) -> Result<Order, OrderError> 
                     estimated_prep_minutes: row.get::<_, Option<i64>>(10)?.unwrap_or(15),
                     payment_status: String::new(),
                     due_minor: 0,
+                    discount_minor: row.get(27)?,
+                    discount_percent: row.get(28)?,
                     created_at: row.get(11)?,
                     completed_at: row.get(12)?,
                     cancelled_at: row.get(13)?,
@@ -591,7 +605,7 @@ pub fn get_order(conn: &Connection, order_id: i64) -> Result<Order, OrderError> 
         .map(|l| sales::line_total_minor(l.price_at_order_minor, l.qty))
         .sum();
     order.due_minor = if items_due > 0 {
-        items_due + order.delivery_charge_minor
+        (items_due - order.discount_minor).max(0) + order.delivery_charge_minor
     } else {
         0
     };
@@ -1161,6 +1175,28 @@ pub fn pay_lines(tx: &Transaction, order_id: i64, expected_version: i64, input: 
         tx.execute("UPDATE order_items SET sale_id = ?1 WHERE id = ?2", params![sale.id, line_id])?;
     }
     Ok(Paid { order: finish(tx, order_id)?, sale })
+}
+
+/// Keeps the cart's discount on a held order, so the order, its customer token
+/// and the resumed cart all show it. Paying still sends its own discount, and
+/// `insert_priced_sale` validates that one. An amount over the order's lines
+/// (a price dropped since a resumed line was added) is capped, not refused:
+/// holding an order must not fail over it.
+pub fn set_discount(tx: &Transaction, order_id: i64, discount: OrderDiscount) -> Result<Order, OrderError> {
+    if discount.minor < 0 || discount.percent.is_some_and(|p| !(0.0..=100.0).contains(&p)) {
+        return Err(SaleError::InvalidDiscount.into());
+    }
+    let items: i64 = get_order(tx, order_id)?
+        .lines
+        .iter()
+        .filter(|l| l.status == LINE_ACTIVE && l.sale_id.is_none())
+        .map(|l| sales::line_total_minor(l.price_at_order_minor, l.qty))
+        .sum();
+    tx.execute(
+        "UPDATE orders SET discount_minor = ?1, discount_percent = ?2 WHERE id = ?3",
+        params![discount.minor.min(items), discount.percent, order_id],
+    )?;
+    get_order(tx, order_id)
 }
 
 pub fn update_prep_time(
@@ -2074,6 +2110,28 @@ mod tests {
         assert_eq!(b.sale.total_minor, noodles_price);
         // Undiscounted, untaxed parts of the split add back up to the order total.
         assert_eq!((a.sale.total_minor + 500 - 120) + b.sale.total_minor, order_total);
+    }
+
+    #[test]
+    fn a_held_orders_discount_is_kept_and_comes_off_what_is_due() {
+        let mut conn = test_conn();
+        let o = cola_order(&mut conn, "held-discount", 2.0);
+        let full = o.due_minor;
+
+        let held = run(&mut conn, |tx| set_discount(tx, o.id, OrderDiscount { minor: 500, percent: Some(10.0) })).unwrap();
+        assert_eq!((held.discount_minor, held.discount_percent, held.due_minor), (500, Some(10.0), full - 500));
+        assert_eq!(held.version, o.version, "a discount is not a status change");
+
+        let reread = list_active_orders(&conn).unwrap().into_iter().find(|x| x.id == o.id).unwrap();
+        assert_eq!((reread.discount_minor, reread.due_minor), (500, full - 500));
+
+        let capped = run(&mut conn, |tx| set_discount(tx, o.id, OrderDiscount { minor: full + 1, percent: None })).unwrap();
+        assert_eq!((capped.discount_minor, capped.discount_percent, capped.due_minor), (full, None, 0));
+
+        for bad in [OrderDiscount { minor: -1, percent: None }, OrderDiscount { minor: 1, percent: Some(101.0) }] {
+            let result = run(&mut conn, |tx| set_discount(tx, o.id, bad));
+            assert!(matches!(result, Err(OrderError::Sale(SaleError::InvalidDiscount))));
+        }
     }
 
     #[test]

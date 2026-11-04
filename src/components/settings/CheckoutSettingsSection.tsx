@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useIsRestaurant } from "../../hooks/useAppConfig";
 import { useAppStore } from "../../store";
 import type { AppConfig } from "../../types";
 import { parseQuickAmounts } from "../../utils/checkoutPayments";
@@ -6,10 +7,11 @@ import { runAction } from "../../utils/runAction";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { inputClass } from "../ui/ModalCard";
 
-/** Checkout charges and weight-scale barcodes. Tax and service charge can
- * still be switched off for a single sale from the cart. */
+/** Checkout charges and weight-scale barcodes. Tax and (for a restaurant) the
+ * service charge can still be switched off for a single sale from the cart. */
 export function CheckoutSettingsSection({ config }: { config: AppConfig }) {
   const save = useAppStore((state) => state.save);
+  const isRestaurant = useIsRestaurant();
   const [service, setService] = useState(String(config.serviceChargePercent));
   const [scale, setScale] = useState({
     prefix: config.scaleBarcodePrefix,
@@ -37,10 +39,10 @@ export function CheckoutSettingsSection({ config }: { config: AppConfig }) {
     <div className="rounded-2xl border border-line bg-surface p-6">
       <h2 className="text-base font-semibold tracking-tight text-fg">Checkout</h2>
       <p className="mt-1 text-xs text-fg-muted">
-        Tax is {config.taxPercent}% (set during setup). Cashiers can remove tax or the service charge for a single sale from the cart.
+        Tax is {config.taxPercent}% (set during setup). Cashiers can remove {isRestaurant ? "tax or the service charge" : "tax"} for a single sale from the cart.
       </p>
 
-      <div className="mt-5 flex flex-wrap items-end gap-3">
+      {isRestaurant && <div className="mt-5 flex flex-wrap items-end gap-3">
         <label className="block">
           <span className="block text-xs font-medium text-fg-muted">Service charge (%)</span>
           <input
@@ -62,7 +64,7 @@ export function CheckoutSettingsSection({ config }: { config: AppConfig }) {
           Save
         </button>
         <span className="pb-2.5 text-xs text-fg-muted">0 turns it off.</span>
-      </div>
+      </div>}
 
       <div className="mt-5 flex flex-wrap items-end gap-3">
         <label className="block min-w-0 flex-1 basis-64">

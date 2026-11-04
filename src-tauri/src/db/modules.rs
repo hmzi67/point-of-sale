@@ -27,6 +27,21 @@ pub mod key {
     pub const LEDGER: &str = "ledger";
 }
 
+/// Modules only a restaurant has. For any other business type they read as
+/// off everywhere (nav, routes, Billing, `require_module`), while their stored
+/// flags stay untouched so switching the type back restores them.
+const RESTAURANT_ONLY: &[&str] = &[key::TABLES, key::DELIVERY];
+
+/// `app_config.business_type` is shared by a business's counters, so they all
+/// agree on this. Anything but `restaurant` bills directly.
+pub fn is_restaurant(conn: &Connection) -> Result<bool, rusqlite::Error> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM app_config WHERE id = 1 AND business_type = 'restaurant')",
+        [],
+        |row| row.get(0),
+    )
+}
+
 /// Which installation surface a visibility flag applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -97,6 +112,9 @@ pub struct ModuleState {
     pub enabled: bool,
     pub desktop_enabled: bool,
     pub android_enabled: bool,
+    /// False when this business type doesn't have the module at all, so the
+    /// Settings screen leaves it out instead of offering a dead toggle.
+    pub available: bool,
     /// Whether the product owner has locked *this platform's* visibility —
     /// derived the same way `enabled` is (from the requested platform's
     /// column), for the same reason: the Settings screen shouldn't have to
@@ -129,15 +147,19 @@ pub fn list(conn: &Connection, platform: Platform) -> Result<Vec<ModuleState>, r
         platform.lock_column(),
     );
 
+    let restaurant = is_restaurant(conn)?;
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |row| {
+        let key: String = row.get("key")?;
+        let available = restaurant || !RESTAURANT_ONLY.contains(&key.as_str());
         Ok(ModuleState {
             id: row.get("id")?,
-            key: row.get("key")?,
+            key,
             name: row.get("name")?,
             is_core: row.get::<_, i64>("is_core")? != 0,
             sort_order: row.get("sort_order")?,
-            enabled: row.get::<_, i64>("enabled")? != 0,
+            enabled: available && row.get::<_, i64>("enabled")? != 0,
+            available,
             desktop_enabled: row.get::<_, i64>("desktop_enabled")? != 0,
             android_enabled: row.get::<_, i64>("android_enabled")? != 0,
             locked: row.get::<_, i64>("locked")? != 0,
@@ -157,6 +179,9 @@ pub fn list(conn: &Connection, platform: Platform) -> Result<Vec<ModuleState>, r
 /// Sale"). An unknown key is treated as not-enabled rather than an error —
 /// there's nothing sensible for a caller to do differently either way.
 pub fn is_enabled(conn: &Connection, key: &str, platform: Platform) -> Result<bool, rusqlite::Error> {
+    if RESTAURANT_ONLY.contains(&key) && !is_restaurant(conn)? {
+        return Ok(false);
+    }
     let sql = format!(
         "SELECT e.{} FROM modules m JOIN enabled_modules e ON e.module_id = m.id WHERE m.key = ?1",
         platform.column()
@@ -191,6 +216,8 @@ pub enum ToggleError {
     /// is unlocked by the product owner, not by anything the client does.
     #[error("{0} is locked by the product administrator and cannot be changed here")]
     LockedByProductOwner(String),
+    #[error("{0} is only available for a restaurant. Change the business type in Settings first.")]
+    RestaurantOnly(String),
     #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
 }
@@ -228,6 +255,9 @@ pub fn set_enabled(
 
     if is_core && !enabled {
         return Err(ToggleError::CoreModule(module_key.to_string()));
+    }
+    if enabled && RESTAURANT_ONLY.contains(&module_key) && !is_restaurant(conn)? {
+        return Err(ToggleError::RestaurantOnly(module_key.to_string()));
     }
 
     let locked: bool = conn.query_row(
@@ -288,6 +318,48 @@ mod tests {
             .filter(|m| m.enabled)
             .map(|m| m.key)
             .collect()
+    }
+
+    fn set_business_type(conn: &Connection, business_type: &str) {
+        conn.execute("UPDATE app_config SET business_type = ?1 WHERE id = 1", params![business_type]).unwrap();
+    }
+
+    #[test]
+    fn restaurant_modules_follow_the_business_type_and_keep_their_flags() {
+        let conn = test_conn();
+        set_business_type(&conn, "restaurant");
+        set_enabled(&conn, "delivery", Platform::Desktop, true).unwrap();
+        assert!(is_enabled(&conn, "tables", Platform::Desktop).unwrap());
+        assert!(is_enabled(&conn, "delivery", Platform::Desktop).unwrap());
+
+        for store in ["retail", "other"] {
+            set_business_type(&conn, store);
+            assert!(!is_enabled(&conn, "tables", Platform::Desktop).unwrap());
+            assert!(require_enabled(&conn, &["delivery"], Platform::Desktop).is_err());
+            let keys = enabled_keys(&conn, Platform::Desktop);
+            assert!(!keys.contains(&"tables".to_string()) && !keys.contains(&"delivery".to_string()));
+            assert!(keys.contains(&"billing".to_string()));
+
+            let listed = list(&conn, Platform::Desktop).unwrap();
+            let tables = listed.iter().find(|m| m.key == "tables").unwrap();
+            assert!(!tables.available && tables.desktop_enabled, "the stored flag must survive");
+            assert!(listed.iter().find(|m| m.key == "billing").unwrap().available);
+        }
+
+        set_business_type(&conn, "restaurant");
+        assert!(is_enabled(&conn, "tables", Platform::Desktop).unwrap());
+        assert!(is_enabled(&conn, "delivery", Platform::Desktop).unwrap());
+    }
+
+    #[test]
+    fn a_store_cannot_switch_on_a_restaurant_module() {
+        let conn = test_conn();
+        set_business_type(&conn, "retail");
+        let err = set_enabled(&conn, "tables", Platform::Android, true).unwrap_err();
+        assert!(matches!(err, ToggleError::RestaurantOnly(_)));
+
+        set_business_type(&conn, "restaurant");
+        set_enabled(&conn, "tables", Platform::Android, true).unwrap();
     }
 
     #[test]
@@ -424,6 +496,7 @@ mod tests {
     #[test]
     fn is_enabled_matches_list_for_a_single_module() {
         let conn = test_conn();
+        conn.execute("UPDATE app_config SET business_type = 'restaurant' WHERE id = 1", []).unwrap();
         assert!(is_enabled(&conn, "billing", Platform::Desktop).unwrap());
         // `tables` defaults off on Android (see MODULE_CATALOGUE) but on for desktop.
         assert!(!is_enabled(&conn, "tables", Platform::Android).unwrap());

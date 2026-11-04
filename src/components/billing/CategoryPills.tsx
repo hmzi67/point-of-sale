@@ -37,7 +37,7 @@ export function CategoryPills({ categories, items, selectedCategoryId, onSelect 
           <LayoutGrid className="h-5 w-5" />
         </span>
         <span className={`text-left text-sm font-semibold ${selectedCategoryId === null ? "text-accent-text" : "text-fg-2"}`}>
-          All Menu
+          All products
         </span>
         <span className={selectedCategoryId === null ? "text-left text-xs text-accent-text" : "text-left text-xs text-fg-muted"}>
           {countFor(null)} items

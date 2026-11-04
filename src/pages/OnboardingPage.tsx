@@ -4,15 +4,10 @@ import { BadgeCheck, Store } from "lucide-react";
 import { useAppConfig } from "../hooks/useAppConfig";
 import { useAppStore, useLicenseStore, useModuleStore } from "../store";
 import type { BusinessType } from "../types";
+import { BUSINESS_TYPES } from "../utils/businessType";
 import { runAction } from "../utils/runAction";
 
 const CURRENCY_SUGGESTIONS = ["PKR", "USD", "INR", "AED", "GBP", "EUR"];
-
-const BUSINESS_TYPES: { value: BusinessType; label: string; hint: string }[] = [
-  { value: "retail", label: "Retail shop", hint: "A counter sale business — Table Management stays off." },
-  { value: "restaurant", label: "Restaurant / café", hint: "Dine-in tables — Table Management turns on for you." },
-  { value: "other", label: "Other", hint: "Start with the retail defaults; adjust modules yourself next." },
-];
 
 /**
  * First-time setup, run once per installation (Phase 14). Gated by
@@ -35,6 +30,7 @@ export function OnboardingPage() {
   const { config } = useAppConfig();
   const save = useAppStore((state) => state.save);
   const toggleModule = useModuleStore((state) => state.toggle);
+  const loadModules = useModuleStore((state) => state.load);
   const navigate = useNavigate();
 
   const [businessName, setBusinessName] = useState("");
@@ -77,11 +73,12 @@ export function OnboardingPage() {
         onboardingCompleted: true,
     });
 
-    // Suggested default, not a hard rule — restaurants get dine-in tables
-    // on out of the box; everyone else starts with it off and can flip it
-    // on the very next screen if they turn out to need it.
+    // Restaurants get dine-in tables out of the box. Which modules a business
+    // type has at all is decided in Rust, so a store just re-reads the list.
     if (businessType === "restaurant") {
       await toggleModule("tables", true);
+    } else {
+      await loadModules();
     }
 
     navigate("/settings", { replace: true });

@@ -136,6 +136,17 @@ fn require_module(db: &Db, keys: &[&str]) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Holding orders and kitchen tokens are restaurant workflows; a store bills
+/// directly. Only starting new work is refused: settling or reprinting what
+/// already exists stays open, so nothing a counter did offline gets stranded.
+fn require_restaurant(db: &Db) -> Result<(), String> {
+    if query(db, modules::is_restaurant)? {
+        Ok(())
+    } else {
+        Err("Holding orders and kitchen tokens are only available for a restaurant.".into())
+    }
+}
+
 /// The module check plus the Owner/Admin check most admin screens' commands open with.
 fn require_module_admin(db: &Db, keys: &[&str], session: &Session) -> Result<User, String> {
     require_module(db, keys)?;
@@ -496,6 +507,14 @@ pub fn config_update(
     if let Some(decimals) = patch.scale_value_decimals {
         if !(0..=3).contains(&decimals) {
             return Err("Scale decimals must be 0 to 3".into());
+        }
+    }
+    if patch.business_type.as_deref().is_some_and(|business_type| business_type != "restaurant") {
+        let open = query(&db, config::open_restaurant_work)?;
+        if open > 0 {
+            return Err(format!(
+                "Settle or cancel the {open} open order(s) and table(s) before switching away from restaurant."
+            ));
         }
     }
 
@@ -2438,6 +2457,7 @@ fn print_tokens_for_counters(
 ) -> Result<Vec<CounterPrintResult>, String> {
     require_license(license)?;
     let caller = require_signed_in(session)?;
+    require_restaurant(db)?;
     let printed_by = Some(caller.id);
     let printed_by_name = Some(caller.name);
     let config = query(&db, config::get)?;
@@ -2567,8 +2587,10 @@ pub fn orders_create_and_hold(
     db: State<'_, Db>,
     session: State<'_, Session>,
     input: CreateAndHoldOrderInput,
+    discount: orders::OrderDiscount,
 ) -> Result<orders::Order, String> {
     let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    require_restaurant(&db)?;
     let shift_id = selling_shift(&db, user.id, true)?;
     transact(&db, |tx| {
         let order = orders::create_order(
@@ -2584,7 +2606,8 @@ pub fn orders_create_and_hold(
             input.delivery,
         )?;
         let order = orders::add_lines(tx, order.id, order.version, &input.lines, Some(user.id))?;
-        orders::hold(tx, order.id, order.version, Some(user.id))
+        let order = orders::hold(tx, order.id, order.version, Some(user.id))?;
+        orders::set_discount(tx, order.id, discount)
     })
 }
 
@@ -2596,10 +2619,15 @@ pub fn orders_update_and_hold(
     order_id: i64,
     version: i64,
     edit: orders::OrderEdit,
+    discount: orders::OrderDiscount,
 ) -> Result<orders::Order, String> {
     let user = require_role(&session, &[Role::Owner, Role::Admin, Role::Cashier])?;
+    require_restaurant(&db)?;
     selling_shift(&db, user.id, true)?;
-    transact(&db, |tx| orders::edit_and_hold(tx, order_id, version, edit, Some(user.id)))
+    transact(&db, |tx| {
+        let order = orders::edit_and_hold(tx, order_id, version, edit, Some(user.id))?;
+        orders::set_discount(tx, order.id, discount)
+    })
 }
 
 #[tauri::command]
@@ -3600,6 +3628,41 @@ mod guard_tests {
             modules::set_by_product_owner(&conn, key, Platform::current(), Some(false), None).unwrap();
         }
         Db::from_connection(conn)
+    }
+
+    #[test]
+    fn only_a_restaurant_may_start_held_orders_or_tokens() {
+        let db = db_with(&[]);
+        let set_type = |business_type: &str| {
+            query(&db, |conn| {
+                conn.execute("UPDATE app_config SET business_type = ?1 WHERE id = 1", [business_type])
+            })
+            .unwrap()
+        };
+        for store in ["retail", "other"] {
+            set_type(store);
+            assert!(require_restaurant(&db).is_err());
+        }
+        set_type("restaurant");
+        assert!(require_restaurant(&db).is_ok());
+    }
+
+    #[test]
+    fn open_restaurant_work_counts_held_orders_and_parked_tables() {
+        let db = db_with(&[]);
+        let open = || query(&db, config::open_restaurant_work).unwrap();
+        assert_eq!(open(), 0);
+        query(&db, |conn| {
+            conn.execute_batch(
+                "INSERT INTO tables (id, name, seats) VALUES (9001, 'T1', 4);
+                 INSERT INTO table_orders (table_id, status) VALUES (9001, 'open');
+                 INSERT INTO table_orders (table_id, status) VALUES (9001, 'billed');
+                 INSERT INTO orders (order_no, order_type, client_ref) VALUES (1, 'takeaway', 'held');
+                 INSERT INTO orders (order_no, order_type, client_ref, status) VALUES (2, 'takeaway', 'gone', 'cancelled');",
+            )
+        })
+        .unwrap();
+        assert_eq!(open(), 2);
     }
 
     #[test]

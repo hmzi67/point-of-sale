@@ -1,14 +1,14 @@
-import type { CreateAndHoldOrderInput, DeliveryStatus, Order, OrderStatus, OrdersPayInput, Sale } from "../types";
+import type { CreateAndHoldOrderInput, DeliveryStatus, Order, OrderDiscount, OrderStatus, OrdersPayInput, Sale } from "../types";
 import { call } from "./tauriClient";
 
 /** Creates an order, adds lines, and holds it in the active orders queue. */
-export function createAndHoldOrder(input: CreateAndHoldOrderInput): Promise<Order> {
-  return call<Order>("orders_create_and_hold", { input });
+export function createAndHoldOrder(input: CreateAndHoldOrderInput, discount: OrderDiscount): Promise<Order> {
+  return call<Order>("orders_create_and_hold", { input, discount });
 }
 
 /** Saves a resumed order's edits onto that same order and holds it again. */
-export function updateAndHoldOrder(orderId: number, version: number, edit: Omit<CreateAndHoldOrderInput, "clientRef">): Promise<Order> {
-  return call<Order>("orders_update_and_hold", { orderId, version, edit });
+export function updateAndHoldOrder(orderId: number, version: number, edit: Omit<CreateAndHoldOrderInput, "clientRef">, discount: OrderDiscount): Promise<Order> {
+  return call<Order>("orders_update_and_hold", { orderId, version, edit, discount });
 }
 
 /** Lists all open orders (takeaway, dine-in) that are not yet completed or cancelled. */

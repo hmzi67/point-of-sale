@@ -42,7 +42,7 @@ export function ModulesSection() {
       )}
 
       <ul className="divide-y divide-line">
-        {modules.map((module) => (
+        {modules.filter((module) => module.available).map((module) => (
           <li key={module.key} className="flex items-center justify-between gap-4 px-6 py-5 transition-colors hover:bg-surface-2/40">
             <div>
               <p className="flex items-center gap-2 text-sm font-medium text-fg">

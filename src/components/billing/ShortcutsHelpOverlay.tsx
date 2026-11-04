@@ -1,18 +1,20 @@
 import { X } from "lucide-react";
+import { useIsRestaurant } from "../../hooks/useAppConfig";
 
 interface ShortcutsHelpOverlayProps {
   tablesEnabled: boolean;
   onClose: () => void;
 }
 
-const SHORTCUTS: { keys: string; description: string; tablesOnly?: boolean }[] = [
+const SHORTCUTS: { keys: string; description: string; tablesOnly?: boolean; storeOnly?: boolean }[] = [
   { keys: "0-9 then Enter", description: "Add an item by its quick code (or scan a barcode)" },
   { keys: "T then number, Enter", description: "Jump straight to a table", tablesOnly: true },
   { keys: "↑ / ↓", description: "Move the active cart line" },
   { keys: "← / →", description: "Decrease / increase the active line's quantity" },
   { keys: "Enter (on a line)", description: "For a by-amount item, type its rupee amount" },
   { keys: "Delete or Backspace", description: "Remove the active cart line" },
-  { keys: "Ctrl+Enter (⌘+Enter)", description: "Place the order" },
+  { keys: "Ctrl+Enter (⌘+Enter)", description: "Complete the bill" },
+  { keys: "Ctrl+P (⌘+P)", description: "Complete the bill and print it", storeOnly: true },
   {
     keys: "Ctrl+K (⌘+K)",
     description: "Print token (KOT) for the current table's order",
@@ -29,6 +31,7 @@ const SHORTCUTS: { keys: string; description: string; tablesOnly?: boolean }[] =
  * about in person.
  */
 export function ShortcutsHelpOverlay({ tablesEnabled, onClose }: ShortcutsHelpOverlayProps) {
+  const isRestaurant = useIsRestaurant();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim" onClick={onClose}>
       <div
@@ -48,7 +51,7 @@ export function ShortcutsHelpOverlay({ tablesEnabled, onClose }: ShortcutsHelpOv
         </div>
 
         <ul className="mt-3 space-y-2">
-          {SHORTCUTS.filter((s) => tablesEnabled || !s.tablesOnly).map((shortcut) => (
+          {SHORTCUTS.filter((s) => (tablesEnabled || !s.tablesOnly) && (!isRestaurant || !s.storeOnly)).map((shortcut) => (
             <li key={shortcut.keys} className="flex items-center justify-between gap-3 text-sm">
               <kbd className="shrink-0 rounded-lg bg-surface-3 px-2 py-1 text-[11px] font-semibold text-fg-2">
                 {shortcut.keys}

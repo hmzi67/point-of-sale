@@ -376,6 +376,7 @@ mod tests {
         use crate::db::tables::start_table_order;
 
         let mut conn = test_conn();
+        conn.execute("UPDATE app_config SET business_type = 'restaurant' WHERE id = 1", []).unwrap();
         let tx = conn.transaction().unwrap();
         let table_id: i64 = tx.query_row("SELECT id FROM tables LIMIT 1", [], |row| row.get(0)).unwrap();
         let table_name: String =
@@ -410,6 +411,7 @@ mod tests {
         use crate::db::orders::{create_order, DeliveryDetails};
 
         let mut conn = test_conn();
+        conn.execute("UPDATE app_config SET business_type = 'restaurant' WHERE id = 1", []).unwrap();
         // Enable delivery module
         conn.execute(
             "UPDATE enabled_modules SET desktop_enabled = 1

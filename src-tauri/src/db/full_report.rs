@@ -205,6 +205,7 @@ mod tests {
         let platform = Platform::Desktop;
         let (start, end) = range();
         let (start, end) = (start.as_str(), end.as_str());
+        conn.execute("UPDATE app_config SET business_type = 'restaurant' WHERE id = 1", []).unwrap();
 
         modules::set_enabled(&conn, "tables", platform, true).unwrap();
         assert!(get_full_report(&conn, start, end, platform).unwrap().table_sales.is_some());
