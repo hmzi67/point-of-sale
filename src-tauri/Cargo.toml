@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "1.0.0"
+version = "1.3.3"
 description = "Offline-first, module-configurable point of sale for retail and restaurant shops"
 authors = ["Hamza Waheed"]
 license = "MIT"
