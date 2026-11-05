@@ -410,7 +410,7 @@ export function BillingPage() {
         className={
           IS_ANDROID
             ? "counter-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] w-full flex-col gap-4 overflow-y-auto rounded-t-3xl border border-line bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-soft-lg"
-            : "counter-panel billing-checkout flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-y-auto rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-84 lg:w-92 xl:w-100 2xl:w-108 h-full min-h-0"
+            : "counter-panel billing-checkout flex w-full shrink-0 flex-col gap-3 sm:gap-3.5 overflow-y-auto rounded-2xl border border-line bg-surface p-3.5 sm:p-4 shadow-soft md:w-84 lg:w-104 xl:w-116 2xl:w-128 h-full min-h-0"
         }
       >
         {IS_ANDROID && (

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { IS_ANDROID } from "../../services/platform";
 import { BottomTabBar } from "./BottomTabBar";
 import { DefaultPinBanner } from "./DefaultPinBanner";
@@ -23,13 +24,16 @@ import { TopBar } from "./TopBar";
  * disagree about what a role sees. */
 export function AppLayout() {
   const [navOpen, setNavOpen] = useState(false);
+  // Billing gets the height back on desktop. Android keeps the bar: its hamburger and Sign out live there.
+  const { pathname } = useLocation();
+  const showTopBar = IS_ANDROID || pathname !== "/billing";
 
   return (
     <div className="flex h-full bg-canvas">
       {!IS_ANDROID && <Sidebar />}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar onOpenNav={IS_ANDROID ? () => setNavOpen(true) : undefined} />
+        {showTopBar && <TopBar onOpenNav={IS_ANDROID ? () => setNavOpen(true) : undefined} />}
         {/* Between the bar and the page so it's on every screen and never
             covers the page's own header. Renders nothing unless the licence
             is inside its expiry-warning window. */}

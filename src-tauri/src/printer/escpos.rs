@@ -1052,13 +1052,28 @@ pub fn build_order_token_bytes(order: &crate::db::orders::Order, config: &AppCon
     let money = |minor: i64| format!("{} {}", config.currency, amount(minor));
     let mut amounts = Vec::new();
     if !is_kitchen {
+        let taxable = (items_minor - order.discount_minor).max(0);
+        // The cart's formula (`computeCartTotals`), so the token shows what paying will charge.
+        let charge = |percent: f64| (taxable as f64 * percent / 100.0).round() as i64;
+        let tax = if order.tax_exempt { 0 } else { charge(config.tax_percent) };
+        let service = if order.service_waived || config.business_type != "restaurant" { 0 } else { charge(config.service_charge_percent) };
+        let total = taxable + tax + service + order.delivery_charge_minor;
+        if total != items_minor {
+            amounts.push(("SUBTOTAL:", money(items_minor)));
+        }
         if order.discount_minor > 0 {
             amounts.push(("DISCOUNT:", format!("-{}", money(order.discount_minor))));
+        }
+        if tax > 0 {
+            amounts.push(("TAX:", money(tax)));
+        }
+        if service > 0 {
+            amounts.push(("SERVICE CHARGE:", money(service)));
         }
         if order.delivery_charge_minor > 0 {
             amounts.push(("DELIVERY FEE:", money(order.delivery_charge_minor)));
         }
-        amounts.push(("TOTAL:", money((items_minor - order.discount_minor).max(0) + order.delivery_charge_minor)));
+        amounts.push(("TOTAL:", money(total)));
     }
     token_foot(&mut out, total_qty, &amounts, closing);
     out
@@ -2822,6 +2837,8 @@ mod tests {
             due_minor: 100000,
             discount_minor: 0,
             discount_percent: None,
+            tax_exempt: false,
+            service_waived: false,
             delivery_rider_id: None,
             rider_source: None,
             delivery_rider_name: None,
@@ -2869,17 +2886,33 @@ mod tests {
         assert!(customer_text.contains("CUSTOMER TOKEN"));
         assert!(customer_text.contains("2 x 500"), "the unit price: {customer_text}");
         assert!(customer_text.contains("TOTAL:"), "{customer_text}");
-        assert!(customer_text.contains(&format!("{} 1,000", sample_config().currency)), "{customer_text}");
+        assert!(customer_text.contains(&format!("{} 1,050", sample_config().currency)), "1,000 plus 5% tax: {customer_text}");
         assert!(!kitchen_text.contains("TOTAL:") && !kitchen_text.contains("500"), "no prices in the kitchen: {kitchen_text}");
         assert!(customer_text.contains("TOKEN #5"));
         assert!(customer_text.contains("THANK YOU FOR YOUR ORDER"));
         assert!(!customer_text.contains("DISCOUNT:"), "{customer_text}");
 
         let discounted = crate::db::orders::Order { discount_minor: 10000, ..order };
-        let customer_text = String::from_utf8_lossy(&build_order_token_bytes(&discounted, &sample_config(), false)).into_owned();
+        let restaurant = AppConfig { business_type: "restaurant".into(), tax_percent: 10.0, service_charge_percent: 5.0, ..sample_config() };
+        let customer_text = String::from_utf8_lossy(&build_order_token_bytes(&discounted, &restaurant, false)).into_owned();
         let currency = sample_config().currency;
+        let row = |label: &str, value: &str| two_col(label, &format!("{currency} {value}"));
+        assert!(customer_text.contains(&row("SUBTOTAL:", "1,000")), "{customer_text}");
         assert!(customer_text.contains(&format!("-{currency} 100")), "{customer_text}");
-        assert!(customer_text.contains(&format!("{currency} 900")), "the total is after the discount: {customer_text}");
+        assert!(customer_text.contains(&row("TAX:", "90")), "on the discounted amount: {customer_text}");
+        assert!(customer_text.contains(&row("SERVICE CHARGE:", "45")), "{customer_text}");
+        assert!(customer_text.contains(&row("TOTAL:", "1,035")), "{customer_text}");
+
+        // The cart's switches off: neither charge is shown or added.
+        let waived = crate::db::orders::Order { tax_exempt: true, service_waived: true, ..discounted.clone() };
+        let customer_text = String::from_utf8_lossy(&build_order_token_bytes(&waived, &restaurant, false)).into_owned();
+        assert!(!customer_text.contains("TAX:") && !customer_text.contains("SERVICE CHARGE:"), "{customer_text}");
+        assert!(customer_text.contains(&row("TOTAL:", "900")), "{customer_text}");
+
+        // A store never charges service, whatever percent is left in settings.
+        let store = AppConfig { business_type: "retail".into(), ..restaurant };
+        let customer_text = String::from_utf8_lossy(&build_order_token_bytes(&discounted, &store, false)).into_owned();
+        assert!(!customer_text.contains("SERVICE CHARGE:"), "{customer_text}");
         let kitchen_text = String::from_utf8_lossy(&build_order_token_bytes(&discounted, &sample_config(), true)).into_owned();
         assert!(!kitchen_text.contains("DISCOUNT:"), "no money in the kitchen: {kitchen_text}");
     }

@@ -44,6 +44,8 @@ export function HoldOrderModal({
   const draftCustomerName = useBillingStore((state) => state.customerName);
   const discountMode = useBillingStore((state) => state.discountMode);
   const discountValue = useBillingStore((state) => state.discountValue);
+  const taxExempt = useBillingStore((state) => state.taxExempt);
+  const serviceWaived = useBillingStore((state) => state.serviceWaived);
 
   const [customerName, setCustomerName] = useState(draftCustomerName);
   const [notes, setNotes] = useState(activeOrderHold?.notes ?? "");
@@ -81,6 +83,8 @@ export function HoldOrderModal({
       const discount = {
         minor: discountMinor,
         percent: discountMode === "percent" && discountMinor > 0 ? discountValue : null,
+        taxExempt,
+        serviceWaived,
       };
       // A resumed cart is that order, edited — never a second order.
       const order =

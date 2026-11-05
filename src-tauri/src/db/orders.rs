@@ -129,6 +129,8 @@ pub struct Order {
     pub due_minor: i64,
     pub discount_minor: i64,
     pub discount_percent: Option<f64>,
+    pub tax_exempt: bool,
+    pub service_waived: bool,
     pub created_at: String,
     pub completed_at: Option<String>,
     pub cancelled_at: Option<String>,
@@ -157,11 +159,17 @@ pub struct NewLine {
 }
 
 /// The cart's discount as the hold dialog sends it. `percent` is set when it
-/// was typed as a percent; `minor` is what that came to on this cart.
+/// was typed as a percent; `minor` is what that came to on this cart. The
+/// switches are the cart's "no tax" / "no service charge" for this order.
 #[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OrderDiscount {
     pub minor: i64,
     pub percent: Option<f64>,
+    #[serde(default)]
+    pub tax_exempt: bool,
+    #[serde(default)]
+    pub service_waived: bool,
 }
 
 /// What the hold dialog saves onto a resumed order: the cart (`lines`, one per
@@ -525,7 +533,7 @@ pub fn get_order(conn: &Connection, order_id: i64) -> Result<Order, OrderError> 
                     o.delivery_rider_id, o.rider_source, o.delivery_rider_name, o.delivery_rider_phone,
                     o.delivery_platform_id, o.delivery_platform_name, o.customer_phone, o.delivery_address,
                     o.delivery_charge_minor, o.delivery_status, o.platform_order_ref,
-                    o.discount_minor, o.discount_percent
+                    o.discount_minor, o.discount_percent, o.tax_exempt, o.service_waived
                FROM orders o
           LEFT JOIN tables t ON t.id = o.table_id
               WHERE o.id = ?1",
@@ -547,6 +555,8 @@ pub fn get_order(conn: &Connection, order_id: i64) -> Result<Order, OrderError> 
                     due_minor: 0,
                     discount_minor: row.get(27)?,
                     discount_percent: row.get(28)?,
+                    tax_exempt: row.get(29)?,
+                    service_waived: row.get(30)?,
                     created_at: row.get(11)?,
                     completed_at: row.get(12)?,
                     cancelled_at: row.get(13)?,
@@ -1193,8 +1203,8 @@ pub fn set_discount(tx: &Transaction, order_id: i64, discount: OrderDiscount) ->
         .map(|l| sales::line_total_minor(l.price_at_order_minor, l.qty))
         .sum();
     tx.execute(
-        "UPDATE orders SET discount_minor = ?1, discount_percent = ?2 WHERE id = ?3",
-        params![discount.minor.min(items), discount.percent, order_id],
+        "UPDATE orders SET discount_minor = ?1, discount_percent = ?2, tax_exempt = ?3, service_waived = ?4 WHERE id = ?5",
+        params![discount.minor.min(items), discount.percent, discount.tax_exempt, discount.service_waived, order_id],
     )?;
     get_order(tx, order_id)
 }
@@ -2118,17 +2128,18 @@ mod tests {
         let o = cola_order(&mut conn, "held-discount", 2.0);
         let full = o.due_minor;
 
-        let held = run(&mut conn, |tx| set_discount(tx, o.id, OrderDiscount { minor: 500, percent: Some(10.0) })).unwrap();
+        let held = run(&mut conn, |tx| set_discount(tx, o.id, OrderDiscount { minor: 500, percent: Some(10.0), tax_exempt: true, service_waived: true })).unwrap();
         assert_eq!((held.discount_minor, held.discount_percent, held.due_minor), (500, Some(10.0), full - 500));
         assert_eq!(held.version, o.version, "a discount is not a status change");
 
         let reread = list_active_orders(&conn).unwrap().into_iter().find(|x| x.id == o.id).unwrap();
         assert_eq!((reread.discount_minor, reread.due_minor), (500, full - 500));
+        assert!(reread.tax_exempt && reread.service_waived, "the switches come back with the order");
 
-        let capped = run(&mut conn, |tx| set_discount(tx, o.id, OrderDiscount { minor: full + 1, percent: None })).unwrap();
+        let capped = run(&mut conn, |tx| set_discount(tx, o.id, OrderDiscount { minor: full + 1, percent: None, tax_exempt: false, service_waived: false })).unwrap();
         assert_eq!((capped.discount_minor, capped.discount_percent, capped.due_minor), (full, None, 0));
 
-        for bad in [OrderDiscount { minor: -1, percent: None }, OrderDiscount { minor: 1, percent: Some(101.0) }] {
+        for bad in [(-1, None), (1, Some(101.0))].map(|(minor, percent)| OrderDiscount { minor, percent, tax_exempt: false, service_waived: false }) {
             let result = run(&mut conn, |tx| set_discount(tx, o.id, bad));
             assert!(matches!(result, Err(OrderError::Sale(SaleError::InvalidDiscount))));
         }

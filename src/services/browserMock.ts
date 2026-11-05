@@ -311,6 +311,8 @@ export async function handleBrowserMock<TResult>(
         dueMinor: dueMinor - discount.minor,
         discountMinor: discount.minor,
         discountPercent: discount.percent,
+        taxExempt: discount.taxExempt,
+        serviceWaived: discount.serviceWaived,
         createdAt: new Date().toISOString(),
         completedAt: null,
         cancelledAt: null,
@@ -351,6 +353,8 @@ export async function handleBrowserMock<TResult>(
       const discount = args?.discount as OrderDiscount;
       found.discountMinor = discount.minor;
       found.discountPercent = discount.percent;
+      found.taxExempt = discount.taxExempt;
+      found.serviceWaived = discount.serviceWaived;
       found.customerName = edit.customerName || null;
       found.notes = edit.notes || null;
       found.estimatedPrepMinutes = edit.estimatedPrepMinutes ?? DEFAULT_PREP_MINUTES;

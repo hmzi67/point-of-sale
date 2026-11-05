@@ -59,6 +59,9 @@ export interface Order {
   /** The cart's discount while held; `discountPercent` if it was typed as a percent. */
   discountMinor: number;
   discountPercent: number | null;
+  /** The cart's per-sale "no tax" / "no service charge" switches. */
+  taxExempt: boolean;
+  serviceWaived: boolean;
   createdAt: string;
   completedAt: string | null;
   cancelledAt: string | null;
@@ -86,6 +89,8 @@ export interface NewOrderLineInput {
 export interface OrderDiscount {
   minor: number;
   percent: number | null;
+  taxExempt: boolean;
+  serviceWaived: boolean;
 }
 
 export interface CreateAndHoldOrderInput {

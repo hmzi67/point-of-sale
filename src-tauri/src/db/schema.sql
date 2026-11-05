@@ -784,7 +784,10 @@ CREATE TABLE IF NOT EXISTS orders (
     -- The cart's discount while the order is held. `discount_percent` is set
     -- when it was typed as a percent, so a resumed cart recalculates it.
     discount_minor          INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
-    discount_percent        REAL
+    discount_percent        REAL,
+    -- The cart's per-sale switches, so the customer token and a resumed cart agree.
+    tax_exempt              INTEGER NOT NULL DEFAULT 0,
+    service_waived          INTEGER NOT NULL DEFAULT 0
 );
 
 -- The active-orders board filters on status.

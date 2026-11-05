@@ -398,6 +398,8 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("orders", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
     ("orders", "discount_minor", "INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0)"),
     ("orders", "discount_percent", "REAL"),
+    ("orders", "tax_exempt", "INTEGER NOT NULL DEFAULT 0"),
+    ("orders", "service_waived", "INTEGER NOT NULL DEFAULT 0"),
     ("tokens", "shift_id", "INTEGER REFERENCES shifts (id) ON DELETE SET NULL"),
     // v13 — see schema.sql's `sales`/`sale_items` comments.
     ("sales", "customer_id", "INTEGER REFERENCES customers (id) ON DELETE SET NULL"),

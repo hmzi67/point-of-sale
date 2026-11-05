@@ -6,6 +6,8 @@ import { isAdminRole } from "../../utils/permissions";
 import { useAuthStore, useBillingStore, useShiftStore } from "../../store";
 import { RefundModal } from "./RefundModal";
 import { CloudSyncBadge } from "../layout/CloudSyncBadge";
+import { WorkspaceStatusChip } from "../layout/WorkspaceStatusChip";
+import { IS_ANDROID } from "../../services/platform";
 
 interface BillingHeaderProps {
   /** Called once a refund is created, so the item grid picks up the stock
@@ -94,6 +96,8 @@ export function BillingHeader({
           </button>
         )}
 
+        {/* Desktop hides the top bar on this screen; the counter must still see its sync state. */}
+        {!IS_ANDROID && <span className="text-xs"><WorkspaceStatusChip /></span>}
         <CloudSyncBadge />
 
         {canRefund && (

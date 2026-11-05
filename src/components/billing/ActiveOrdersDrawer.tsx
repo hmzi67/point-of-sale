@@ -44,6 +44,8 @@ export function ActiveOrdersDrawer({
   const setActiveOrder = useBillingStore((state) => state.setActiveOrder);
   const setTableId = useBillingStore((state) => state.setTableId);
   const setCustomerName = useBillingStore((state) => state.setCustomerName);
+  const setTaxExempt = useBillingStore((state) => state.setTaxExempt);
+  const setServiceWaived = useBillingStore((state) => state.setServiceWaived);
 
   const fetchOrders = async () => {
     await runAction(setIsLoading, setError, async () => {
@@ -97,6 +99,8 @@ export function ActiveOrdersDrawer({
       });
       setTableId(updated.tableId);
       setCustomerName(updated.customerName || "");
+      setTaxExempt(updated.taxExempt);
+      setServiceWaived(updated.serviceWaived);
 
       useBillingStore.getState().setOrderType(updated.orderType);
       if (isDeliveryOrder(updated.orderType)) {
