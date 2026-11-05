@@ -20,6 +20,7 @@ const SHORTCUTS: { keys: string; description: string; tablesOnly?: boolean; stor
     description: "Print token (KOT) for the current table's order",
     tablesOnly: true,
   },
+  { keys: "Ctrl+O (⌘+O)", description: "Add an outside item (not on the menu) by name and price" },
   { keys: "Esc", description: "Cancel the current quick-entry code or close a popup" },
   { keys: "?", description: "Show or hide this list" },
 ];

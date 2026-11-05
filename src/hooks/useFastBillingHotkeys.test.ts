@@ -33,6 +33,12 @@ describe("resolveHotkey", () => {
     expect(resolveHotkey("p", true, { ...idle, canPlaceAndPrint: true, textEntryFocused: true })).toBeNull();
   });
 
+  it("opens the outside-item dialog on Ctrl/Cmd+O, never from a text field", () => {
+    expect(resolveHotkey("o", true, idle)).toEqual({ type: "outsideItem" });
+    expect(resolveHotkey("o", false, idle)).toBeNull();
+    expect(resolveHotkey("o", true, { ...idle, textEntryFocused: true })).toBeNull();
+  });
+
   it("places the order on Ctrl/Cmd+Enter even with a code half-typed", () => {
     expect(resolveHotkey("Enter", true, { ...idle, buffer: "12" })).toEqual({ type: "placeOrder" });
   });

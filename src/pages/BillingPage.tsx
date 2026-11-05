@@ -1,4 +1,4 @@
-import { ArrowRight, Pause, Printer, ShoppingBag, X } from "lucide-react";
+import { ArrowRight, PackagePlus, Pause, Printer, ShoppingBag, X } from "lucide-react";
 import { useWorkspaceDataChanged } from "../hooks/useWorkspaceDataChanged";
 import { useEffect, useRef, useState } from "react";
 import { ActiveOrdersDrawer } from "../components/billing/ActiveOrdersDrawer";
@@ -10,6 +10,7 @@ import { DiscountControl } from "../components/billing/DiscountControl";
 import { EditNoteModal } from "../components/billing/EditNoteModal";
 import { HoldOrderModal } from "../components/billing/HoldOrderModal";
 import { ItemAmountEntryModal } from "../components/billing/ItemAmountEntryModal";
+import { OutsideItemModal } from "../components/billing/OutsideItemModal";
 import { ItemGrid } from "../components/billing/ItemGrid";
 import { ItemSearchBar } from "../components/billing/ItemSearchBar";
 import { MobileCategoryChips, type MobileCategorySelection } from "../components/billing/MobileCategoryChips";
@@ -150,6 +151,7 @@ export function BillingPage() {
   // props' doc comments on `OrderTypeAndTable`.
   const [tokenPrintRequestId, setTokenPrintRequestId] = useState(0);
   const [isTokenDialogOpen, setIsTokenDialogOpen] = useState(false);
+  const [isOutsideItemOpen, setIsOutsideItemOpen] = useState(false);
 
   // Android only: the checkout column becomes a bottom sheet opened from a
   // floating cart button instead of a second column stacked under the item
@@ -215,6 +217,7 @@ export function BillingPage() {
     onPlaceOrder: () => askToPlaceOrder(),
     onPlaceAndPrint: isRestaurant ? null : () => void completeSaleOnce(true),
     onPrintToken: () => setTokenPrintRequestId((n) => n + 1),
+    onOutsideItem: () => setIsOutsideItemOpen(true),
   });
 
   const cartLines = cartOrder.map((id) => cart[id]);
@@ -385,7 +388,18 @@ export function BillingPage() {
 
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold text-fg">{isSearching ? "Search results" : selectedCategoryId === null ? "All products" : selectedCategoryId === "best-seller" ? "Best sellers" : categories.find((category) => category.id === selectedCategoryId)?.name ?? "Products"}</h3>
-          <span className="rounded-lg bg-surface px-2 py-1 text-[11px] text-fg-muted">{isLoadingItems ? "Loading…" : `${visibleItems.length} items`}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsOutsideItemOpen(true)}
+              title="Add an item that isn't on the menu (Ctrl+O)"
+              className="flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 text-[11px] font-semibold text-accent-text hover:bg-surface-2"
+            >
+              <PackagePlus className="h-3.5 w-3.5" />
+              Outside item
+            </button>
+            <span className="rounded-lg bg-surface px-2 py-1 text-[11px] text-fg-muted">{isLoadingItems ? "Loading…" : `${visibleItems.length} items`}</span>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-0.5 pb-2">
           <ItemGrid
@@ -631,6 +645,7 @@ export function BillingPage() {
         />
       )}
 
+      {isOutsideItemOpen && <OutsideItemModal currency={config.currency} onClose={() => setIsOutsideItemOpen(false)} />}
       <ItemAmountEntryModal />
       <ToppingPickerModal />
 

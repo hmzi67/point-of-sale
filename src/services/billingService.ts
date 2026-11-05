@@ -6,6 +6,11 @@ export function searchItems(query: string): Promise<Item[]> {
   return call<Item[]>("billing_search_items", { query });
 }
 
+/** A not-on-the-menu item (brought or bought from outside), ready for `addItem`. */
+export function addOutsideItem(name: string, priceMinor: number): Promise<Item> {
+  return call<Item>("billing_add_outside_item", { name, priceMinor });
+}
+
 export function createSale(input: CreateSaleInput): Promise<Sale> {
   return call<Sale>("billing_create_sale", { input });
 }

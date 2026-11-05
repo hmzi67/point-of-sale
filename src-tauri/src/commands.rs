@@ -1383,6 +1383,16 @@ pub fn billing_search_items(session: State<'_, Session>, db: State<'_, Db>, quer
     self::query(&db, |conn| items::search_items(conn, &query, 20))
 }
 
+/// A line for something not on the menu, typed at the till — see
+/// `items::outside_item`. Any signed-in seller may add one: the cashier sets
+/// the price, as with an open discount.
+#[tauri::command]
+pub fn billing_add_outside_item(session: State<'_, Session>, db: State<'_, Db>, name: String, price_minor: i64) -> Result<Item, String> {
+    require_module(&db, &[module_key::BILLING])?;
+    require_signed_in(&session)?;
+    transact(&db, |tx| items::outside_item(tx, &name, price_minor))
+}
+
 /// Completes a sale: re-prices every line against live stock, writes
 /// `sales` + `sale_items`, decrements stock, and (if a table was given)
 /// closes that table's parked order and frees the table — all inside one

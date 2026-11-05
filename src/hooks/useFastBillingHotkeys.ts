@@ -63,6 +63,7 @@ export type HotkeyAction =
   | { type: "placeOrder" }
   | { type: "placeAndPrint" }
   | { type: "printToken" }
+  | { type: "outsideItem" }
   | { type: "clearBuffer" }
   | { type: "moveLine"; delta: 1 | -1 }
   | { type: "adjustQty"; delta: 1 | -1 }
@@ -100,6 +101,7 @@ export function resolveHotkey(key: string, mod: boolean, ctx: HotkeyContext): Ho
   if ((key === "p" || key === "P") && mod && ctx.canPlaceAndPrint) return { type: "placeAndPrint" };
   // Ctrl+K only has a target when the Tables module mounts `OrderTypeAndTable`.
   if ((key === "k" || key === "K") && mod) return ctx.tablesEnabled ? { type: "printToken" } : null;
+  if ((key === "o" || key === "O") && mod) return { type: "outsideItem" };
 
   switch (key) {
     case "Escape":
@@ -142,10 +144,12 @@ export function useFastBillingHotkeys(options: {
    * the same "Print Token" flow the mouse button opens, for a dine-in table
    * or a Takeaway order alike (see `OrderTypeAndTable`). */
   onPrintToken: () => void;
+  /** Called on Ctrl/Cmd+O — opens the "Outside item" (name + price) dialog. */
+  onOutsideItem: () => void;
   /** Null when placing an order already offers printing (the restaurant popup). */
   onPlaceAndPrint: (() => void) | null;
 }) {
-  const { enabled, items, tablesEnabled, tableId, onPlaceOrder, onPrintToken, onPlaceAndPrint } = options;
+  const { enabled, items, tablesEnabled, tableId, onPlaceOrder, onPrintToken, onOutsideItem, onPlaceAndPrint } = options;
 
   const [buffer, setBuffer] = useState("");
   const [tablePopupOpen, setTablePopupOpen] = useState(false);
@@ -214,6 +218,9 @@ export function useFastBillingHotkeys(options: {
         case "printToken":
           onPrintToken();
           return;
+        case "outsideItem":
+          onOutsideItem();
+          return;
         case "clearBuffer":
           setBuffer("");
           return;
@@ -272,6 +279,7 @@ export function useFastBillingHotkeys(options: {
     onPlaceOrder,
     onPlaceAndPrint,
     onPrintToken,
+    onOutsideItem,
   ]);
 
   return {

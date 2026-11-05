@@ -451,6 +451,7 @@ pub fn run() {
             commands::inventory_get_image,
             commands::inventory_get_best_selling_item_ids,
             commands::billing_search_items,
+            commands::billing_add_outside_item,
             commands::billing_create_sale,
             commands::billing_next_order_no,
             commands::billing_get_sale,
