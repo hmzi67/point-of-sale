@@ -440,6 +440,46 @@ pub fn get_item(conn: &Connection, id: i64) -> Result<Item, ItemError> {
         .ok_or(ItemError::NotFound)
 }
 
+/// The archived category that holds `outside_item` rows.
+pub const OUTSIDE_CATEGORY: &str = "Outside items";
+
+/// Something not on the menu that the customer wants on the bill (brought or
+/// bought from outside), typed at the till as a name and a price. It is an
+/// ordinary item, so pricing, receipts, tokens, refunds and sync need nothing
+/// new: a service (no stock) in an archived category, which keeps it off the
+/// menu, search and Inventory while it stays sellable. The same name and
+/// price reuse one row.
+pub fn outside_item(conn: &Connection, name: &str, price_minor: i64) -> Result<Item, ItemError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(ItemError::Validation("Item name cannot be empty".into()));
+    }
+    if price_minor < 0 {
+        return Err(ItemError::Validation("Price cannot be negative".into()));
+    }
+    conn.execute("INSERT OR IGNORE INTO categories (name, is_active) VALUES (?1, 0)", [OUTSIDE_CATEGORY])?;
+    let category_id: i64 = conn.query_row("SELECT id FROM categories WHERE name = ?1", [OUTSIDE_CATEGORY], |row| row.get(0))?;
+    let existing: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM items WHERE category_id = ?1 AND name = ?2 COLLATE NOCASE AND price_minor = ?3
+               AND is_service = 1 AND is_active = 1 LIMIT 1",
+            params![category_id, name, price_minor],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let id = match existing {
+        Some(id) => id,
+        None => {
+            conn.execute(
+                "INSERT INTO items (name, price_minor, category_id, is_service) VALUES (?1, ?2, ?3, 1)",
+                params![name, price_minor, category_id],
+            )?;
+            conn.last_insert_rowid()
+        }
+    };
+    get_item(conn, id)
+}
+
 fn validate(conn: &Connection, input: &ItemInput) -> Result<(), ItemError> {
     if input.name.trim().is_empty() {
         return Err(ItemError::Validation("Item name cannot be empty".into()));
@@ -1102,5 +1142,26 @@ mod tests {
             conn.query_row("SELECT category_id FROM items WHERE name = 'Lays'", [], |r| r.get(0)).unwrap();
         assert_eq!(category_id, None, "the item stays, uncategorised");
         assert!(matches!(delete_category(&conn, category.id).unwrap_err(), CategoryError::NotFound));
+    }
+
+    #[test]
+    fn an_outside_item_sells_without_stock_but_stays_off_the_menu_and_inventory() {
+        let mut conn = test_conn();
+        let cake = outside_item(&conn, "  Birthday cake ", 150000).unwrap();
+        assert_eq!((cake.name.as_str(), cake.price_minor, cake.is_service), ("Birthday cake", 150000, true));
+        assert_eq!(outside_item(&conn, "birthday CAKE", 150000).unwrap().id, cake.id, "same name and price: one row");
+        assert_ne!(outside_item(&conn, "Birthday cake", 90000).unwrap().id, cake.id, "another price is another row");
+
+        let listed = list_items(&conn, &ItemQuery::default()).unwrap();
+        assert!(!listed.iter().any(|item| item.id == cake.id), "not on the menu or in Inventory");
+        assert!(search_items(&conn, "cake", 20).unwrap().is_empty(), "not in billing search");
+
+        let sale_id = crate::db::test_support::ring_up(&mut conn, "Birthday cake", 2.0, "cash", None);
+        let total: i64 = conn.query_row("SELECT total_minor FROM sales WHERE id = ?1", [sale_id], |r| r.get(0)).unwrap();
+        assert_eq!(total, 300000);
+
+        for (name, price) in [(" ", 100), ("Cake", -1)] {
+            assert!(matches!(outside_item(&conn, name, price), Err(ItemError::Validation(_))));
+        }
     }
 }

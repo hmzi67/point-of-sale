@@ -394,8 +394,9 @@ textarea {
     gap: 0.5rem;
     padding: 0.75rem;
   }
+  /* Two lines at least; the panel itself scrolls to the rest of the controls. */
   .billing-checkout > ul {
-    min-height: 4.5rem;
+    min-height: 8rem;
   }
   .login-main {
     padding: 1rem;
@@ -431,6 +432,18 @@ textarea {
     height: auto;
     max-height: 80dvh;
   }
+  /* A panel with no fixed height gives the order lines their own height up
+     to a cap, instead of whatever sliver the totals leave over. */
+  .billing-checkout > ul {
+    flex: none;
+    min-height: 0;
+    max-height: 45dvh;
+  }
+}
+/* The Android bottom sheet has no fixed height either. */
+.billing-sheet > ul {
+  flex: none;
+  max-height: 45dvh;
 }
 
 /* The counter in the light theme: a white panel with firmer lines and darker
